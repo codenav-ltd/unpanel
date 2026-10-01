@@ -53,8 +53,8 @@ const systemHost: InstallHost & UpdateHost = {
   },
   lookup(name) {
     try {
-      const uid = Number(execFileSync("id", ["-u", name], { encoding: "utf8" }).trim());
-      const gid = Number(execFileSync("id", ["-g", name], { encoding: "utf8" }).trim());
+      const uid = Number(id(["-u", name]));
+      const gid = Number(id(["-g", name]));
       if (!Number.isInteger(uid) || !Number.isInteger(gid)) return null;
       return { uid, gid };
     } catch {
@@ -81,6 +81,11 @@ const systemHost: InstallHost & UpdateHost = {
   },
   healthy: waitHealthy,
 };
+
+/** A missing account is a normal answer, so `id` must not print its own error. */
+function id(args: string[]): string {
+  return execFileSync("id", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
 
 function run(file: string, args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {

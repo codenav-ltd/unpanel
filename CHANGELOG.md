@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-10-02
+
+### Fixed
+
+- A fresh install no longer prints `id: 'unpanel': no such user`. That check runs before the system user exists, and the account is created on the next line.
+
 ## [0.1.0-alpha.2] - 2026-10-02
 
 ### Added

@@ -2,7 +2,7 @@
 
 **The server panel that doesn't act like one.** Simple, modern, and lightweight: one web UI for the load, alerts, containers, processes, sites, and certificates of all your servers — without turning any of them into a "panel server".
 
-> **Status: 0.1.0-alpha.2 pre-alpha.** First-run setup creates the owner account with a password and TOTP. After sign-in, the panel shows the local host and can enroll more nodes. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
+> **Status: 0.1.0-alpha.3 pre-alpha.** First-run setup creates the owner account with a password and TOTP. After sign-in, the panel shows the local host and can enroll more nodes. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
 
 ## Install
 
