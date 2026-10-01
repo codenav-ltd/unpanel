@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.12] - 2026-10-02
+
+### Fixed
+
+- The release package directory is mode 755. A mode 0700 directory stopped the unprivileged panel from starting. The swap sets that mode before the new process is started, and restores the previous directory if it still does not answer.
+
 ## [0.1.0-alpha.11] - 2026-10-02
 
 ### Changed

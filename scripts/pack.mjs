@@ -4,6 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   cpSync,
   lstatSync,
   mkdtempSync,
@@ -99,6 +100,9 @@ writeFileSync(
 process.stdout.write(`${x64Asset} ${x64Hash}\n${armAsset} ${armHash}\n`);
 
 function tarInto(dir, archive) {
+  // mkdtemp is mode 0700. tar records that on ".", and extract applies it to
+  // the install directory. The unprivileged panel then cannot enter it.
+  chmodSync(dir, 0o755);
   const packed = spawnSync("tar", ["-czf", archive, "-C", dir, "."], { stdio: "inherit" });
   if (packed.status !== 0) process.exit(packed.status ?? 1);
 }

@@ -89,6 +89,7 @@ if ! tar -xzf "$work/$asset" -C "$work/package"; then
   echo "The package could not be unpacked. The running panel was not changed." >&2
   exit 1
 fi
+chmod 755 "$work/package"
 if [ ! -f "$work/package/scripts/panel-swap.sh" ]; then
   echo "The package has no swap script. The running panel was not changed." >&2
   exit 1

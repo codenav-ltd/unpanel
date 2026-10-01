@@ -154,6 +154,13 @@ if ! mv "$NEW" "$ROOT"; then
   restore_previous
   exit 1
 fi
+# The archive can record the install directory as mode 0700. The panel user
+# has to be able to enter it.
+if ! chmod 755 "$ROOT"; then
+  echo "The new panel did not start. Restoring the previous version." >&2
+  restore_previous
+  exit 1
+fi
 
 if [ -f "$ROOT/install.cjs" ]; then
   NODE=

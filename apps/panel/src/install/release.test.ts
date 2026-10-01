@@ -59,6 +59,10 @@ describe("release tags", () => {
     expect(swap).toContain("update-snapshot");
     expect(swap).toContain("The running panel was not changed.");
     expect(swap).toContain("systemd-run");
+    expect(swap).toContain('chmod 755 "$ROOT"');
+    expect(script).toContain('chmod 755 "$dest"');
+    expect(agent).toContain('chmod 755 "$dest"');
+    expect(readFileSync("scripts/pack.mjs", "utf8")).toContain("chmodSync(dir, 0o755)");
   });
 
   it("starts the install command after the host object exists", () => {
