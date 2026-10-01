@@ -12,6 +12,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api": "http://127.0.0.1:28517",
+      "/_agent": { target: "http://127.0.0.1:28517", ws: true },
     },
   },
 });

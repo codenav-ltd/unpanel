@@ -12,7 +12,7 @@
   - v3.0.0 ([bc00d37a](https://github.com/MHSanaei/3x-ui/commit/bc00d37a)): Vue 3 + Ant Design Vue 4.2 + Vite 8.
   - 2026-05 ([#4498](https://github.com/MHSanaei/3x-ui/pull/4498)): full rewrite to React 19 + Ant Design v6 + TypeScript, with the Vue toolchain removed.
 - **No Vue path to Ant Design v6.** Ant Design Vue is at 4.2.x, and there is no Vue counterpart of Ant Design v6. Its design language corresponds to Ant Design v5, which is close to v6 but not identical.
-- **The UI is data-dense.** The panel is mostly tables, forms, drawers, tabs, dropdowns, and progress rings.
+- **The UI is data-dense.** The panel is mostly tables, forms, drawers, tabs, dropdowns, and resource tiles with sparklines.
 
 ## Decision
 
@@ -20,7 +20,7 @@
 - **Brand through theme tokens.** The visual identity comes from `ConfigProvider` theme tokens derived from `apps/web/src/theme/tokens.ts`.
 - **Keep the UI guidelines library-independent** ([design/08](../design/08-frontend.md) §3): motion tokens, interaction states, async states, reduced motion, and status color triplets.
 - **Limit the exposure to a stagnating library:**
-  - **Wrap the signature visuals.** `StatRing`, `PulseRail`, and the chart cards are our own components. `StatRing` wraps `a-progress`; charts use uPlot directly. Pages use the wrappers, never the underlying library props.
+  - **Wrap the signature visuals.** `VitalTile`, `PulseRail`, and the chart cards are our own components. Charts use uPlot directly. Pages use the wrappers, never the underlying library props.
   - **Keep overrides in one place.** Theme overrides live only in `tokens.ts` and `antd-overrides.css`.
   - **Restrict the library to generic UI.** Ant Design Vue is used for generic components: table, form, modal, drawer, tabs, menu, select, date picker, message, and notification.
 

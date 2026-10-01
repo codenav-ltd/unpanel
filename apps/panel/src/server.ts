@@ -1,40 +1,94 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { readFileSync, unlinkSync } from "node:fs";
-import type { KeyObject } from "node:crypto";
+import { createServer, type Server } from "node:http";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { createPublicKey, type KeyObject } from "node:crypto";
+import { join } from "node:path";
 import { product } from "@unpanel/shared";
 import { privateKeyFromPem, publicKeyFromPem } from "@unpanel/protocol";
 import { WebSocketServer } from "ws";
+import { createAudit } from "./audit/log.ts";
+import { createAuth } from "./auth/service.ts";
+import { exportPanelDb, stageRestore } from "./backup/panel.ts";
+import { openPanelData } from "./data/panel-data.ts";
 import { createHub } from "./hub.ts";
+import { createHistory } from "./metrics/history.ts";
+import { createNodes } from "./nodes/store.ts";
+import { createSettings, seedPublicUrl } from "./settings/store.ts";
+import { createApi } from "./http/api.ts";
+import { handleHttp } from "./http/node.ts";
 
 export async function startPanel(options: {
   panelKey: KeyObject;
   agentPublicKey: KeyObject;
+  dataDir: string;
   host?: string;
   port?: number;
   socketPath?: string;
-}): Promise<{ port: number; close: () => Promise<void> }> {
+  secureCookie?: boolean;
+  webRoot?: string;
+  publicUrl?: string;
+}): Promise<{ port: number; setupToken: string | null; close: () => Promise<void> }> {
+  const data = openPanelData(options.dataDir);
+  const auth = await createAuth({
+    db: data.db,
+    masterKey: data.masterKey,
+    setupToken: data.readSetupToken,
+    clearSetupToken: data.clearSetupToken,
+  });
+  const history = createHistory(data.db);
+  const settings = createSettings(data.db);
+  seedPublicUrl(settings, options.publicUrl);
+  if (options.webRoot && !existsSync(join(options.webRoot, "index.html"))) {
+    throw new Error(`The web build is missing index.html (${options.webRoot}).`);
+  }
+  const nodes = createNodes(data.db);
+  const legacy = settings.view().node;
+  nodes.ensureLocal({
+    agentPk: publicPem(options.agentPublicKey),
+    name: legacy.name,
+    tags: legacy.tags,
+    maintenance: legacy.maintenance,
+  });
+  const audit = createAudit(data.db);
   const hub = createHub({
     panelKey: options.panelKey,
-    agentPublicKey: options.agentPublicKey,
+    agentKey: (agentId) =>
+      agentId === "local" ? options.agentPublicKey : nodes.publicKey(agentId),
+    nodeState: (agentId) => {
+      const state = nodes.state(agentId);
+      if (state === "unknown" && agentId === "local") return "active";
+      return state;
+    },
     panelVersion: product.version,
-  });
-
-  const onRequest = (request: IncomingMessage, response: ServerResponse): void => {
-    if (request.method === "GET" && request.url === "/api/dev/local") {
-      const body = JSON.stringify(hub.snapshot());
-      response.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "no-store",
+    record: (nodeId, sample, at) => history.record(nodeId, at, sample),
+    history: (nodeId, at, minutes) => history.series(nodeId, at, minutes),
+    onPresence: (event, agentId) => {
+      audit.record({
+        action: `node.${event}`,
+        result: event === "offline" ? "error" : "ok",
+        nodeId: agentId,
       });
-      response.end(body);
-      return;
-    }
-    response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    response.end("not found");
-  };
+    },
+  });
+  const secureCookie = options.secureCookie ?? false;
+  const app = createApi({
+    auth,
+    audit,
+    snapshot: (nodeId) => hub.observe(nodeId),
+    live: () => hub.live(),
+    control: (nodeId, action) => hub.control(nodeId, action),
+    disconnect: (nodeId, code) => hub.disconnect(nodeId, code),
+    exportDb: (dest) => exportPanelDb(data.db, dest),
+    stageRestore: (bytes) => stageRestore(options.dataDir, bytes),
+    settings,
+    catalog: nodes,
+    panelPublicKeyPem: publicPem(options.panelKey),
+    history: (nodeId, minutes) => history.series(nodeId, Date.now(), minutes),
+    secureCookie,
+  });
+  const onRequest = handleHttp(app, options.webRoot);
 
   const api = createServer(onRequest);
   const sockets = [attachWebSocket(api, hub)];
@@ -61,11 +115,13 @@ export async function startPanel(options: {
 
   return {
     port: actualPort,
+    setupToken: data.readSetupToken(),
     async close() {
       hub.close();
       for (const socket of sockets) socket.close();
       await closeServer(api);
       if (ipc) await closeServer(ipc);
+      auth.close();
     },
   };
 }
@@ -101,6 +157,12 @@ function closeServer(server: Server): Promise<void> {
   });
 }
 
+function publicPem(key: KeyObject): string {
+  const publicKey = key.type === "private" ? createPublicKey(key) : key;
+  const exported = publicKey.export({ type: "spki", format: "pem" });
+  return typeof exported === "string" ? exported : exported.toString();
+}
+
 function readPem(envName: string): string {
   const file = process.env[envName];
   if (!file) throw new Error(`${envName} is not set`);
@@ -111,14 +173,28 @@ const isEntry = process.argv[1]?.endsWith("server.ts") || process.argv[1]?.endsW
 
 if (isEntry) {
   const port = Number(process.env["UNPANEL_PORT"] ?? 28517);
+  const host = process.env["UNPANEL_HOST"] ?? "127.0.0.1";
+  const dataDir = process.env["UNPANEL_DATA_DIR"];
+  const webRoot = process.env["UNPANEL_WEB_DIST"];
+  const publicUrl = process.env["UNPANEL_PUBLIC_URL"];
+  if (!dataDir) throw new Error("UNPANEL_DATA_DIR is not set");
   startPanel({
     panelKey: privateKeyFromPem(readPem("UNPANEL_PANEL_KEY")),
     agentPublicKey: publicKeyFromPem(readPem("UNPANEL_AGENT_PUB")),
+    dataDir,
+    host,
     port,
+    secureCookie: process.env["UNPANEL_SECURE_COOKIE"] === "1",
     ...(process.env["UNPANEL_SOCKET"] ? { socketPath: process.env["UNPANEL_SOCKET"] } : {}),
+    ...(webRoot ? { webRoot } : {}),
+    ...(publicUrl ? { publicUrl } : {}),
   })
-    .then(({ port: actual }) => {
-      process.stdout.write(`${product.name} panel listening on 127.0.0.1:${actual}\n`);
+    .then(({ port: actual, setupToken }) => {
+      process.stdout.write(`${product.name} panel listening on ${host}:${actual}\n`);
+      if (setupToken) {
+        const base = process.env["UNPANEL_PUBLIC_URL"] ?? `http://127.0.0.1:${actual}`;
+        process.stdout.write(`Setup: ${base}/?token=${setupToken}\n`);
+      }
     })
     .catch((error: unknown) => {
       process.stderr.write(`${error instanceof Error ? error.message : "panel failed"}\n`);

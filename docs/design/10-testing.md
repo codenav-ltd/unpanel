@@ -11,7 +11,7 @@
 | Agent modules | Vitest + fakes | Each module's handlers; external dependencies (`execFile`, filesystem, dockerode) injected as fakes through interfaces | Every commit |
 | Panel integration | Vitest | In-process panel (in-memory SQLite) + in-process fake agent (real protocol, fake modules); covers HTTP → Hub → Agent end to end | Every commit |
 | Authorization matrix | Vitest (generated) | Route registry × built-in roles × scopes × user mode (`single`, `team`); asserts allow/deny matches expectations. Also asserts that switching team → single leaves no active session or token of any other user | Every commit |
-| Frontend components | Vitest + `@vue/test-utils` | Key components: `LogViewer`, `StatRing`, `SudoDialog`, form validation | Every commit |
+| Frontend components | Vitest + `@vue/test-utils` | Key components: `LogViewer`, `VitalTile`, `SudoDialog`, form validation | Every commit |
 | Real services | Vitest + Docker containers | Docker module against a real dockerd (DinD); Nginx templates checked with `nginx -t` in an `nginx:stable` container | Every commit (when CI has Docker) |
 | End-to-end | Playwright + VMs | Run the installer in a full-systemd VM (Incus/Multipass/Vagrant): first-run setup, login, enrolling a second node, Docker actions, Nginx apply and rollback, certificates (Pebble), alerts (fake Telegram server) | Nightly + before release |
 | Load | `tools/node-sim` | Simulate N agents (real handshake, metrics and events at real rates); measure panel RSS, CPU, event-loop delay | Weekly + before release |

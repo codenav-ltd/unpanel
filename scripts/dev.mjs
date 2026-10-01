@@ -25,6 +25,8 @@ const env = {
   UNPANEL_AGENT_PUB: join(dir, "agent.pub.pem"),
   UNPANEL_SOCKET: socketPath,
   UNPANEL_PORT: process.env["UNPANEL_PORT"] ?? "28517",
+  UNPANEL_DATA_DIR: join(dir, "data"),
+  UNPANEL_PUBLIC_URL: "http://127.0.0.1:5174",
 };
 
 /** @type {import("node:child_process").ChildProcess[]} */

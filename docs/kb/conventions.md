@@ -21,7 +21,7 @@
 | Kind | Convention | Example |
 |---|---|---|
 | TS files | kebab-case | `node-route.ts` |
-| Vue components | PascalCase | `StatRing.vue` |
+| Vue components | PascalCase | `VitalTile.vue` |
 | Composables | `useX` in `use-x.ts` | `use-topic.ts` exports `useTopic` |
 | Tests | Beside the code, `*.test.ts` | `canonical-json.test.ts` |
 | Protocol methods | `<module>.<resource>.<action>` | `docker.container.restart` |

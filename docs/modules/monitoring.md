@@ -4,7 +4,7 @@
 
 ## 1. Goals
 
-- A 3x-ui-style live dashboard refreshing every 2 seconds;
+- A 3x-ui-style live dashboard refreshing every 2 seconds while the page is open;
 - History charts: 1 hour, 24 hours, 7 days, 30 days, 1 year;
 - Multi-node overview refreshing every 10 seconds;
 - Monthly traffic accounting with quotas and alerts;
@@ -149,6 +149,6 @@ Every hour, a linear regression runs over the last 7 days of `metrics_1h` used s
 
 ## 8. UI
 
-- **Node dashboard**: four `StatRing`s (CPU, memory, swap, fullest disk); system info card; throughput and current-period traffic card; TCP/UDP connections card; live charts (CPU, memory, network, disk IO) with range switching; "Processes" and "Ports" tabs loaded on demand.
-- **Overview**: node cards (`PulseRail` + three mini rings + throughput) or a table view sortable by any metric.
+- **Node dashboard**: four resource tiles (CPU, memory, swap, fullest disk), each with a figure and a sparkline; system strip; throughput and current-period traffic card; TCP/UDP connections card; live charts (CPU, memory, network, disk IO) with range switching; "Processes" and "Ports" tabs loaded on demand.
+- **Overview**: node cards (`PulseRail` + CPU, memory, and disk sparklines + throughput) or a table view sortable by any metric.
 - **Compare**: pick several nodes and overlay one metric on a single chart.

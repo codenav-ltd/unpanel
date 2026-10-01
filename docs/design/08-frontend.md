@@ -27,7 +27,7 @@
 
 ## 2. Visual direction
 
-Keep what people like about 3x-ui — **dark-first, dense but not cramped, card-based dashboard, ring gauges, collapsible left navigation** — and add an identity of our own.
+Keep what people like about 3x-ui — **dark-first, dense but not cramped, card-based dashboard, trend charts on each resource, a stable left navigation** — and add an identity of our own.
 
 ### 2.1 Color tokens
 
@@ -84,9 +84,11 @@ All tokens are defined in `apps/web/src/theme/tokens.ts`, which generates both:
 
 Hand-written colors, radii, shadows, or durations in components are **not allowed**; a custom ESLint rule flags hex colors in `.vue` files.
 
-Component-level overrides that tokens cannot express go into `theme/antd-overrides.css` and nowhere else. Signature visuals (`StatRing`, `PulseRail`, chart cards) are our own components, and pages never pass antdv-specific props through them, so that replacing the component library later only touches generic components ([ADR-0007](../adr/0007-ant-design-vue.md)).
+Component-level overrides that tokens cannot express go into `theme/antd-overrides.css` and nowhere else. Signature visuals (`VitalTile`, `PulseRail`, chart cards) are our own components, and pages never pass antdv-specific props through them, so that replacing the component library later only touches generic components ([ADR-0007](../adr/0007-ant-design-vue.md)).
 
 ## 3. Motion and feedback
+
+Lightweight describes the install and the idle process, not the screen. A feature is not done while an action can finish with no visible change, a view can appear or disappear in a jump cut, or a failure is only in the console. Design the feedback with the feature.
 
 ```css
 --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -97,9 +99,9 @@ Component-level overrides that tokens cannot express go into `theme/antd-overrid
 --transition: 0.2s var(--ease-out);
 ```
 
-- Animate only `transform` and `opacity`; never `transition: all`.
+- Animate `transform` and `opacity`. Never `transition: all`. A new sample should be seen arriving: the headline figure updates immediately, and the sparkline gains the point.
 - Exits are faster than entrances. Route changes: content `opacity + translateY(4px)` at `--dur`.
-- Live numbers are **not** tweened (tweening makes readings look delayed); only color changes when a threshold is crossed are transitioned.
+- Live text (uptime, byte totals, tables, the tile figure) updates immediately and is not tweened. Threshold colors transition on their own.
 - A global `prefers-reduced-motion` block; with reduced motion the Pulse Rail swaps cells instead of sliding.
 - Interactive elements have all five states: default, hover, active, focus-visible, disabled.
 - Async actions have all four states: loading (on the control that was clicked), empty (an empty state with a sentence and the action that fixes it), error (visible to the user), success (mutations toast; destructive actions confirm first).
@@ -129,7 +131,7 @@ Component-level overrides that tokens cannot express go into `theme/antd-overrid
 │ Backups  │                                                        │
 │ Settings │                                                        │
 └──────────┴────────────────────────────────────────────────────────┘
-  Sidebar 220px / collapsed 64px; becomes a drawer below 768px
+  Sidebar 220px, labels always visible. Below 768px it becomes a drawer.
 ```
 
 - **Node switcher**: searchable, grouped by tag, shows online state and CPU; shortcut `⌘/Ctrl + J`. Switching nodes **keeps the current sub-page** (`/nodes/a/docker` → `/nodes/b/docker`); if the target lacks the capability, it falls back to b's dashboard with a notice.
@@ -143,8 +145,8 @@ Component-level overrides that tokens cannot express go into `theme/antd-overrid
 |---|---|---|
 | `/setup` | First-run setup | Steps: account → TOTP → confirm recovery codes |
 | `/login` | Login | Passkey button first (conditional UI autofill); username/password; second-factor step; footer link "Source code (AGPL-3.0)" to `about.source_url` ([ADR-0011](../adr/0011-agpl-license.md)) |
-| `/` | Multi-node overview | Node card grid (Pulse Rail, small CPU/memory/disk rings, throughput, uptime, alert badge); summary bar (online/total, alerts, total throughput); table view toggle; tag filter |
-| `/nodes/:id` | Node dashboard | 3x-ui style: four rings (CPU, memory, swap, disk); system info card (OS, kernel, uptime, load, agent version, RTT); throughput and traffic card; connections card; live charts (CPU/memory/network/disk IO, 1h/24h/7d/30d); monthly traffic bar |
+| `/` | Multi-node overview | Node card grid (Pulse Rail, CPU/memory/disk sparklines, throughput, uptime, alert badge); summary bar (online/total, alerts, total throughput); table view toggle; tag filter |
+| `/nodes/:id` | Node dashboard | 3x-ui style: resource tiles (CPU, memory, swap, disk), each with the current figure, used/total, average, peak, and a sparkline; system strip; throughput and connections cards; System history dialog (1h/24h/7d); monthly traffic bar later |
 | `/nodes/:id/docker/*` | Containers, images, networks, volumes, stacks | Batch actions; container drawer with overview/logs/terminal/stats/inspect |
 | `/nodes/:id/pm2` | PM2 | Process table grouped by PM2 user; log drawer |
 | `/nodes/:id/nginx/*` | Sites, config, logs | Template form or raw editor (CodeMirror); "Test and apply" shows `nginx -t` output |
@@ -153,7 +155,7 @@ Component-level overrides that tokens cannot express go into `theme/antd-overrid
 | `/nodes/:id/terminal` | Terminal | Tabs; reconnect notice |
 | `/nodes/:id/firewall` | Firewall | Rule table; 60 s confirmation countdown after changes; exposure view |
 | `/nodes/:id/cron` | Scheduled jobs | Managed jobs + read-only list of unmanaged entries |
-| `/nodes/:id/settings` | Node settings | Name, tags, maintenance, traffic quota, read-only policy, upgrade, remove |
+| `/nodes/:id/settings` | Node settings | Today: Host page with name, tags, maintenance, and host facts. Later: traffic quota, read-only policy, upgrade, remove |
 | `/certificates` | Certificates | Expiry timeline; issuance wizard; deployment targets |
 | `/alerts` | Alerts | Tabs: open / history / rules / silences |
 | `/notifications` | Channels | Telegram binding wizard; test message |
@@ -161,10 +163,24 @@ Component-level overrides that tokens cannot express go into `theme/antd-overrid
 | `/backups` | Backups | Plans, targets, runs, restore |
 | `/jobs` | Jobs | Progress and logs of long-running and batch operations |
 | `/audit` | Audit log | Filterable table; chain verification result |
-| `/settings/*` | Panel settings | General; security (port/path/domain/RP ID/2FA policy/IP allowlist); users (in single-user mode: only the "Enable team mode" card); roles (team mode only); appearance; about (version, commit, license, source link, third-party notices) |
+| `/settings/*` | Panel settings | Today: appearance (theme), change password, About (version, license, source URL). Later: general; security (port/path/domain/RP ID/2FA policy/IP allowlist); users (in single-user mode: only the "Enable team mode" card); roles (team mode only); third-party notices |
 | `/me/*` | Account | Profile, password, TOTP, passkeys, recovery codes, sessions, API tokens |
 
 Node-scoped pages share `NodeLayout`, which loads the node, checks capabilities, shows the offline banner, and drops the node's live subscriptions when the route is left.
+
+### 5.1 Node dashboard details
+
+- **Customize**: a dialog of switches picks which cards the dashboard renders (CPU, memory, swap, storage, breakdown, overall speed, connection stats, system strip). The choice is per-browser `localStorage`, not server state — it is a view preference, not configuration. Unknown and missing keys default to visible so a card added in a later release shows up after the upgrade.
+- The tile row is `repeat(auto-fit, minmax(230px, 1fr))`, so hiding a card widens the rest instead of leaving a gap, and the count adapts to the viewport without per-count breakpoints.
+- **Unavailable is not zero**: a host that cannot report swap, network rates, or socket counts gets an em dash and a one-line reason, never `0.0%` or `0 B`. 3x-ui prints `0.0%` for a host with no swap; we do not.
+- **IP addresses** sit behind an eye toggle in the system strip. Pressing it **blurs** the value (`filter: blur(6px)`) rather than removing it, so the strip never reflows and a screenshot can be taken without redaction.
+- **Restart / Stop** open a confirm dialog, then `POST /nodes/local/{restart,stop}`. The agent answers first and acts after a short delay, because a successful stop takes the panel down with it. A host without systemd (Windows, a `pnpm dev` tree) returns `E_UNSUPPORTED` instead of guessing a process to kill.
+- **Backup & Restore** downloads a consistent copy of `panel.db`, or stages a previous copy to apply on the next panel start. This is the 3x-ui-style panel-database action, not the later multi-source backup module.
+- **System history** is a dialog, not an inline dashboard section. Tabs are CPU, Memory, and Storage. Windows are the last hour, 24 hours, and 7 days (`GET /nodes/local/history?minutes=`). Only minute averages we persist are shown; gaps are omitted, not drawn as zero.
+- **Host** is the node page: display name, tags, a maintenance flag, host facts from `system.info`, and access actions. Disable and enable work for every node. Re-enroll and remove are remote-only. The sidebar lists every node and ends with Add node. A tag filter sits on the overview. Right-click a sidebar row or an overview card for Dashboard, Edit (the Host form), Disable or Enable, and, for a remote node, Re-enroll and Remove. Traffic quota, read-only policy, and upgrade are not in this slice.
+- **Settings** is one page with a section list (a tab row below 768px): Panel (theme and the public origin agents use), Security (change password), and About (version, license, source URL). Listen address and other boot-time keys stay in the file. The login page shows the source link only, never the version.
+- **Add node** is the primary button at the right of the Overview title bar, and again under the collapsible Nodes list in the sidebar. The form asks for the address the new server can reach. The result is a finished script for a machine that already has the agent, or a script that clones the source first. Nothing in the script is left as a placeholder. Opening a node from the sidebar keeps Dashboard or Host when one of those is already open.
+- **Overview card size** sits after the Overview title: Small (name, status, usage, and tags), Medium (plus the CPU rail and uptime), Large (used/total capacity, swap, load, traffic, sockets, recent CPU, OS, and uptime). The choice stays in this browser. Unread values stay an em dash.
 
 ## 6. Live data
 
@@ -195,7 +211,8 @@ const confirm = useConfirmDanger();  // await confirm({ title, typeToConfirm: co
 | Component | Purpose |
 |---|---|
 | `PulseRail` | The node pulse strip (§2.3) |
-| `StatRing` | Wraps `a-progress type="dashboard"`; load-scale coloring, value in the center, `used / total` below |
+| `VitalTile` | Resource card: figure, detail, average, peak, and a sparkline scaled to the recent peak. Load-scale coloring |
+| `HistoryDialog` | System history: CPU / Memory / Storage tabs and 1h / 24h / 7d windows of persisted minute averages |
 | `MetricChart` | uPlot wrapper: multiple series, unit formatting (bytes/rates/percent), hover readout, theme-aware |
 | `NodeStatusDot` | Online (solid green) / offline (red) / maintenance (grey striped) / alerting (orange, pulses once then solid) |
 | `LogViewer` | Virtual scrolling; ring buffer of 10,000 lines; ANSI SGR parsed into tokens and rendered by Vue (no `v-html`); pause/follow; highlight and filter; download |
@@ -252,7 +269,7 @@ apps/web/src/
 
 - Every icon-only button has an `aria-label`; clickable elements are real `<button>`s or `<RouterLink>`s.
 - All core tasks can be done with the keyboard; focus rings use `:focus-visible`.
-- Breakpoint `< 768px`: the sidebar becomes a drawer, tables become card lists, dashboard rings go two per row; the terminal gets a key toolbar (Ctrl, Tab, Esc, arrows).
+- Breakpoint `< 768px`: the sidebar becomes a drawer, tables become card lists, dashboard tiles go two per row; the terminal gets a key toolbar (Ctrl, Tab, Esc, arrows).
 - Contrast: body text ≥ 4.5:1, muted text ≥ 3:1, verified in all three themes.
 
 ## 12. Frontend security constraints

@@ -8,8 +8,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.2.1",
+    "@oslojs/encoding": "^1.1.0",
+    "@oslojs/otp": "^1.1.0",
     "@unpanel/protocol": "workspace:*",
     "@unpanel/shared": "workspace:*",
+    "hono": "^4.13.12",
     "ws": "^8.19.0"
   },
   "devDependencies": {

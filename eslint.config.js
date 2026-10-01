@@ -54,6 +54,15 @@ export default tseslint.config(
     },
     rules: {
       "local/no-default-export": "off",
+      // Our components live in one directory and are always PascalCase, so a one-word
+      // name like Sparkline cannot collide with an HTML element.
+      "vue/multi-word-component-names": "off",
+    },
+  },
+  {
+    files: ["apps/web/**/*.{ts,vue}"],
+    languageOptions: {
+      globals: { ...globals.browser },
     },
   },
   {

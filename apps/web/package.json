@@ -5,9 +5,11 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "dev": "vite",
+    "build": "vite build",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@ant-design/icons-vue": "^7.0.1",
     "@unpanel/shared": "workspace:*",
     "vue": "^3.5.22"
   },

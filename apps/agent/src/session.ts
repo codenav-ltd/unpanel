@@ -5,15 +5,20 @@ import { createHash, type KeyObject } from "node:crypto";
 import net from "node:net";
 import { WebSocket } from "ws";
 import { product } from "@unpanel/shared";
+import { ControlUnsupported, controlPanel } from "./control.ts";
+import { sampleHost } from "./cpu.ts";
 import {
   authMessage,
   closeCode,
   decodeTextFrame,
   encodeTextFrame,
+  panelRestart,
+  panelStop,
   PROTOCOL_VERSION,
   randomNonce,
   signMessage,
   systemInfo,
+  metricsCpu,
   verifyMessage,
   welcomeMessage,
   type HostInfo,
@@ -21,7 +26,9 @@ import {
 } from "@unpanel/protocol";
 
 export function connectAgent(options: {
-  socketPath: string;
+  socketPath?: string;
+  /** `ws://` or `wss://` URL of the panel's `/_agent/ws`. Used by remote nodes. */
+  url?: string;
   agentKey: KeyObject;
   panelPublicKey: KeyObject;
   agentId?: string;
@@ -41,10 +48,12 @@ export function connectAgent(options: {
   const connect = (): void => {
     if (stopped) return;
     nonceA = randomNonce();
-    socket = new WebSocket("ws://127.0.0.1/_agent/ws", {
-      perMessageDeflate: false,
-      createConnection: () => net.connect(options.socketPath),
-    });
+    socket = options.url
+      ? new WebSocket(options.url, { perMessageDeflate: false })
+      : new WebSocket("ws://127.0.0.1/_agent/ws", {
+          perMessageDeflate: false,
+          createConnection: () => net.connect(options.socketPath ?? ""),
+        });
     socket.on("open", () => {
       socket?.send(
         encodeTextFrame({
@@ -81,7 +90,10 @@ export function connectAgent(options: {
           encodeTextFrame({
             t: "auth",
             sigA: signMessage(authMessage(agentId, frame.nonceM, nonceA), options.agentKey),
-            caps: [{ name: "system", version: product.version }],
+            caps: [
+              { name: "system", version: product.version },
+              { name: "control", version: product.version },
+            ],
             policyDigest: createHash("sha256").update("").digest("base64url"),
             host,
           }),
@@ -106,17 +118,42 @@ export function connectAgent(options: {
           );
         }
       }
+      if (frame.t === "req" && frame.m === metricsCpu.name) {
+        socket?.send(
+          encodeTextFrame({
+            t: "res",
+            id: frame.id,
+            ok: true,
+            r: sampleHost(),
+          }),
+        );
+      }
+      if (frame.t === "req" && (frame.m === panelRestart.name || frame.m === panelStop.name)) {
+        const action = frame.m === panelRestart.name ? "restart" : "stop";
+        try {
+          socket?.send(
+            encodeTextFrame({ t: "res", id: frame.id, ok: true, r: controlPanel(action) }),
+          );
+        } catch (error) {
+          socket?.send(
+            encodeTextFrame({
+              t: "res",
+              id: frame.id,
+              ok: false,
+              e: {
+                code: error instanceof ControlUnsupported ? "E_UNSUPPORTED" : "E_INTERNAL",
+                msg: error instanceof Error ? error.message : `${action} failed`,
+              },
+            }),
+          );
+        }
+      }
     });
     socket.on("close", (code) => {
-      if (
-        stopped ||
-        code === closeCode.replaced ||
-        code === closeCode.incompatible ||
-        code === closeCode.disabled
-      ) {
-        return;
-      }
-      timer = setTimeout(connect, 1000);
+      if (stopped || code === closeCode.replaced || code === closeCode.incompatible) return;
+      // A disabled or removed node backs off for an hour instead of reconnecting immediately.
+      const delay = code === closeCode.disabled ? 60 * 60 * 1000 : 1000;
+      timer = setTimeout(connect, delay);
     });
     socket.on("error", () => {
       socket?.close();

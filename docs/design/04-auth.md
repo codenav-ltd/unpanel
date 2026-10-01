@@ -20,7 +20,7 @@
    ```
    Panel URL: https://203.0.113.10:28517/x8Kp2Q/setup?token=st_...
    ```
-2. The setup page creates the owner account (username + password), **requires TOTP enrollment**, and requires the user to confirm they have saved their recovery codes.
+2. The setup page creates the owner account (username + password). TOTP enrollment is on by default. The owner can turn it off; the page then shows a warning that the password alone can sign in. When TOTP stays on, the owner must confirm a code and that the recovery codes were saved.
 3. The setup token is then deleted, and `/setup` returns 404 forever. The panel starts in single-user mode (§12.5).
 4. Lost setup token: run `unpanel admin setup-token` on the server (only works while no user exists).
 

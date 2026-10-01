@@ -71,6 +71,21 @@ const cssNames = {
   info: "--info",
 } as const satisfies Record<keyof Palette, string>;
 
+export type ThemeName = "dark" | "light" | "ultra";
+
+export function paletteOf(theme: ThemeName): Palette {
+  if (theme === "light") return light;
+  if (theme === "ultra") return ultraDark;
+  return dark;
+}
+
+export function applyTheme(theme: ThemeName): void {
+  for (const [name, value] of Object.entries(cssVariables(paletteOf(theme)))) {
+    document.documentElement.style.setProperty(name, value);
+  }
+  document.documentElement.dataset.theme = theme;
+}
+
 export function cssVariables(palette: Palette): Record<string, string> {
   const variables: Record<string, string> = {};
   for (const key of Object.keys(cssNames) as (keyof Palette)[]) {

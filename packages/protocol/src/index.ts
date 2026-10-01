@@ -31,5 +31,12 @@ export {
   welcomeMessage,
 } from "./handshake.ts";
 export { defineMethod, type MethodDef, type Risk } from "./methods.ts";
+export {
+  panelRestart,
+  panelStop,
+  serviceControlResultSchema,
+  type ServiceControlResult,
+} from "./methods/control.ts";
 export { hostInfoSchema, systemInfo, type HostInfo } from "./methods/system.ts";
+export { metricsCpu } from "./methods/metrics.ts";
 export { PROTOCOL_VERSION } from "./version.ts";

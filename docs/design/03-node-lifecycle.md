@@ -136,6 +136,8 @@ sequenceDiagram
 
 ## 9. Removing a node
 
+Shipped now: Host can disable, enable, re-enroll, and remove. Disable and remove close the socket with 4403. The agent retries once an hour. Re-enroll clears the key and returns a new one-hour command; the local node cannot be re-enrolled or removed. A removed id stays in `node_revocations`, so a later handshake is still 4403. There is no `agent.decommission` method, so the panel does not wipe the agent. Stop that process on the server.
+
 1. Deleting in the UI sends `agent.decommission {wipe: boolean}` if the node is online.
 2. The agent deletes `identity.key`, optionally cleans up managed configuration (managed Nginx files, the managed cron file, deployed certificates), then runs `systemctl disable --now unpanel-agent`.
 3. The panel deletes the node's public key; any later connection from that agent is rejected with 4403.

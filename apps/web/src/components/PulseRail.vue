@@ -10,6 +10,7 @@ const CELL_COUNT = 60;
 
 const props = defineProps<{
   samples: readonly number[];
+  offline?: boolean;
 }>();
 
 const cells = computed(() => {
@@ -23,7 +24,7 @@ const cells = computed(() => {
 </script>
 
 <template>
-  <div class="rail" role="img">
+  <div class="rail" role="img" :data-offline="offline || undefined">
     <span v-for="(level, index) in cells" :key="index" class="rail-cell" :data-level="level" />
   </div>
 </template>

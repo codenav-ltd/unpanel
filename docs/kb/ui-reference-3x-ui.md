@@ -15,7 +15,7 @@ Ant Design Vue is at 4.2.x with no Ant Design v6 counterpart. ADR-0007 still cho
 
 ## 2. What users like about it
 
-- **Dashboard of four ring gauges** (CPU, memory, swap, disk) built with `a-progress type="dashboard"` in a 2×2 grid that collapses to one column on mobile ✅. Colors shift with load.
+- **Dashboard of four resource tiles** (CPU, memory, swap, disk) in the current React overview (`VitalTile`): a one-decimal figure, a detail line, average and peak, and a sparkline scaled to the recent peak. The older Vue port used ring gauges. Colors shift with load. ✅
 - **Dense, card-based layout**: status cards, system info, traffic, Xray status with a pulsing badge, quick actions.
 - **Dark mode and an "ultra-dark" mode**, toggled from the sidebar ✅.
 - **Simple left navigation** with few top-level items.
@@ -35,7 +35,7 @@ Takeaway: their dark mode is a **blue-slate**, not neutral grey, and ultra-dark 
 
 ## 4. What we borrow
 
-- Ring gauges for the four headline resources, colored by load thresholds.
+- Resource tiles with a sparkline for the four headline resources, colored by load thresholds. The live poll is 2 s and pauses when the tab is in the background.
 - Card grid dashboard; per-card skeletons.
 - Three themes, including a true-black ultra-dark mode.
 - 2-second live refresh while the page is visible.
@@ -50,7 +50,7 @@ Takeaway: their dark mode is a **blue-slate**, not neutral grey, and ultra-dark 
 | Polls every 2 s regardless of visibility | Subscriptions pause when the tab is hidden; agents leave live mode | "Lightweight" |
 | Web process runs as root | Unprivileged panel + local agent | [ADR-0003](../adr/0003-unprivileged-panel-local-agent.md) |
 | Username/password + optional 2FA | Passkeys first, TOTP, sudo mode for dangerous actions | [design/04](../design/04-auth.md) |
-| History only in modals | First-class history charts and the Pulse Rail | Trends matter more than instantaneous values |
+| History only in modals | Live tiles and the Pulse Rail stay on the page; 1h/24h/7d minute history opens in a System history dialog | Longer windows would crowd the dashboard; live trends already sit on the tiles |
 | Mostly English and Persian/Chinese translations in-tree | English source strings, translations as lazy bundles | i18n rules in [design/08](../design/08-frontend.md) §9 |
 
 ## 6. Open question: CSP with Ant Design Vue

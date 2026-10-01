@@ -20,6 +20,7 @@ A **lightweight, good-looking, secure, and practical** multi-server management p
 5. **Recoverable**: every configuration change can be rolled back (Nginx, firewall, cron); lost 2FA can be recovered with a local CLI on the server; the panel itself can be backed up and migrated.
 6. **Non-invasive**: never rewrite configuration the user already has; everything the panel manages lives in clearly marked, separate files or blocks.
 7. **Docs first**: see [docs/README.md](../README.md).
+8. **The interface is part of the product.** A small process and a quiet agent do not mean a static screen. Motion, empty and error states, and the response to every action are designed with the feature. See [design/08](./08-frontend.md) §3.
 
 ## 3. Goals and non-goals
 

@@ -78,7 +78,18 @@ Auth routes are listed in [design/04](./04-auth.md) §9.
 | GET | `/jobs` · `/jobs/:id` · `/jobs/:id/logs` | Creator or `admin` |
 | POST | `/jobs/:id/cancel` | Same |
 | GET | `/audit` | `audit:read` |
-| GET/PATCH | `/settings` | `settings:read` / `settings:danger` |
+| POST | `/nodes/:id/restart` · `/nodes/:id/stop` | Session. Asks that node's agent to `systemctl` the panel unit; answers before the unit goes down. `501 E_UNSUPPORTED` when the host has no systemd. |
+| GET/POST | `/nodes` | Session. List nodes with live overview fields, or create a pending node. The body may include `publicUrl`, the origin the new server can reach. The response includes two filled scripts: one when `unpanel-agent` is already installed, and one that clones the source first. |
+| POST | `/_agent/enroll` | No session. `{ token, publicKey }` pins the agent key and returns `{ agentId, panelPublicKey, wsUrl }`. Failures share one message. |
+| GET/PATCH | `/nodes/:id` | Session. Live snapshot plus `prefs` (`name`, `tags`, `maintenance`). `:id` is `local` for this machine. |
+| POST | `/nodes/:id/disable` · `/enable` | Session. Disable closes the agent with `4403`; the agent retries once an hour. Enable marks a keyed node active again. |
+| POST | `/nodes/:id/enrollment-token` | Session. Remote nodes only. Clears the key, burns unused tokens, and returns a new one-hour command. |
+| DELETE | `/nodes/:id` | Session. Remote nodes only. The id stays revoked, so a later handshake is `4403`. |
+| GET | `/nodes/:id/history?minutes=` | Session. Minute averages. `minutes` must be `60`, `1440`, or `10080`. |
+| GET | `/backup/panel` | Session. Downloads an online SQLite snapshot of `panel.db`. Does not include `master.key`. |
+| POST | `/backup/panel` | Session. Stages a previous snapshot as `pending-restore.db`; the next process start replaces the live database. |
+| GET/PATCH | `/settings` | Session today: `{ theme, publicUrl }`. `publicUrl` is the origin agents dial. Later: `settings:read` / `settings:danger`. |
+| POST | `/me/password` | Session. `{ current, next }`. |
 | GET/POST/PATCH/DELETE | `/users[/:id]` | `user:*`; creating users and changing bindings requires team mode ([design/04](./04-auth.md) §12.5) |
 | GET/POST/PATCH/DELETE | `/roles[/:id]` | `user:*`; team mode only |
 | GET | `/settings/user-mode/preview?mode=single` | `user:danger` (users, sessions, and tokens that switching would disable or revoke) |
