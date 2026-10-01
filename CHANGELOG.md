@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Monorepo skeleton: pnpm workspace, shared product identifiers, protocol error codes, web shell, and CI for lint, typecheck, and tests.
 - Design documentation: overview, architecture, agent protocol, node lifecycle, authentication, security, data model, HTTP API, frontend, deployment, testing.
 - Module designs for monitoring, alerting, notifications, Docker, PM2, Nginx, systemd services, certificates, terminal and files, firewall, cron, probes, and backups.
 - Architecture Decision Records 0001–0011.

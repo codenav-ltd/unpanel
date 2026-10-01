@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.turbo/
+*.tsbuildinfo
+*.local
+.DS_Store
+Thumbs.db

@@ -30,12 +30,12 @@ Requirements: Node.js 24 LTS, pnpm 10, Linux or macOS (Windows via WSL2). An age
 
 ```bash
 pnpm install
-pnpm dev          # panel + local agent + web dev server
-pnpm test         # unit, contract, and integration tests
+pnpm dev          # web shell; the panel and agent do not listen yet
+pnpm test
 pnpm lint && pnpm typecheck
 ```
 
-These commands will exist once the M0 skeleton is merged.
+`pnpm dev` currently starts the web shell only. The panel process, local agent, and login flow land in the rest of M0.
 
 ## Conventions
 

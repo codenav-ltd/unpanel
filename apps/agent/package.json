@@ -1,0 +1,14 @@
+{
+  "name": "@unpanel/agent",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@unpanel/protocol": "workspace:*",
+    "@unpanel/shared": "workspace:*"
+  }
+}

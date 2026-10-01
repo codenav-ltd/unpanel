@@ -2,7 +2,7 @@
 
 **The server panel that doesn't act like one.** Simple, modern, and lightweight: one web UI for the load, alerts, containers, processes, sites, and certificates of all your servers — without turning any of them into a "panel server".
 
-> **Status: design phase.** There is no runnable code yet. The design and knowledge base live in [`docs/`](./docs/README.md), and feedback on them is very welcome.
+> **Status: M0 skeleton.** The workspace typechecks and the web shell runs. The panel does not listen yet, and setup, login, and the local agent connection are next. The design and knowledge base live in [`docs/`](./docs/README.md).
 
 ## Why
 
@@ -30,6 +30,16 @@ Most server panels are heavy: they install their own stacks, rewrite system conf
 | Tools | Web terminal, file manager, firewall with auto-revert, managed cron, probes, backups |
 
 See [docs/design/00-overview.md](./docs/design/00-overview.md) for priorities and milestones.
+
+## Development
+
+Requirements: Node.js 24, pnpm 10. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+```bash
+pnpm install
+pnpm lint && pnpm typecheck && pnpm test
+pnpm dev    # web shell at http://127.0.0.1:5174
+```
 
 ## Architecture at a glance
 

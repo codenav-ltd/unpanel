@@ -1,0 +1,38 @@
+{
+  "name": "unpanel",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "packageManager": "pnpm@10.30.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @unpanel/web dev",
+    "lint": "eslint . --max-warnings 0 && node scripts/check-spdx.mjs && node scripts/check-licenses.mjs && prettier --check .",
+    "format": "prettier --write .",
+    "typecheck": "pnpm -r --filter \"!unpanel\" typecheck",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.9.1",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "eslint": "^10.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.5.1",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.46.0",
+    "vite": "^8.0.0",
+    "vitest": "^4.0.0",
+    "vue-tsc": "^3.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

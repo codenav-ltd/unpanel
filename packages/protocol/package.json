@@ -1,0 +1,12 @@
+{
+  "name": "@unpanel/protocol",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}
