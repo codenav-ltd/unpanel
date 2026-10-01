@@ -4,11 +4,18 @@
 import { assertReleaseUrl } from "@unpanel/shared";
 import { newerRelease } from "../install/release.ts";
 
+export interface ReleaseAsset {
+  url: string;
+  sha256: string;
+}
+
 export interface ReleaseFile {
   version: string;
   url: string;
   sha256: string;
   notes: string;
+  /** Packages other than the x64 url. Absent on manifests written before arm64 builds. */
+  assets?: Record<string, ReleaseAsset>;
 }
 
 export interface ChannelsFile {
@@ -47,6 +54,14 @@ export function parseChannels(value: unknown): ChannelsFile {
  * A pre-release follows the beta channel and will also move to a newer stable
  * release. A stable install does not move onto a beta.
  */
+/** The x64 url stays on the release so older panels can still read the manifest. */
+export function packageForArch(release: ReleaseFile, arch: string): ReleaseFile {
+  if (arch !== "arm64") return release;
+  const asset = release.assets?.["linux-arm64"];
+  if (!asset) throw new Error("This release has no linux-arm64 package.");
+  return { ...release, url: asset.url, sha256: asset.sha256 };
+}
+
 export function selectUpdate(current: string, channels: ChannelsFile): ReleaseFile | null {
   const list = current.includes("-") ? [channels.beta, channels.stable] : [channels.stable];
   let best: ReleaseFile | null = null;
@@ -94,6 +109,7 @@ export async function findUpdate(options: {
   manifestUrl: string;
   sourceUrl: string;
   fetchImpl?: typeof fetch;
+  arch?: string;
 }): Promise<UpdateView & { release: ReleaseFile | null }> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const found: ReleaseFile[] = [];
@@ -111,7 +127,25 @@ export async function findUpdate(options: {
     if (release) found.push(release);
   }
   const release = pickNewest(options.current, found);
-  if (!release && !sawAnswer) {
+  if (release) {
+    try {
+      const packed = packageForArch(release, options.arch ?? process.arch);
+      return {
+        current: options.current,
+        update: { version: packed.version, notes: packed.notes },
+        error: null,
+        release: packed,
+      };
+    } catch (error) {
+      return {
+        current: options.current,
+        update: null,
+        error: error instanceof Error ? error.message : "Could not check for updates.",
+        release: null,
+      };
+    }
+  }
+  if (!sawAnswer) {
     return {
       current: options.current,
       update: null,
@@ -121,9 +155,9 @@ export async function findUpdate(options: {
   }
   return {
     current: options.current,
-    update: release ? { version: release.version, notes: release.notes } : null,
+    update: null,
     error: null,
-    release,
+    release: null,
   };
 }
 
@@ -157,7 +191,33 @@ function parseRelease(value: unknown): ReleaseFile | null {
   if (!SHA256.test(sha256)) throw new Error("Update manifest sha256 is invalid.");
   if (!isReleaseTag(`v${version}`)) throw new Error("Update manifest version is invalid.");
   assertReleaseUrl(url);
-  return { version, url, sha256, notes: typeof notes === "string" ? notes : "" };
+  const release: ReleaseFile = {
+    version,
+    url,
+    sha256,
+    notes: typeof notes === "string" ? notes : "",
+  };
+  const assets = parseAssets(record["assets"]);
+  if (assets) release.assets = assets;
+  return release;
+}
+
+function parseAssets(value: unknown): Record<string, ReleaseAsset> | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "object") throw new Error("Update manifest assets are invalid.");
+  const assets: Record<string, ReleaseAsset> = {};
+  for (const [name, item] of Object.entries(value)) {
+    if (!item || typeof item !== "object") throw new Error("Update manifest asset is invalid.");
+    const row = item as Record<string, unknown>;
+    const url = row["url"];
+    const sha256 = row["sha256"];
+    if (typeof url !== "string" || typeof sha256 !== "string" || !SHA256.test(sha256)) {
+      throw new Error("Update manifest asset is invalid.");
+    }
+    assertReleaseUrl(url);
+    assets[name] = { url, sha256 };
+  }
+  return assets;
 }
 
 function isReleaseTag(tag: string): boolean {

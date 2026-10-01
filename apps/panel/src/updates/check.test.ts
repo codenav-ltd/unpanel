@@ -6,6 +6,7 @@ import {
   channelsAssetUrl,
   findUpdate,
   githubReleasesUrl,
+  packageForArch,
   parseChannels,
   selectUpdate,
   type ChannelsFile,
@@ -47,6 +48,29 @@ describe("selectUpdate", () => {
   it("does not move a stable install onto a beta", () => {
     expect(selectUpdate("1.0.0", channels("1.1.0-beta.1", "1.0.0"))).toBeNull();
     expect(selectUpdate("1.0.0", channels("1.1.0-beta.1", "1.0.1"))?.version).toBe("1.0.1");
+  });
+
+  it("installs the arm64 package on an arm64 machine and leaves the x64 url for other machines", () => {
+    const parsed = parseChannels({
+      stable: null,
+      beta: {
+        version: "0.1.0-alpha.9",
+        url: "https://github.com/codenav-ltd/unpanel/releases/download/v0.1.0-alpha.9/unpanel-0.1.0-alpha.9-linux-x64.tar.gz",
+        sha256: sha,
+        notes: "",
+        assets: {
+          "linux-arm64": {
+            url: "https://github.com/codenav-ltd/unpanel/releases/download/v0.1.0-alpha.9/unpanel-0.1.0-alpha.9-linux-arm64.tar.gz",
+            sha256: other,
+          },
+        },
+      },
+    });
+    const beta = parsed.beta;
+    if (!beta) throw new Error("missing beta");
+    expect(packageForArch(beta, "x64").sha256).toBe(sha);
+    expect(packageForArch(beta, "arm64").url).toContain("linux-arm64");
+    expect(packageForArch(beta, "arm64").sha256).toBe(other);
   });
 
   it("rejects a manifest that does not point at an allowed host", () => {

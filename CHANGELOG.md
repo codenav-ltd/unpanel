@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.9] - 2026-10-02
+
+### Added
+
+- Release packages are built for linux-arm64 as well as linux-x64. The installer picks the package that matches the machine.
+- When Node.js 24 is not already installed, the installer downloads the official linux-x64 or linux-arm64 build and checks its SHA-256.
+
 ## [0.1.0-alpha.8] - 2026-10-02
 
 ### Fixed

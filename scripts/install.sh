@@ -6,21 +6,26 @@
 #   curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 set -eu
 
-VERSION="0.1.0-alpha.8"
+VERSION="0.1.0-alpha.9"
 REF="v${VERSION}"
-ASSET="unpanel-${VERSION}-linux-x64.tar.gz"
 RELEASE="https://github.com/codenav-ltd/unpanel/releases/download/${REF}"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"
 
-fetch_release() {
-  dest=$1
+release_asset() {
   case "$(uname -m)" in
-    x86_64|amd64) ;;
+    x86_64|amd64) arch=linux-x64 ;;
+    aarch64|arm64) arch=linux-arm64 ;;
     *)
-      echo "This release is built for linux-x64. This machine is $(uname -m)." >&2
+      echo "This release is built for linux-x64 and linux-arm64. This machine is $(uname -m)." >&2
       exit 1
       ;;
   esac
+  printf '%s\n' "unpanel-${VERSION}-${arch}.tar.gz"
+}
+
+fetch_release() {
+  dest=$1
+  asset=$(release_asset)
   if ! command -v curl >/dev/null 2>&1; then
     echo "curl is required." >&2
     exit 1
@@ -35,13 +40,13 @@ fetch_release() {
   fi
   tmp=$(mktemp -d)
   curl -fsSL "$RELEASE/SHA256SUMS" -o "$tmp/SHA256SUMS"
-  curl -fsSL "$RELEASE/$ASSET" -o "$tmp/$ASSET"
+  curl -fsSL "$RELEASE/$asset" -o "$tmp/$asset"
   (
     cd "$tmp"
     sha256sum -c --ignore-missing SHA256SUMS
   )
   mkdir -p "$dest"
-  tar -xzf "$tmp/$ASSET" -C "$dest"
+  tar -xzf "$tmp/$asset" -C "$dest"
   rm -rf "$tmp"
 }
 

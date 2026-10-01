@@ -30,7 +30,8 @@ describe("release tags", () => {
     const readme = readFileSync("README.md", "utf8");
     const url = "https://unpanel.codenav.dev/install.sh";
     expect(script).toContain(`VERSION="${product.version}"`);
-    expect(script).toContain(`ASSET="unpanel-\${VERSION}-linux-x64.tar.gz"`);
+    expect(script).toContain("aarch64|arm64) arch=linux-arm64");
+    expect(script).toContain("unpanel-${VERSION}-${arch}.tar.gz");
     expect(script).toContain("SHA256SUMS");
     expect(script).not.toContain("git clone");
     expect(script).toContain(url);
@@ -38,7 +39,11 @@ describe("release tags", () => {
     const agent = readFileSync("scripts/install-agent.sh", "utf8");
     const apply = readFileSync("scripts/apply-update.sh", "utf8");
     expect(agent).toContain(`VERSION="${product.version}"`);
+    expect(agent).toContain("aarch64|arm64) arch=linux-arm64");
     expect(agent).not.toContain("git clone");
+    const nodeSh = readFileSync("scripts/node.sh", "utf8");
+    expect(nodeSh).toContain("linux-arm64");
+    expect(nodeSh).toContain("https://nodejs.org/dist/");
     expect(apply).toContain("Restoring the previous version");
     expect(apply).toContain("systemd-run");
   });

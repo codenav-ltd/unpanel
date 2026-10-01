@@ -24,7 +24,7 @@ The update check reads a signed manifest (`channels.json` + `channels.json.minis
 
 | URL | Contents |
 |---|---|
-| `https://unpanel.codenav.dev/install.sh` | Panel installer. It downloads the linux-x64 package for the pinned version and checks `SHA256SUMS`. |
+| `https://unpanel.codenav.dev/install.sh` | Panel installer. It downloads the linux-x64 or linux-arm64 package for the pinned version and checks `SHA256SUMS`. |
 | `https://unpanel.codenav.dev/install-agent.sh` | Agent installer for a machine that does not run the panel. Same package, agent only. |
 | `https://unpanel.codenav.dev/channels.json` | Update manifest for Settings → About. CI also uploads this file to the GitHub release. Minisign is not produced yet. |
 | `https://github.com/codenav-ltd/unpanel/releases` | Release artifacts, `SHA256SUMS`, `SHA256SUMS.minisig` |
