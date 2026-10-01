@@ -1,0 +1,57 @@
+# Telegram Bot API
+
+> Applies to: `apps/panel/src/features/notify/telegram/`. Verification markers: see [README](./README.md).
+> References: [Bot API](https://core.telegram.org/bots/api), [Bots FAQ](https://core.telegram.org/bots/faq), [grammY docs](https://grammy.dev/)
+
+## 1. Limits
+
+| Limit | Value | Status |
+|---|---|---|
+| Messages to one chat | ≈ 1 per second (short bursts tolerated) | ⚠️ from the Bots FAQ; re-check |
+| Messages to one group | ≈ 20 per minute | ⚠️ from the Bots FAQ; re-check |
+| Overall bulk sending | ≈ 30 messages per second | ⚠️ from the Bots FAQ; re-check |
+| Message text length | 4096 characters (after entity parsing) | ✅ |
+| `callback_data` | 1–64 **bytes** | ✅ |
+| Caption length | 1024 characters | ✅ |
+
+Exceeding limits returns `429 Too Many Requests` with `parameters.retry_after` (seconds). Wait exactly that long; do not retry earlier.
+
+## 2. Formatting with HTML ✅
+
+`parse_mode: "HTML"` supports `<b>`, `<i>`, `<u>`, `<s>`, `<code>`, `<pre>`, `<pre><code class="language-x">`, `<a href="…">`, `<blockquote>`, `<tg-spoiler>`.
+
+- Escape only `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;` in text (and `"` → `&quot;` inside attribute values).
+- Unsupported or unbalanced tags make the whole message fail with `400 Bad Request: can't parse entities`. Build messages with a tiny typed builder, never by string concatenation of user data.
+- MarkdownV2 requires escaping `_*[]()~\`>#+-=|{}.!` — avoid it.
+- Messages longer than 4096 characters must be split at line boundaries (outside tags).
+
+## 3. Receiving updates
+
+- **Long polling** (`getUpdates` with `timeout`): no public URL needed; works behind NAT. Used by default.
+- **Webhook** (`setWebhook`): requires a public HTTPS URL. While a webhook is set, `getUpdates` fails with `409 Conflict: can't use getUpdates method while webhook is active` ✅. On startup, call `deleteWebhook` (without dropping pending updates) when using polling.
+- Only **one** poller per bot token: a second process polling the same token gets `409 Conflict: terminated by other getUpdates request` ✅. Common cause: the same bot token used by another panel or script. Show this clearly in the UI.
+- Acknowledge updates by passing `offset = last update_id + 1`.
+
+## 4. Errors to handle ✅
+
+| Error | Meaning | Action |
+|---|---|---|
+| `403 Forbidden: bot was blocked by the user` | User blocked the bot | Mark the chat inactive; stop sending; show in UI |
+| `403 Forbidden: bot was kicked from the group chat` | Removed from group | Same |
+| `400 Bad Request: chat not found` | Wrong id or the user never started the bot | Ask the user to send `/start` and re-bind |
+| `400 Bad Request: group chat was upgraded to a supergroup chat` with `parameters.migrate_to_chat_id` | Group became a supergroup; the chat id changed | Update the stored `chat_id` to `migrate_to_chat_id` and resend |
+| `429` | Rate limited | Respect `retry_after` |
+| `401 Unauthorized` | Token revoked | Mark channel failed; notify via other channels |
+
+## 5. Network access
+
+- In regions or networks where `api.telegram.org` is unreachable, use an HTTP/SOCKS5 proxy, or a custom API base (self-hosted [Bot API server](https://github.com/tdlib/telegram-bot-api) or a reverse proxy). grammY supports a custom `apiRoot` and a custom `fetch`/agent ✅.
+- Long polling keeps a request open for `timeout` seconds; set HTTP client timeouts above it.
+
+## 6. Bot commands ✅
+
+Register the command list with `setMyCommands` so clients show suggestions. Commands in groups may be suffixed with the bot username (`/status@my_panel_bot`); strip the suffix when parsing.
+
+## 7. Privacy mode ✅
+
+By default, bots in groups only receive commands addressed to them, replies to their messages, and service messages ("privacy mode"). That is sufficient for our commands; do not ask users to disable it.

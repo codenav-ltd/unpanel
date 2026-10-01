@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/codenav-ltd/unpanel/security/advisories/new
+    about: Please report vulnerabilities privately as described in SECURITY.md, not as public issues.
+  - name: Design discussion
+    url: https://github.com/codenav-ltd/unpanel/discussions
+    about: Questions and ideas about the design documents in docs/.
