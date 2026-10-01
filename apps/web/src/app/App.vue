@@ -40,6 +40,7 @@ import {
   type OverviewLayout,
 } from "../overview-layout.ts";
 import { formatBytes, formatRate, formatUptime } from "../format.ts";
+import { copyText } from "../copy.ts";
 import { en } from "../i18n/en.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 
@@ -371,13 +372,9 @@ async function signOut(): Promise<void> {
 
 async function copyCodes(): Promise<void> {
   const codes = draft.value?.recoveryCodes ?? [];
-  try {
-    await navigator.clipboard.writeText(codes.join("\n"));
-    copied.value = true;
-  } catch {
-    copied.value = false;
-    error.value = en.auth.copyFailed;
-  }
+  const ok = await copyText(codes.join("\n"));
+  copied.value = ok;
+  if (!ok) error.value = en.auth.copyFailed;
 }
 
 function showNode(): void {

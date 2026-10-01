@@ -13,6 +13,8 @@ describe("enrollmentScripts", () => {
   });
 
   it("fills the installed script so nothing is left to edit", () => {
+    expect(scripts.installed.startsWith("sudo bash <<'UNPANEL'\n")).toBe(true);
+    expect(scripts.installed.endsWith("UNPANEL\n")).toBe(true);
     expect(scripts.installed).toContain("--panel 'https://panel.example.net:28517'");
     expect(scripts.installed).toContain("--token 'pe_abc'");
     expect(scripts.installed).toContain("UNPANEL_AGENT_ID='nd_abc'");

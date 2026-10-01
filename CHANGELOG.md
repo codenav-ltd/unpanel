@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.6] - 2026-10-02
+
+### Fixed
+
+- Copy works on the plain HTTP panel page. The Clipboard API is unavailable there, so the button copies by selecting the text.
+- A failed copy no longer says to start the panel with `pnpm dev`.
+- The enrollment script runs under `sudo bash`, so pasting it into a login shell cannot close that session when a command fails.
+
 ## [0.1.0-alpha.5] - 2026-10-02
 
 ### Changed

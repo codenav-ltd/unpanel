@@ -6,7 +6,8 @@ export const en = {
   shell: {
     connecting: "Connecting to the local node…",
     offline: "The local node is offline.",
-    requestFailed: "Could not reach the panel. Start it with pnpm dev.",
+    requestFailed: "Could not reach the panel.",
+    copyFailed: "Could not copy. Select the text and copy it yourself.",
     railLabel: "CPU, last 10 minutes",
     railEmpty: "No samples yet",
     cpu: "CPU",
@@ -118,9 +119,9 @@ export const en = {
     installReady: "Already installed",
     installFresh: "Not installed",
     installReadyHint:
-      "Paste this on that server. It creates the key files, enrolls, and starts the agent in this terminal. Leave the terminal open.",
+      "Paste the whole block on that server and press Enter. It runs under sudo, enrolls, and starts the agent in this terminal. A failure stays inside the script and does not close your login shell. Leave the terminal open.",
     installFreshHint:
-      "There is no packaged build yet. This script clones the source into /opt/unpanel, installs it, enrolls, and starts the agent. That server needs git and Node.js 24.",
+      "There is no packaged build yet. Paste the whole block on that server. It clones the source into /opt/unpanel, installs it, enrolls, and starts the agent. That server needs sudo, git, and Node.js 24. Leave the terminal open.",
     enrollmentCommand: "Script",
     tokenOnce:
       "Shown once. Closing this dialog does not delete the node. Open it and choose Re-enroll if you need the script again.",

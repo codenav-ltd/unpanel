@@ -37,31 +37,44 @@ export function enrollmentScripts(input: {
     `UNPANEL_AGENT_KEY=${KEY}`,
     `UNPANEL_PANEL_PUB=${PUB}`,
   ].join(" ");
-  const installed = [
+  const fromSource = [
+    `cd ${SOURCE}`,
+    "corepack enable",
+    "corepack prepare pnpm@10.30.1 --activate",
+    "NODE_ENV=development pnpm install --frozen-lockfile",
+    `pnpm --filter @unpanel/agent exec tsx src/main.ts ${enrollArgs}`,
+    `cd ${SOURCE}/apps/agent`,
+    `${start} exec pnpm exec tsx src/main.ts`,
+  ];
+  const installed = shellScript([
     "set -eu",
     "umask 077",
     `mkdir -p ${product.paths.agentLib} ${product.paths.agentEtc}`,
-    `${product.agentBin} ${enrollArgs}`,
-    `${start} exec ${product.agentBin}`,
-    "",
-  ].join("\n");
-  const fresh = [
+    `if command -v ${product.agentBin} >/dev/null 2>&1; then`,
+    `  ${product.agentBin} ${enrollArgs}`,
+    `  ${start} exec ${product.agentBin}`,
+    "fi",
+    `if [ ! -f ${SOURCE}/apps/agent/src/main.ts ]; then`,
+    `  echo "This machine has no Unpanel agent. In the panel, choose Not installed and run that script." >&2`,
+    "  exit 1",
+    "fi",
+    ...fromSource,
+  ]);
+  const fresh = shellScript([
     "set -eu",
     "umask 077",
     `mkdir -p ${product.paths.agentLib} ${product.paths.agentEtc}`,
     `if [ ! -d ${SOURCE}/.git ]; then`,
     `  git clone --depth 1 ${quote(product.sourceUrl)} ${SOURCE}`,
     "fi",
-    `cd ${SOURCE}`,
-    "corepack enable",
-    "corepack prepare pnpm@10.30.1 --activate",
-    "pnpm install --frozen-lockfile",
-    `pnpm --filter @unpanel/agent exec tsx src/main.ts ${enrollArgs}`,
-    `cd ${SOURCE}/apps/agent`,
-    `${start} exec pnpm exec tsx src/main.ts`,
-    "",
-  ].join("\n");
+    ...fromSource,
+  ]);
   return { installed, fresh };
+}
+
+/** Runs in its own shell, so `set -e` and `exec` cannot close the login session. */
+function shellScript(lines: string[]): string {
+  return `sudo bash <<'UNPANEL'\n${lines.join("\n")}\nUNPANEL\n`;
 }
 
 function quote(value: string): string {

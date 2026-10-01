@@ -4,6 +4,7 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { copyText } from "../copy.ts";
 import { en } from "../i18n/en.ts";
 
 const props = defineProps<{ installed: string; fresh: string }>();
@@ -21,13 +22,9 @@ watch(mode, () => {
 
 async function copy(): Promise<void> {
   copyError.value = false;
-  try {
-    await navigator.clipboard.writeText(script.value);
-    copied.value = true;
-  } catch {
-    copied.value = false;
-    copyError.value = true;
-  }
+  const ok = await copyText(script.value);
+  copied.value = ok;
+  copyError.value = !ok;
 }
 </script>
 
@@ -48,7 +45,7 @@ async function copy(): Promise<void> {
     <span>{{ en.shell.enrollmentCommand }}</span>
     <textarea class="command" readonly rows="12" :value="script" />
   </label>
-  <p v-if="copyError" class="form-error" role="alert">{{ en.shell.requestFailed }}</p>
+  <p v-if="copyError" class="form-error" role="alert">{{ en.shell.copyFailed }}</p>
   <div class="actions">
     <button type="button" @click="copy">
       {{ copied ? en.shell.copiedCommand : en.shell.copyCommand }}

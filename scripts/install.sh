@@ -7,7 +7,7 @@
 set -eu
 
 REPO="https://github.com/codenav-ltd/unpanel.git"
-REF="v0.1.0-alpha.5"
+REF="v0.1.0-alpha.6"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"
 
 if [ "$(id -u)" -ne 0 ]; then
