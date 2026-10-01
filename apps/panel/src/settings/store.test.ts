@@ -37,6 +37,15 @@ describe("settings", () => {
     expect(settings.view().publicUrl).toBe("http://203.0.113.10:28517");
   });
 
+  it("replaces a private panel address with a public one", () => {
+    const settings = createSettings(new DatabaseSync(":memory:"));
+    seedPublicUrl(settings, "http://10.0.0.107:28517");
+    seedPublicUrl(settings, "http://161.33.139.252:28517");
+    expect(settings.view().publicUrl).toBe("http://161.33.139.252:28517");
+    seedPublicUrl(settings, "http://198.51.100.8:28517");
+    expect(settings.view().publicUrl).toBe("http://161.33.139.252:28517");
+  });
+
   it("rejects a junk theme and a long name", () => {
     const settings = createSettings(new DatabaseSync(":memory:"));
     expect(() => settings.setTheme("neon" as "dark", "ada")).toThrow(SettingsError);

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.5] - 2026-10-02
+
+### Changed
+
+- The installer detects the machine's public IPv4 when the address on the network interface is private. It asks the cloud metadata service first, then what address the internet sees. A saved private panel address is replaced when a later start has a public one.
+
 ## [0.1.0-alpha.4] - 2026-10-02
 
 ### Changed

@@ -3,6 +3,7 @@
 
 import { product } from "@unpanel/shared";
 import { normalizePublicUrl, SettingsError } from "../settings/store.ts";
+import { isPrivateHost } from "./address.ts";
 
 export class InstallUsage extends Error {
   constructor(message = "") {
@@ -266,25 +267,11 @@ export function installSummary(input: {
 
 /** True when the printed address is only reachable on this machine's own network. */
 function privateAddress(publicUrl: string): boolean {
-  let host: string;
   try {
-    host = new URL(publicUrl).hostname;
+    return isPrivateHost(new URL(publicUrl).hostname);
   } catch {
     return false;
   }
-  if (host === "localhost" || host.endsWith(".local")) return true;
-  const v4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host);
-  if (!v4) {
-    const lower = host.toLowerCase();
-    return lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80:");
-  }
-  const a = Number(v4[1] ?? 0);
-  const b = Number(v4[2] ?? 0);
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 169 && b === 254) return true;
-  return false;
 }
 
 function tsx(plan: InstallPlan): string {

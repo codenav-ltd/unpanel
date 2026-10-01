@@ -2,7 +2,7 @@
 
 > Status: Draft · Related ADRs: [0003](../adr/0003-unprivileged-panel-local-agent.md), [0010](../adr/0010-https-by-default.md) · Release process: [kb/release-process.md](../kb/release-process.md)
 
-**Shipped now (0.1.0-alpha.4 pre-alpha).** There is no signed release tarball. The public site is `apps/site`, and the installer is served from it:
+**Shipped now (0.1.0-alpha.5 pre-alpha).** There is no signed release tarball. The public site is `apps/site`, and the installer is served from it:
 
 ```bash
 curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash

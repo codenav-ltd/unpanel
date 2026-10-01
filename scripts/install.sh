@@ -7,7 +7,7 @@
 set -eu
 
 REPO="https://github.com/codenav-ltd/unpanel.git"
-REF="v0.1.0-alpha.4"
+REF="v0.1.0-alpha.5"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -75,6 +75,12 @@ corepack prepare pnpm@10.30.1 --activate
 NODE_ENV=development pnpm install --frozen-lockfile
 NODE_ENV=development pnpm --filter @unpanel/web build
 
+TSX="$ROOT/node_modules/tsx/dist/cli.mjs"
+if [ ! -f "$TSX" ]; then
+  echo "tsx is missing at $TSX" >&2
+  exit 1
+fi
+
 port=28517
 prev=
 for arg in "$@"; do
@@ -90,22 +96,18 @@ for arg in "$@"; do
   fi
 done
 if [ "$has_url" -eq 0 ]; then
-  ip=
+  local_ip=
   if command -v ip >/dev/null 2>&1; then
-    ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}')
+    local_ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}')
   fi
-  if [ -z "$ip" ]; then
-    ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  if [ -z "$local_ip" ]; then
+    local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
   fi
+  ip=$("$NODE" "$TSX" "$ROOT/apps/panel/src/install/public-ip.ts" ${local_ip:+"$local_ip"} | tr -d '[:space:]')
   if [ -z "$ip" ]; then
-    ip=127.0.0.1
+    ip=${local_ip:-127.0.0.1}
   fi
   set -- --public-url "http://${ip}:${port}" "$@"
 fi
 
-TSX="$ROOT/node_modules/tsx/dist/cli.mjs"
-if [ ! -f "$TSX" ]; then
-  echo "tsx is missing at $TSX" >&2
-  exit 1
-fi
 exec "$NODE" "$TSX" "$ROOT/apps/panel/src/install/cli.ts" install "$@"

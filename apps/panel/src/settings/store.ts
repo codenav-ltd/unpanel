@@ -2,6 +2,7 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 import type { DatabaseSync } from "node:sqlite";
+import { isPrivateHost } from "../install/address.ts";
 
 export const themes = ["dark", "light", "ultra"] as const;
 export type Theme = (typeof themes)[number];
@@ -124,15 +125,26 @@ function isTheme(value: unknown): value is Theme {
 }
 
 /**
- * Writes the install-time origin once. A value already saved in the panel wins,
- * and a bad value is ignored so the process still starts.
+ * Writes the install-time origin when none is saved. A public address also
+ * replaces a private one left by an earlier install. Anything else already
+ * saved wins. A bad value is ignored so the process still starts.
  */
 export function seedPublicUrl(settings: Settings, value: string | undefined): void {
-  if (!value || settings.view().publicUrl) return;
+  if (!value) return;
+  const current = settings.view().publicUrl;
+  if (current && !replacingPrivate(current, value)) return;
   try {
     settings.setPublicUrl(value, "install");
   } catch {
     // The admin can set the address in Settings.
+  }
+}
+
+function replacingPrivate(current: string, incoming: string): boolean {
+  try {
+    return isPrivateHost(new URL(current).hostname) && !isPrivateHost(new URL(incoming).hostname);
+  } catch {
+    return false;
   }
 }
 
