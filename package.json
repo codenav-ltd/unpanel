@@ -8,7 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm --filter @unpanel/web dev",
+    "dev": "node scripts/dev.mjs",
     "lint": "eslint . --max-warnings 0 && node scripts/check-spdx.mjs && node scripts/check-licenses.mjs && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "pnpm -r --filter \"!unpanel\" typecheck",

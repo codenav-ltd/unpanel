@@ -1,0 +1,17 @@
+{
+  "license": "CC0-1.0",
+  "text": [
+    {
+      "encoded": "{\"ts\":1,\"t\":\"ping\"}",
+      "frame": { "t": "ping", "ts": 1 }
+    }
+  ],
+  "binary": [
+    {
+      "kind": 1,
+      "channel": 2,
+      "payloadUtf8": "hi",
+      "frameBase64": "AQAAAAJoaQ=="
+    }
+  ]
+}

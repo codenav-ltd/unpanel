@@ -4,8 +4,14 @@
 /** Source locale. Other locales translate these keys. */
 export const en = {
   shell: {
-    status: "This build is the repository skeleton. Setup and login are next.",
+    connecting: "Connecting to the local node…",
+    offline: "The local node is offline.",
+    requestFailed: "Could not reach the panel. Start it with pnpm dev.",
     railLabel: "CPU, last 10 minutes",
     railEmpty: "No samples yet",
+    hostname: "Hostname",
+    os: "Operating system",
+    arch: "Architecture",
+    memory: "Memory",
   },
 } as const;

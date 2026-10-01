@@ -9,6 +9,10 @@
   },
   "dependencies": {
     "@unpanel/protocol": "workspace:*",
-    "@unpanel/shared": "workspace:*"
+    "@unpanel/shared": "workspace:*",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
   }
 }

@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

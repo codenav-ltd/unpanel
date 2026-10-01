@@ -59,6 +59,31 @@ h1 {
   line-height: 1.45;
 }
 
+.facts {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr;
+  gap: 6px 12px;
+  margin: 16px 0 0;
+  font-size: 13px;
+}
+
+.facts dt {
+  margin: 0;
+  color: var(--text-3);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.status-ok {
+  color: var(--ok);
+}
+
+.status-bad {
+  color: var(--danger);
+}
+
 .rail {
   display: grid;
   grid-template-columns: repeat(60, 1fr);

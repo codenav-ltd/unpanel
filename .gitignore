@@ -4,5 +4,6 @@ coverage/
 .turbo/
 *.tsbuildinfo
 *.local
+.dev/
 .DS_Store
 Thumbs.db
