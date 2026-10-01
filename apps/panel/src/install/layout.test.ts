@@ -87,5 +87,20 @@ describe("install summary", () => {
     expect(text).toContain("http://203.0.113.10:28517/?token=st_token");
     expect(text).toContain("sudo bash /opt/unpanel/scripts/update.sh");
     expect(text).toContain("ufw allow 28517/tcp");
+    expect(text).toContain("security group or firewall");
+    expect(text).toContain("create the owner account");
+    expect(text).not.toContain("private IP");
+  });
+
+  it("says to use the public IP when the detected address is private", () => {
+    const text = installSummary({
+      publicUrl: "http://10.0.0.107:28517",
+      setupToken: "st_token",
+      listen: "0.0.0.0",
+      port: 28517,
+      root: "/opt/unpanel",
+    });
+    expect(text).toContain("private IP");
+    expect(text).toContain("public IP");
   });
 });

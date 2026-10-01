@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.4] - 2026-10-02
+
+### Changed
+
+- After install, the script prints the next steps in order: allow the panel's TCP port on the server and at the server provider, open the setup address and create the owner account, then sign in later without the token. A private address tells you to use the machine's public IP.
+
 ## [0.1.0-alpha.3] - 2026-10-02
 
 ### Fixed

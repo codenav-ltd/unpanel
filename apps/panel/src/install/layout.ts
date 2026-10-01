@@ -220,32 +220,71 @@ export function installSummary(input: {
   root: string;
 }): string {
   const open = input.setupToken ? `${input.publicUrl}/?token=${input.setupToken}` : input.publicUrl;
-  const lines = ["Unpanel is running.", "", `Open: ${open}`, ""];
-  if (input.setupToken) {
+  const published = input.listen === "0.0.0.0" || input.listen === "::";
+  const lines = ["Unpanel is running.", "", "Do these steps in order.", ""];
+  if (published) {
     lines.push(
-      "That token works once, while the owner account does not exist yet.",
-      `Root can read it from ${product.paths.lib}/setup-token until then.`,
+      `1. Allow inbound TCP port ${input.port}.`,
+      "   The installer does not change any firewall.",
+      "   On the server, if ufw or firewalld is enabled:",
+      `     sudo ufw allow ${input.port}/tcp`,
+      `     sudo firewall-cmd --permanent --add-port=${input.port}/tcp && sudo firewall-cmd --reload`,
+      "   At your server provider, allow the same TCP port in the security group or firewall.",
       "",
     );
   }
-  lines.push(
-    "The page is HTTP. Keep this port on a network you trust.",
-    `Listening on ${input.listen}:${input.port}.`,
-  );
-  if (input.listen === "0.0.0.0" || input.listen === "::") {
+  const step = published ? 2 : 1;
+  if (input.setupToken) {
     lines.push(
-      `ufw: sudo ufw allow ${input.port}/tcp`,
-      `firewalld: sudo firewall-cmd --permanent --add-port=${input.port}/tcp && sudo firewall-cmd --reload`,
+      `${step}. Open this address and create the owner account. You will set a password and TOTP:`,
+      `   ${open}`,
+      "   The token works once. After the account exists, that link stops working.",
+      `   Until then, root can read the token from ${product.paths.lib}/setup-token.`,
     );
+    if (privateAddress(input.publicUrl)) {
+      lines.push(
+        "   That address is a private IP. From another network, use this machine's public IP with the same port.",
+      );
+    }
+    lines.push(
+      "   The page is HTTP. Use it on a network you trust.",
+      "",
+      `${step + 1}. Sign in later at the same address, without the token.`,
+    );
+  } else {
+    lines.push(`${step}. Open the panel and sign in:`, `   ${open}`);
   }
   lines.push(
     "",
-    "There is no signed package. A newer release is installed with:",
-    `  sudo bash ${input.root}/scripts/update.sh`,
-    "Logs: journalctl -u unpanel -u unpanel-agent -f",
+    "Afterwards:",
+    `  Update: sudo bash ${input.root}/scripts/update.sh`,
+    "  Logs: journalctl -u unpanel -u unpanel-agent -f",
     "",
   );
   return lines.join("\n");
+}
+
+/** True when the printed address is only reachable on this machine's own network. */
+function privateAddress(publicUrl: string): boolean {
+  let host: string;
+  try {
+    host = new URL(publicUrl).hostname;
+  } catch {
+    return false;
+  }
+  if (host === "localhost" || host.endsWith(".local")) return true;
+  const v4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host);
+  if (!v4) {
+    const lower = host.toLowerCase();
+    return lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80:");
+  }
+  const a = Number(v4[1] ?? 0);
+  const b = Number(v4[2] ?? 0);
+  if (a === 10 || a === 127 || a === 0) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  return false;
 }
 
 function tsx(plan: InstallPlan): string {

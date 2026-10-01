@@ -2,7 +2,7 @@
 
 **The server panel that doesn't act like one.** Simple, modern, and lightweight: one web UI for the load, alerts, containers, processes, sites, and certificates of all your servers — without turning any of them into a "panel server".
 
-> **Status: 0.1.0-alpha.3 pre-alpha.** First-run setup creates the owner account with a password and TOTP. After sign-in, the panel shows the local host and can enroll more nodes. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
+> **Status: 0.1.0-alpha.4 pre-alpha.** First-run setup creates the owner account with a password and TOTP. After sign-in, the panel shows the local host and can enroll more nodes. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
 
 ## Install
 
@@ -12,7 +12,7 @@ One command on Linux with systemd. Node.js 24 must be installed for the account 
 curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 ```
 
-That clones this version into `/opt/unpanel`, builds the web UI, and starts the panel and the local agent. It prints the address to open. The page is HTTP; keep the port on a network you trust. Pass `--public-url` only when the detected address is wrong.
+That clones this version into `/opt/unpanel`, builds the web UI, and starts the panel and the local agent. It then prints what to do next: allow the panel's TCP port at your server provider and, if enabled, in ufw or firewalld, then open the printed address and create the owner account. The page is HTTP. Pass `--public-url` when the detected address is a private IP or otherwise wrong.
 
 A later release is installed with `sudo bash /opt/unpanel/scripts/update.sh`. If the new process does not come up, the previous version is restored. The database stays in place.
 
