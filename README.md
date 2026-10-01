@@ -2,14 +2,14 @@
 
 **The server panel that doesn't act like one.** Simple, modern, and lightweight: one web UI for the load, alerts, containers, processes, sites, and certificates of all your servers — without turning any of them into a "panel server".
 
-> **Status: 0.1.0-alpha.0 pre-alpha.** First-run setup creates the owner account with a password and TOTP. After sign-in, the panel shows the local host and can enroll more nodes. The design and knowledge base live in [`docs/`](./docs/README.md).
+> **Status: 0.1.0-alpha.1 pre-alpha.** First-run setup creates the owner account with a password and TOTP. After sign-in, the panel shows the local host and can enroll more nodes. The design and knowledge base live in [`docs/`](./docs/README.md).
 
 ## Install
 
-One command on Linux with systemd. Node.js 24 must be on root's PATH (not a copy under a home directory):
+One command on Linux with systemd. Node.js 24 must be installed for the account that runs sudo. A copy under that account's home directory is fine; root's older system Node is ignored:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/codenav-ltd/unpanel/v0.1.0-alpha.0/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/codenav-ltd/unpanel/v0.1.0-alpha.1/scripts/install.sh | sudo bash
 ```
 
 That clones this version into `/opt/unpanel`, builds the web UI, and starts the panel and the local agent. It prints the address to open. The page is HTTP; keep the port on a network you trust. Pass `--public-url` only when the detected address is wrong.

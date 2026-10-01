@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.1] - 2026-10-02
+
+### Fixed
+
+- `curl | sudo bash` no longer insists on root's `node`. sudo resets PATH, so Ubuntu's Node 18 was selected instead of the Node 24 belonging to the account that ran sudo. A Node 24 that lives under a home directory is copied to `/usr/local/lib/unpanel-node` so the systemd service can run it.
+
 ## [0.1.0-alpha.0] - 2026-10-02
 
 First pre-alpha. One command installs this version on Linux. There is no signed package yet.

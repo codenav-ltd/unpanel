@@ -2,11 +2,13 @@
 
 > Status: Draft · Related ADRs: [0003](../adr/0003-unprivileged-panel-local-agent.md), [0010](../adr/0010-https-by-default.md) · Release process: [kb/release-process.md](../kb/release-process.md)
 
-**Shipped now (0.1.0-alpha.0 pre-alpha).** There is no release tarball and no `unpanel.codenav.dev` installer. One command clones the pinned tag, builds it, and starts it:
+**Shipped now (0.1.0-alpha.1 pre-alpha).** There is no release tarball and no `unpanel.codenav.dev` installer. One command clones the pinned tag, builds it, and starts it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/codenav-ltd/unpanel/v0.1.0-alpha.0/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/codenav-ltd/unpanel/v0.1.0-alpha.1/scripts/install.sh | sudo bash
 ```
+
+`sudo` does not keep the caller's PATH. If root would otherwise see an older system Node, the script uses the Node 24 from the account that ran sudo, and copies a home-directory install to `/usr/local/lib/unpanel-node` so systemd can run it.
 
 `install.sh` creates the `unpanel` user and the panel and agent keys, and starts `unpanel.service` (unprivileged) and `unpanel-agent.service` (root, local socket). The panel serves the built UI and the API on one port over HTTP. The public origin is detected; `--public-url` overrides it. `update.sh` moves a tag install to a newer release tag, or fast-forwards a branch checkout. If the new process does not answer `GET /api/v1/health`, the previous version is restored and restarted. The database is kept either way. Signed packages, the guard timer, and HTTPS in the sections below are not built yet.
 

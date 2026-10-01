@@ -3,11 +3,11 @@
 # Copyright (C) 2026 CodeNav Ltd and contributors
 
 # One command installs this pre-alpha. There is no signed release package.
-#   curl -fsSL https://raw.githubusercontent.com/codenav-ltd/unpanel/v0.1.0-alpha.0/scripts/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/codenav-ltd/unpanel/v0.1.0-alpha.1/scripts/install.sh | sudo bash
 set -eu
 
 REPO="https://github.com/codenav-ltd/unpanel.git"
-REF="v0.1.0-alpha.0"
+REF="v0.1.0-alpha.1"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -36,34 +36,34 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 # Piped into a shell, $0 is the shell. Clone the pinned version and run that copy.
+# An older checkout at PREFIX is moved to this tag first, so a failed install
+# does not keep running the previous script.
 script_name=$(basename -- "$0" 2>/dev/null || printf '%s' "")
 if [ "$script_name" != "install.sh" ] || [ ! -f "$0" ]; then
-  if [ -f "$PREFIX/scripts/install.sh" ] && [ -d "$PREFIX/.git" ]; then
-    exec bash "$PREFIX/scripts/install.sh" "$@"
-  fi
-  if [ -e "$PREFIX" ]; then
+  if [ -d "$PREFIX/.git" ]; then
+    git -C "$PREFIX" fetch --depth 1 origin "refs/tags/${REF}:refs/tags/${REF}"
+    git -C "$PREFIX" checkout --detach "$REF"
+  elif [ -e "$PREFIX" ]; then
     echo "$PREFIX already exists and is not an Unpanel checkout." >&2
     exit 1
+  else
+    git clone --depth 1 --branch "$REF" "$REPO" "$PREFIX"
   fi
-  git clone --depth 1 --branch "$REF" "$REPO" "$PREFIX"
   exec bash "$PREFIX/scripts/install.sh" "$@"
-fi
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "Install Node.js 24 or newer on root's PATH (for example under /usr/local), then run this again." >&2
-  exit 1
-fi
-if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0 : 1)'; then
-  echo "Node.js 24 or newer is required. This machine has $(node -v)." >&2
-  exit 1
-fi
-if ! command -v corepack >/dev/null 2>&1; then
-  echo "corepack is required. It ships with Node.js 24." >&2
-  exit 1
 fi
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+# shellcheck source=node.sh
+. "$ROOT/scripts/node.sh"
+NODE=$(discover_node)
+NODE=$(stage_node "$NODE")
+export PATH="$(dirname "$NODE"):$PATH"
+
+if ! command -v corepack >/dev/null 2>&1; then
+  echo "corepack is missing from $NODE. Node.js 24 includes it." >&2
+  exit 1
+fi
 if [ ! -f "$ROOT/pnpm-lock.yaml" ]; then
   echo "This checkout is incomplete." >&2
   exit 1
@@ -108,4 +108,4 @@ if [ ! -f "$TSX" ]; then
   echo "tsx is missing at $TSX" >&2
   exit 1
 fi
-exec node "$TSX" "$ROOT/apps/panel/src/install/cli.ts" install "$@"
+exec "$NODE" "$TSX" "$ROOT/apps/panel/src/install/cli.ts" install "$@"

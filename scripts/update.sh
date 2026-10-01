@@ -17,21 +17,22 @@ if ! command -v systemctl >/dev/null 2>&1; then
   echo "systemd is required (systemctl was not found)." >&2
   exit 1
 fi
-if ! command -v node >/dev/null 2>&1; then
-  echo "Node.js 24 or newer must be on root's PATH." >&2
-  exit 1
-fi
 if ! command -v git >/dev/null 2>&1; then
   echo "git is required." >&2
-  exit 1
-fi
-if ! command -v corepack >/dev/null 2>&1; then
-  echo "corepack is required. It ships with Node.js 24." >&2
   exit 1
 fi
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+# shellcheck source=node.sh
+. "$ROOT/scripts/node.sh"
+NODE=$(discover_node)
+NODE=$(stage_node "$NODE")
+export PATH="$(dirname "$NODE"):$PATH"
+if ! command -v corepack >/dev/null 2>&1; then
+  echo "corepack is missing from $NODE. Node.js 24 includes it." >&2
+  exit 1
+fi
 TSX="$ROOT/node_modules/tsx/dist/cli.mjs"
 if [ ! -f "$TSX" ]; then
   echo "Dependencies are missing. Run scripts/install.sh first." >&2
@@ -40,4 +41,4 @@ fi
 
 corepack enable
 corepack prepare pnpm@10.30.1 --activate
-exec node "$TSX" "$ROOT/apps/panel/src/install/cli.ts" update
+exec "$NODE" "$TSX" "$ROOT/apps/panel/src/install/cli.ts" update

@@ -5,7 +5,7 @@
 export const product = {
   name: "Unpanel",
   tagline: "The server panel that doesn't act like one.",
-  version: "0.1.0-alpha.0",
+  version: "0.1.0-alpha.1",
   license: "AGPL-3.0-or-later",
   sourceUrl: "https://github.com/codenav-ltd/unpanel",
   bin: "unpanel",
