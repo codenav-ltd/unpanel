@@ -6,7 +6,8 @@ export const en = {
   shell: {
     connecting: "Connecting to the local node…",
     offline: "The local node is offline.",
-    requestFailed: "Could not reach the panel.",
+    requestFailed:
+      "Could not reach the panel. Nothing was changed. Reload this page and try again.",
     copyFailed: "Could not copy. Select the text and copy it yourself.",
     railLabel: "CPU, last 10 minutes",
     railEmpty: "No samples yet",
@@ -22,8 +23,14 @@ export const en = {
     lastHour: "Last hour",
     lastDay: "24 hours",
     lastWeek: "7 days",
-    historyHint: "Minute averages. Gaps are omitted, not drawn as zero.",
+    historyHint:
+      "Each point is one minute. A gap is a minute with no reading, and it is not drawn as zero. Move across the chart to read that minute.",
     historyFailed: "Could not load history.",
+    historyGap: "No reading for this minute.",
+    historyHover: "Move across the chart to read a minute.",
+    historyEmpty: "No readings in this window.",
+    unknownPage:
+      "That address is not a page in this version. Opened the overview. Nothing was changed.",
     restart: "Restart",
     stop: "Stop",
     logs: "Logs",
@@ -115,6 +122,11 @@ export const en = {
     addNodeCard: "Enroll another server",
     addNodeHint:
       "Name the server you are adding. The address below is this panel, the one open in this browser. The new server connects to it.",
+    addNodeStepName: "Name the new server. Tags are optional.",
+    addNodeStepAddress:
+      "Confirm the address of this panel. It is filled in from Settings. Do not put the new server's IP here.",
+    addNodeStepScript:
+      "Create the node, then paste the script on the new server. A failure stays in that terminal and names the address it tried.",
     installChoice: "How this server gets the agent",
     installReady: "Already installed",
     installFresh: "Not installed",
@@ -188,6 +200,49 @@ export const en = {
       "The panel is restarting. Reload this page in a moment. If the new version does not come up, the previous one is restored.",
     updateCheck: "Check again",
     updateFailed: "Could not check for updates.",
+    updateReview: "Review",
+    updateScope:
+      "Update replaces this panel and the agent on this machine. A remote node keeps the package it installed until you run its install command again. Automatic install stays off until you turn it on here.",
+    updateBannerAuto:
+      "Version {version} is available. Automatic install is on, so this panel will download it and restart. If it does not come back, the previous version is restored.",
+    pollLabel: "Dashboard refresh",
+    pollHint:
+      "How often this page asks the panel for new numbers. The choice is saved on the panel.",
+    pollSec: "{seconds} seconds",
+    historyLabel: "History kept",
+    historyKeepHint: "Minute readings older than this are deleted. 1 day, 7 days, or 30 days.",
+    historyDays: "{days} days",
+    updateEvery: "Update check",
+    updateEveryHint:
+      "How often this page looks for a release. Manual checks when you sign in, when you open About, and when you press Check again. A newer version is shown on the overview. It is not installed unless automatic install is on.",
+    updateManual: "Manual",
+    updateHour: "Every hour",
+    updateHours: "Every {hours} hours",
+    autoUpdate: "Install updates automatically",
+    autoUpdateHint:
+      "Off by default. When on, this machine downloads a newer release and restarts the panel. A remote agent is not updated. If the new version does not answer, the previous directory is put back.",
+    httpsTitle: "HTTPS",
+    httpsHint:
+      "Automatic certificates are not issued in this version, including for a bare IP. Nothing on this page changes the listen port or requests a certificate. Use the address above as the panel is actually reached, including http:// when that is what it serves.",
+    loginProtection: "Failed sign-in",
+    loginProtectionHint:
+      "Five wrong passwords for one username are slowed down. Ten failures from the same address block that address for 15 minutes. Other addresses can still sign in. The whole panel is never locked. Cloudflare Turnstile is not connected.",
+    swapTitle: "Swap",
+    swapHave:
+      "This machine already has swap ({size}). The panel does not replace it, so there is no button to add another file.",
+    swapOffer:
+      "No swap is active. Creating one writes a file at /var/lib/unpanel-swap/swapfile, turns it on, and adds it to /etc/fstab. Pick 1, 2, 4, or 8 GiB. The root agent does this. One GiB is left free on purpose.",
+    swapLinuxOnly:
+      "Swap files are created on Linux. This host reported {os}, so nothing can be created here.",
+    swapCreate: "Create swap file",
+    swapCreating: "Creating the swap file…",
+    swapCreated: "Swap is on. The next reading should show it. Refresh if the number stays empty.",
+    swapSize: "Size",
+    agentVersion: "Agent",
+    agentBehind:
+      "This node reports agent {agent}. This panel is {panel}. Updating the panel does not change a remote agent. Run that server's install command again.",
+    agentUnknown:
+      "This agent did not report its version. It is older than this panel, or it has not connected yet.",
     publicUrl: "Panel address",
     publicUrlHint:
       "The address of this panel. Other servers use it to enroll and connect. Include the scheme and port. The listen address stays in the config file.",
@@ -221,6 +276,7 @@ export const en = {
       "panel.restart": "Panel restart",
       "panel.stop": "Panel stop",
       "panel.update": "Panel update",
+      "host.swap": "Swap file created",
       "panel.backup.export": "Panel backup exported",
       "panel.backup.restore": "Panel restore staged",
       "node.create": "Node added",
@@ -255,6 +311,11 @@ export const en = {
     backups: "Backups",
     settings: "Settings",
     later: "Not built yet",
+    laterDetail: "This screen is not in this version. Nothing was opened and nothing was changed.",
+    laterAlerts:
+      "Mail and Telegram alerts are not in this version. Nothing is sent, and no address was saved.",
+    laterCertificates:
+      "Certificate issuance is not in this version. No certificate was requested and the listen address was not changed.",
     openMenu: "Open menu",
     closeMenu: "Close menu",
   },

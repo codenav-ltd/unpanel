@@ -189,6 +189,7 @@ const items: Item[] = [
 ];
 
 const drawer = ref(false);
+const laterNote = ref("");
 const nodesOpen = ref(true);
 const nodeItems = computed(() => items.filter((item) => item.group === "node"));
 const globalItems = computed(() => items.filter((item) => item.group === "global"));
@@ -229,7 +230,13 @@ function onMenu(event: MouseEvent, id: string): void {
 }
 
 function onItem(item: Item): void {
-  if (!item.enabled) return;
+  if (!item.enabled) {
+    if (item.id === "alerts") laterNote.value = en.nav.laterAlerts;
+    else if (item.id === "certificates") laterNote.value = en.nav.laterCertificates;
+    else laterNote.value = `${item.label}. ${en.nav.laterDetail}`;
+    return;
+  }
+  laterNote.value = "";
   if (item.id === "dashboard" || item.id === "host" || item.id === "settings") {
     go(item.id);
   }
@@ -335,6 +342,7 @@ function onItem(item: Item): void {
         <component :is="item.icon" aria-hidden="true" />
         <span>{{ item.label }}</span>
       </button>
+      <p v-if="laterNote" class="nav-note" role="status">{{ laterNote }}</p>
     </nav>
     <div class="sider-utility">
       <button class="nav-item" type="button" :disabled="pending" @click="emit('signOut')">

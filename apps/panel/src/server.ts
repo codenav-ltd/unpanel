@@ -38,9 +38,12 @@ export async function startPanel(options: {
     setupToken: data.readSetupToken,
     clearSetupToken: data.clearSetupToken,
   });
-  const history = createHistory(data.db);
   const settings = createSettings(data.db);
   seedPublicUrl(settings, options.publicUrl);
+  const history = createHistory(
+    data.db,
+    () => settings.view().ops.historyDays * 24 * 60 * 60 * 1000,
+  );
   if (options.webRoot && !existsSync(join(options.webRoot, "index.html"))) {
     throw new Error(`The web build is missing index.html (${options.webRoot}).`);
   }
@@ -74,12 +77,14 @@ export async function startPanel(options: {
     },
   });
   const secureCookie = options.secureCookie ?? false;
+  let armUpdateWatch = (): void => undefined;
   const app = createApi({
     auth,
     audit,
     snapshot: (nodeId) => hub.observe(nodeId),
     live: () => hub.live(),
     control: (nodeId, action) => hub.control(nodeId, action),
+    configureSwap: (nodeId, sizeGib) => hub.configureSwap(nodeId, sizeGib),
     disconnect: (nodeId, code) => hub.disconnect(nodeId, code),
     exportDb: (dest) => exportPanelDb(data.db, dest),
     stageRestore: (bytes) => stageRestore(options.dataDir, bytes),
@@ -109,6 +114,7 @@ export async function startPanel(options: {
       });
       return { accepted: true as const, version: result.version };
     },
+    onSettings: () => armUpdateWatch(),
   });
   const onRequest = handleHttp(app, options.webRoot);
 
@@ -135,10 +141,45 @@ export async function startPanel(options: {
   const address = api.address();
   const actualPort = typeof address === "object" && address ? address.port : port;
 
+  let updateTimer: ReturnType<typeof setInterval> | undefined;
+  armUpdateWatch = (): void => {
+    if (updateTimer) clearInterval(updateTimer);
+    updateTimer = undefined;
+    const hours = settings.view().ops.updateHours;
+    if (hours <= 0) return;
+    updateTimer = setInterval(
+      () => {
+        void runAutoUpdate();
+      },
+      hours * 60 * 60 * 1000,
+    );
+    updateTimer.unref();
+  };
+  const runAutoUpdate = async (): Promise<void> => {
+    const ops = settings.view().ops;
+    if (!ops.autoUpdate) return;
+    try {
+      const release = await releaseToApply({
+        current: product.version,
+        manifestUrl: product.updatesUrl,
+        sourceUrl: product.sourceUrl,
+      });
+      await hub.upgrade("local", {
+        version: release.version,
+        url: release.url,
+        sha256: release.sha256,
+      });
+    } catch {
+      // The next interval tries again. About still explains a check that fails.
+    }
+  };
+  armUpdateWatch();
+
   return {
     port: actualPort,
     setupToken: data.readSetupToken(),
     async close() {
+      if (updateTimer) clearInterval(updateTimer);
       hub.close();
       for (const socket of sockets) socket.close();
       await closeServer(api);

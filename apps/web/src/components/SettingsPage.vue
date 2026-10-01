@@ -6,14 +6,31 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 import { product } from "@unpanel/shared";
 import { computed, onMounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
+import { couldNotReach, readProblem } from "../http-error.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 
-const props = defineProps<{ username: string; theme: ThemeName; publicUrl: string }>();
-const emit = defineEmits<{ theme: [ThemeName]; publicUrl: [string] }>();
+export interface PanelOps {
+  pollSec: 2 | 5 | 10 | 30;
+  historyDays: 1 | 7 | 30;
+  updateHours: 0 | 1 | 6 | 24;
+  autoUpdate: boolean;
+}
+
+const props = defineProps<{
+  username: string;
+  theme: ThemeName;
+  publicUrl: string;
+  section: "panel" | "security" | "about";
+  ops: PanelOps;
+}>();
+const emit = defineEmits<{
+  theme: [ThemeName];
+  publicUrl: [string];
+  section: ["panel" | "security" | "about"];
+  ops: [PanelOps];
+}>();
 
 type Section = "panel" | "security" | "about";
-
-const section = ref<Section>("panel");
 const sections: { id: Section; label: string }[] = [
   { id: "panel", label: en.settings.panel },
   { id: "security", label: en.settings.security },
@@ -22,6 +39,12 @@ const sections: { id: Section; label: string }[] = [
 
 const theme = ref<ThemeName>(props.theme);
 const publicUrl = ref(props.publicUrl);
+const pollSec = ref<PanelOps["pollSec"]>(props.ops.pollSec);
+const historyDays = ref<PanelOps["historyDays"]>(props.ops.historyDays);
+const updateHours = ref<PanelOps["updateHours"]>(props.ops.updateHours);
+const autoUpdate = ref(props.ops.autoUpdate);
+const opsNote = ref("");
+const opsError = ref("");
 const current = ref("");
 const next = ref("");
 const busy = ref("");
@@ -63,6 +86,16 @@ watch(
   },
 );
 
+watch(
+  () => props.ops,
+  (next) => {
+    pollSec.value = next.pollSec;
+    historyDays.value = next.historyDays;
+    updateHours.value = next.updateHours;
+    autoUpdate.value = next.autoUpdate;
+  },
+);
+
 async function saveTheme(nextTheme: ThemeName): Promise<void> {
   theme.value = nextTheme;
   applyTheme(nextTheme);
@@ -77,7 +110,48 @@ async function saveTheme(nextTheme: ThemeName): Promise<void> {
     if (!response.ok) throw new Error(String(response.status));
     themeNote.value = en.shell.saved;
   } catch {
-    themeNote.value = en.shell.requestFailed;
+    themeNote.value = couldNotReach("save the theme");
+  }
+}
+
+function restoreOps(): void {
+  pollSec.value = props.ops.pollSec;
+  historyDays.value = props.ops.historyDays;
+  updateHours.value = props.ops.updateHours;
+  autoUpdate.value = props.ops.autoUpdate;
+}
+
+async function saveOps(): Promise<void> {
+  if (busy.value) return;
+  busy.value = "ops";
+  opsError.value = "";
+  opsNote.value = "";
+  try {
+    const response = await fetch("/api/v1/settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ops: {
+          pollSec: pollSec.value,
+          historyDays: historyDays.value,
+          updateHours: updateHours.value,
+          autoUpdate: autoUpdate.value,
+        },
+      }),
+    });
+    if (!response.ok) {
+      opsError.value = await readProblem(response, "save these settings");
+      restoreOps();
+      return;
+    }
+    const body = (await response.json()) as { data: { ops: PanelOps } };
+    emit("ops", body.data.ops);
+    opsNote.value = en.shell.saved;
+  } catch {
+    opsError.value = couldNotReach("save these settings");
+    restoreOps();
+  } finally {
+    busy.value = "";
   }
 }
 
@@ -93,8 +167,7 @@ async function savePublicUrl(): Promise<void> {
       body: JSON.stringify({ publicUrl: publicUrl.value }),
     });
     if (!response.ok) {
-      const body = (await response.json()) as { error?: { message?: string } };
-      urlError.value = body.error?.message ?? en.auth.invalidResponse;
+      urlError.value = await readProblem(response, "save the panel address");
       return;
     }
     const body = (await response.json()) as { data: { publicUrl: string } };
@@ -102,7 +175,7 @@ async function savePublicUrl(): Promise<void> {
     emit("publicUrl", body.data.publicUrl);
     urlNote.value = en.shell.saved;
   } catch {
-    urlError.value = en.shell.requestFailed;
+    urlError.value = couldNotReach("save the panel address");
   } finally {
     busy.value = "";
   }
@@ -120,15 +193,14 @@ async function savePassword(): Promise<void> {
       body: JSON.stringify({ current: current.value, next: next.value }),
     });
     if (!response.ok) {
-      const body = (await response.json()) as { error?: { message?: string } };
-      passwordError.value = body.error?.message ?? en.auth.invalidResponse;
+      passwordError.value = await readProblem(response, "change the password");
       return;
     }
     current.value = "";
     next.value = "";
     passwordNote.value = en.shell.passwordChanged;
   } catch {
-    passwordError.value = en.shell.requestFailed;
+    passwordError.value = couldNotReach("change the password");
   } finally {
     busy.value = "";
   }
@@ -141,7 +213,11 @@ async function checkUpdates(): Promise<void> {
   updateNotes.value = "";
   try {
     const response = await fetch("/api/v1/updates");
-    if (!response.ok) throw new Error(String(response.status));
+    if (!response.ok) {
+      updateState.value = "error";
+      updateError.value = await readProblem(response, "check for updates");
+      return;
+    }
     const body = (await response.json()) as {
       data?: {
         update?: { version?: string; notes?: string } | null;
@@ -162,7 +238,7 @@ async function checkUpdates(): Promise<void> {
     updateState.value = "current";
   } catch {
     updateState.value = "error";
-    updateError.value = en.shell.updateFailed;
+    updateError.value = couldNotReach("check for updates");
   }
 }
 
@@ -173,15 +249,14 @@ async function applyUpdate(): Promise<void> {
   try {
     const response = await fetch("/api/v1/updates", { method: "POST" });
     if (!response.ok) {
-      const body = (await response.json()) as { error?: { message?: string } };
       updateState.value = "error";
-      updateError.value = body.error?.message ?? en.shell.updateFailed;
+      updateError.value = await readProblem(response, "install the update");
       return;
     }
     updateState.value = "started";
   } catch {
     updateState.value = "error";
-    updateError.value = en.shell.requestFailed;
+    updateError.value = couldNotReach("install the update");
   }
 }
 
@@ -199,7 +274,7 @@ onMounted(() => {
         class="settings-tab"
         type="button"
         :aria-current="section === item.id ? 'true' : undefined"
-        @click="section = item.id"
+        @click="emit('section', item.id)"
       >
         {{ item.label }}
       </button>
@@ -245,8 +320,71 @@ onMounted(() => {
           </div>
         </form>
       </section>
+      <section class="wide">
+        <span class="vital-kicker">{{ en.shell.pollLabel }}</span>
+        <p class="hint">{{ en.shell.pollHint }}</p>
+        <form @submit.prevent="saveOps">
+          <label class="field">
+            <span>{{ en.shell.pollLabel }}</span>
+            <select v-model.number="pollSec">
+              <option :value="2">{{ en.shell.pollSec.replace("{seconds}", "2") }}</option>
+              <option :value="5">{{ en.shell.pollSec.replace("{seconds}", "5") }}</option>
+              <option :value="10">{{ en.shell.pollSec.replace("{seconds}", "10") }}</option>
+              <option :value="30">{{ en.shell.pollSec.replace("{seconds}", "30") }}</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>{{ en.shell.historyLabel }}</span>
+            <select v-model.number="historyDays">
+              <option :value="1">{{ en.shell.historyDays.replace("{days}", "1") }}</option>
+              <option :value="7">{{ en.shell.historyDays.replace("{days}", "7") }}</option>
+              <option :value="30">{{ en.shell.historyDays.replace("{days}", "30") }}</option>
+            </select>
+          </label>
+          <p class="hint">{{ en.shell.historyKeepHint }}</p>
+          <label class="field">
+            <span>{{ en.shell.updateEvery }}</span>
+            <select v-model.number="updateHours">
+              <option :value="0">{{ en.shell.updateManual }}</option>
+              <option :value="1">{{ en.shell.updateHour }}</option>
+              <option :value="6">{{ en.shell.updateHours.replace("{hours}", "6") }}</option>
+              <option :value="24">{{ en.shell.updateHours.replace("{hours}", "24") }}</option>
+            </select>
+          </label>
+          <p class="hint">{{ en.shell.updateEveryHint }}</p>
+          <div class="switch-row">
+            <span id="auto-update-label">{{ en.shell.autoUpdate }}</span>
+            <button
+              type="button"
+              class="switch"
+              role="switch"
+              :aria-checked="autoUpdate"
+              aria-labelledby="auto-update-label"
+              @click="autoUpdate = !autoUpdate"
+            >
+              <span class="switch-thumb" />
+            </button>
+          </div>
+          <p class="hint">{{ en.shell.autoUpdateHint }}</p>
+          <p v-if="opsError" class="form-error" role="alert">{{ opsError }}</p>
+          <p v-else-if="opsNote" class="form-warn" role="status">{{ opsNote }}</p>
+          <div class="actions">
+            <button type="submit" :disabled="Boolean(busy)">
+              {{ busy === "ops" ? en.shell.saving : en.shell.save }}
+            </button>
+          </div>
+        </form>
+      </section>
+      <section class="wide">
+        <span class="vital-kicker">{{ en.shell.httpsTitle }}</span>
+        <p class="hint">{{ en.shell.httpsHint }}</p>
+      </section>
     </div>
     <div v-else-if="section === 'security'" class="page-stack">
+      <section class="wide">
+        <span class="vital-kicker">{{ en.shell.loginProtection }}</span>
+        <p class="hint">{{ en.shell.loginProtectionHint }}</p>
+      </section>
       <section class="wide">
         <span class="vital-kicker">{{ en.shell.account }}</span>
         <p class="hint">{{ username }}</p>
@@ -315,6 +453,7 @@ onMounted(() => {
           <template v-else-if="updateState === 'started'">{{ en.shell.updateStarted }}</template>
           <template v-else>{{ updateError }}</template>
         </p>
+        <p class="hint">{{ en.shell.updateScope }}</p>
         <p v-if="updateNotes" class="hint">{{ updateNotes }}</p>
         <div class="actions">
           <button v-if="updateState === 'available'" type="button" @click="applyUpdate">

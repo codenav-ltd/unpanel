@@ -11,6 +11,7 @@ import {
   encodeTextFrame,
   HANDSHAKE_TIMEOUT_MS,
   httpStatusFor,
+  hostSwap,
   panelRestart,
   panelStop,
   panelUpgrade,
@@ -25,6 +26,7 @@ import {
   type HostInfo,
   type PanelUpgradeResult,
   type ServiceControlResult,
+  type SwapResult,
   type TextFrame,
 } from "@unpanel/protocol";
 import { liveSampleMs } from "@unpanel/shared";
@@ -93,6 +95,7 @@ export interface NodeLive {
   tcpCount: number | null;
   udpCount: number | null;
   uptime: number | null;
+  agentVersion: string | null;
 }
 
 export function blankNodeLive(id: string): NodeLive {
@@ -123,6 +126,7 @@ export function blankNodeLive(id: string): NodeLive {
     tcpCount: null,
     udpCount: null,
     uptime: null,
+    agentVersion: null,
   };
 }
 
@@ -150,6 +154,11 @@ type Pending =
       kind: "upgrade";
       resolve: (value: PanelUpgradeResult) => void;
       reject: (error: HubCallError) => void;
+    }
+  | {
+      kind: "swap";
+      resolve: (value: SwapResult) => void;
+      reject: (error: HubCallError) => void;
     };
 
 interface Link {
@@ -173,7 +182,13 @@ interface Link {
   pending: Map<number, Pending>;
 }
 
-const emptyHistory = (): HistorySeries => ({ cpu: [], mem: [], disk: [] });
+const emptyHistory = (): HistorySeries => ({
+  start: 0,
+  stepMs: 60_000,
+  cpu: [],
+  mem: [],
+  disk: [],
+});
 
 export function createHub(options: {
   panelKey: KeyObject;
@@ -189,6 +204,7 @@ export function createHub(options: {
   observe: (nodeId: string) => LocalSnapshot;
   live: () => NodeLive[];
   control: (nodeId: string, action: "restart" | "stop") => Promise<ServiceControlResult>;
+  configureSwap: (nodeId: string, sizeGib: 1 | 2 | 4 | 8) => Promise<SwapResult>;
   upgrade: (
     nodeId: string,
     release: { version: string; url: string; sha256: string },
@@ -290,7 +306,9 @@ export function createHub(options: {
 
   function dropPending(link: Link, error: HubCallError): void {
     for (const wait of link.pending.values()) {
-      if (wait.kind === "control" || wait.kind === "upgrade") wait.reject(error);
+      if (wait.kind === "control" || wait.kind === "upgrade" || wait.kind === "swap") {
+        wait.reject(error);
+      }
     }
     link.pending.clear();
   }
@@ -333,6 +351,49 @@ export function createHub(options: {
       if (id === null) {
         clearTimeout(timer);
         reject(new HubCallError("E_NODE_OFFLINE", "The node is offline."));
+      }
+    });
+  }
+
+  function configureSwap(nodeId: string, sizeGib: 1 | 2 | 4 | 8): Promise<SwapResult> {
+    const link = links.get(nodeId);
+    if (!link?.socket || link.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(
+        new HubCallError("E_NODE_OFFLINE", "The node is offline. Swap was not changed."),
+      );
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (id !== null && link.pending.get(id)?.kind === "swap") {
+          link.pending.delete(id);
+          reject(
+            new HubCallError(
+              "E_TIMEOUT",
+              "The agent did not answer. It may be an older version that cannot configure swap. Check that machine before trying again. This panel did not confirm a swap file.",
+            ),
+          );
+        }
+      }, hostSwap.timeoutMs);
+      const id = request(
+        link,
+        hostSwap.name,
+        hostSwap.timeoutMs,
+        {
+          kind: "swap",
+          resolve: (value) => {
+            clearTimeout(timer);
+            resolve(value);
+          },
+          reject: (error) => {
+            clearTimeout(timer);
+            reject(error);
+          },
+        },
+        { sizeGib },
+      );
+      if (id === null) {
+        clearTimeout(timer);
+        reject(new HubCallError("E_NODE_OFFLINE", "The node is offline. Swap was not changed."));
       }
     });
   }
@@ -515,6 +576,19 @@ export function createHub(options: {
         wait.resolve(parsed.data);
         return;
       }
+      if (wait.kind === "swap") {
+        if (!frame.ok) {
+          wait.reject(new HubCallError(frame.e.code, frame.e.msg));
+          return;
+        }
+        const parsed = hostSwap.result.safeParse(frame.r);
+        if (!parsed.success) {
+          wait.reject(new HubCallError("E_INTERNAL", "swap result did not match the schema"));
+          return;
+        }
+        wait.resolve(parsed.data);
+        return;
+      }
       if (wait.kind === "cpu") {
         link.cpuInflight = false;
         if (!frame.ok) return;
@@ -591,10 +665,12 @@ export function createHub(options: {
           tcpCount: sample?.tcpCount ?? null,
           udpCount: sample?.udpCount ?? null,
           uptime: sample?.uptime ?? null,
+          agentVersion: info?.unpanel ?? null,
         };
       });
     },
     control,
+    configureSwap,
     upgrade,
     disconnect(nodeId, code) {
       const socket = links.get(nodeId)?.socket;

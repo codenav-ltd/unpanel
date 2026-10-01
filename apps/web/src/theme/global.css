@@ -267,6 +267,59 @@ button.history-tab[aria-pressed="true"] {
   margin-top: 14px;
 }
 
+.history-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-tip {
+  min-height: 1.4em;
+  margin: 8px 0 0;
+  color: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.spark-hit {
+  fill: transparent;
+}
+
+.spark-cursor {
+  stroke: var(--text-2);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.hint-steps {
+  margin: 0 0 12px;
+  padding-left: 1.2rem;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.nav-note {
+  margin: 8px 10px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-tint);
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.update-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .page-stack {
   display: grid;
   gap: 12px;
@@ -680,6 +733,7 @@ button.strip-eye svg {
 }
 
 input,
+select,
 textarea.command {
   width: 100%;
   background: var(--raised);
@@ -694,11 +748,13 @@ textarea.command {
 }
 
 input:hover,
+select:hover,
 textarea.command:hover {
   border-color: color-mix(in srgb, var(--line) 70%, var(--text-3));
 }
 
 input:focus-visible,
+select:focus-visible,
 textarea.command:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);

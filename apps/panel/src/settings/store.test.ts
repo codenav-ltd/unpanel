@@ -11,6 +11,7 @@ describe("settings", () => {
     expect(settings.view()).toEqual({
       theme: "dark",
       publicUrl: "",
+      ops: { pollSec: 2, historyDays: 7, updateHours: 6, autoUpdate: false },
       node: { name: "", tags: [], maintenance: false },
     });
   });
@@ -20,11 +21,15 @@ describe("settings", () => {
     settings.setTheme("ultra", "ada");
     settings.setNode({ name: "edge-1", tags: ["prod", "prod", ""], maintenance: true }, "ada");
     settings.setPublicUrl("https://panel.example.com/ui/", "ada");
+    settings.setOps({ pollSec: 10, historyDays: 30, updateHours: 0, autoUpdate: true }, "ada");
     expect(settings.view()).toEqual({
       theme: "ultra",
       publicUrl: "https://panel.example.com",
+      ops: { pollSec: 10, historyDays: 30, updateHours: 0, autoUpdate: true },
       node: { name: "edge-1", tags: ["prod"], maintenance: true },
     });
+    const setOps = settings.setOps as (patch: { pollSec: number }, updatedBy: string) => void;
+    expect(() => setOps({ pollSec: 3 }, "ada")).toThrow(/Nothing was saved/);
     expect(() => settings.setPublicUrl("ftp://panel.example.com", "ada")).toThrow(SettingsError);
   });
 

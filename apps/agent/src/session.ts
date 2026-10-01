@@ -7,12 +7,14 @@ import { WebSocket } from "ws";
 import { product } from "@unpanel/shared";
 import { ControlUnsupported, controlPanel } from "./control.ts";
 import { sampleHost } from "./cpu.ts";
+import { SwapRefused, configureSwap } from "./swap.ts";
 import { performUpgrade } from "./upgrade.ts";
 import {
   authMessage,
   closeCode,
   decodeTextFrame,
   encodeTextFrame,
+  hostSwap,
   panelRestart,
   panelStop,
   panelUpgrade,
@@ -23,9 +25,28 @@ import {
   metricsCpu,
   verifyMessage,
   welcomeMessage,
+  type ErrorCode,
   type HostInfo,
   type TextFrame,
 } from "@unpanel/protocol";
+
+const agentMethods = new Set([
+  systemInfo.name,
+  metricsCpu.name,
+  panelUpgrade.name,
+  panelRestart.name,
+  panelStop.name,
+  hostSwap.name,
+]);
+
+function swapCode(error: SwapRefused): ErrorCode {
+  if (error.message.startsWith("Choose")) return "E_INVALID_PARAMS";
+  if (error.message.includes("already has swap") || error.message.includes("Not enough")) {
+    return "E_CONFLICT";
+  }
+  if (error.message.startsWith("Could not create")) return "E_EXTERNAL";
+  return "E_UNSUPPORTED";
+}
 
 export function connectAgent(options: {
   socketPath?: string;
@@ -148,6 +169,53 @@ export function connectAgent(options: {
               }),
             );
           });
+      }
+      if (frame.t === "req" && frame.m === hostSwap.name) {
+        const parsed = hostSwap.params.safeParse(frame.p);
+        if (!parsed.success) {
+          socket?.send(
+            encodeTextFrame({
+              t: "res",
+              id: frame.id,
+              ok: false,
+              e: {
+                code: "E_INVALID_PARAMS",
+                msg: "Choose 1, 2, 4, or 8 GiB. Nothing was changed.",
+              },
+            }),
+          );
+        } else {
+          void configureSwap(parsed.data.sizeGib)
+            .then((result) => {
+              socket?.send(encodeTextFrame({ t: "res", id: frame.id, ok: true, r: result }));
+            })
+            .catch((error: unknown) => {
+              socket?.send(
+                encodeTextFrame({
+                  t: "res",
+                  id: frame.id,
+                  ok: false,
+                  e: {
+                    code: error instanceof SwapRefused ? swapCode(error) : "E_INTERNAL",
+                    msg: error instanceof Error ? error.message : "swap failed",
+                  },
+                }),
+              );
+            });
+        }
+      }
+      if (frame.t === "req" && !agentMethods.has(frame.m)) {
+        socket?.send(
+          encodeTextFrame({
+            t: "res",
+            id: frame.id,
+            ok: false,
+            e: {
+              code: "E_UNSUPPORTED",
+              msg: `This agent does not handle ${frame.m}. Update the agent on this machine. Nothing was changed.`,
+            },
+          }),
+        );
       }
       if (frame.t === "req" && (frame.m === panelRestart.name || frame.m === panelStop.name)) {
         const action = frame.m === panelRestart.name ? "restart" : "stop";

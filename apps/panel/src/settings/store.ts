@@ -13,11 +13,27 @@ export interface NodePrefs {
   maintenance: boolean;
 }
 
+export const pollChoices = [2, 5, 10, 30] as const;
+export const historyDayChoices = [1, 7, 30] as const;
+export const updateHourChoices = [0, 1, 6, 24] as const;
+
+export interface PanelOps {
+  /** How often an open page asks for new numbers. */
+  pollSec: (typeof pollChoices)[number];
+  /** Minute history older than this is deleted. */
+  historyDays: (typeof historyDayChoices)[number];
+  /** 0 means the page checks only when someone asks. */
+  updateHours: (typeof updateHourChoices)[number];
+  /** Off until an admin turns it on. A remote agent is never updated by this. */
+  autoUpdate: boolean;
+}
+
 export interface SettingsView {
   theme: Theme;
   /** Origin agents use to enroll. Empty until an admin sets it. */
   publicUrl: string;
   node: NodePrefs;
+  ops: PanelOps;
 }
 
 export interface Settings {
@@ -25,6 +41,7 @@ export interface Settings {
   setTheme: (theme: Theme, updatedBy: string) => SettingsView;
   setPublicUrl: (publicUrl: string, updatedBy: string) => SettingsView;
   setNode: (patch: Partial<NodePrefs>, updatedBy: string) => SettingsView;
+  setOps: (patch: Partial<PanelOps>, updatedBy: string) => SettingsView;
 }
 
 const KEY_THEME = "ui.theme";
@@ -32,6 +49,14 @@ const KEY_PUBLIC_URL = "panel.publicUrl";
 const KEY_NODE_NAME = "node.local.name";
 const KEY_NODE_TAGS = "node.local.tags";
 const KEY_NODE_MAINT = "node.local.maintenance";
+const KEY_POLL = "ops.pollSec";
+const KEY_HISTORY = "ops.historyDays";
+const KEY_UPDATE_HOURS = "ops.updateHours";
+const KEY_AUTO_UPDATE = "ops.autoUpdate";
+
+export function defaultOps(): PanelOps {
+  return { pollSec: 2, historyDays: 7, updateHours: 6, autoUpdate: false };
+}
 
 export function createSettings(db: DatabaseSync, now: () => number = Date.now): Settings {
   db.exec(`
@@ -74,6 +99,12 @@ export function createSettings(db: DatabaseSync, now: () => number = Date.now): 
     return {
       theme: isTheme(theme) ? theme : "dark",
       publicUrl: typeof publicUrl === "string" ? publicUrl : "",
+      ops: {
+        pollSec: choice(read(KEY_POLL), pollChoices, 2),
+        historyDays: choice(read(KEY_HISTORY), historyDayChoices, 7),
+        updateHours: choice(read(KEY_UPDATE_HOURS), updateHourChoices, 6),
+        autoUpdate: read(KEY_AUTO_UPDATE) === true,
+      },
       node: {
         name: typeof name === "string" ? name : "",
         tags: Array.isArray(tags)
@@ -110,6 +141,28 @@ export function createSettings(db: DatabaseSync, now: () => number = Date.now): 
       }
       return view();
     },
+    setOps(patch, updatedBy) {
+      if (patch.pollSec !== undefined) {
+        write(KEY_POLL, oneOf(patch.pollSec, pollChoices, "Dashboard refresh"), updatedBy);
+      }
+      if (patch.historyDays !== undefined) {
+        write(KEY_HISTORY, oneOf(patch.historyDays, historyDayChoices, "History kept"), updatedBy);
+      }
+      if (patch.updateHours !== undefined) {
+        write(
+          KEY_UPDATE_HOURS,
+          oneOf(patch.updateHours, updateHourChoices, "Update check"),
+          updatedBy,
+        );
+      }
+      if (patch.autoUpdate !== undefined) {
+        if (typeof patch.autoUpdate !== "boolean") {
+          throw new SettingsError("Automatic install must be on or off. Nothing was saved.");
+        }
+        write(KEY_AUTO_UPDATE, patch.autoUpdate, updatedBy);
+      }
+      return view();
+    },
   };
 }
 
@@ -118,6 +171,17 @@ export class SettingsError extends Error {
     super(message);
     this.name = "SettingsError";
   }
+}
+
+function choice<T extends number>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "number" && allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function oneOf<T extends number>(value: number, allowed: readonly T[], label: string): T {
+  if (!allowed.includes(value as T)) {
+    throw new SettingsError(`${label} must be ${allowed.join(", ")}. Nothing was saved.`);
+  }
+  return value as T;
 }
 
 function isTheme(value: unknown): value is Theme {

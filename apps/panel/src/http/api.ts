@@ -6,7 +6,12 @@ import { readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono, type Context } from "hono";
-import { closeCode, httpStatusFor, type ServiceControlResult } from "@unpanel/protocol";
+import {
+  closeCode,
+  httpStatusFor,
+  type ServiceControlResult,
+  type SwapResult,
+} from "@unpanel/protocol";
 import { product } from "@unpanel/shared";
 import { backupFilename } from "../backup/panel.ts";
 import type { Audit } from "../audit/log.ts";
@@ -15,7 +20,7 @@ import { blankNodeLive, HubCallError, type LocalSnapshot, type NodeLive } from "
 import type { HistorySeries } from "../metrics/history.ts";
 import { enrollmentScripts } from "../nodes/enroll-script.ts";
 import { NodesError, type NodeCatalog, type NodeRecord } from "../nodes/store.ts";
-import { SettingsError, type Settings, type Theme } from "../settings/store.ts";
+import { SettingsError, type PanelOps, type Settings, type Theme } from "../settings/store.ts";
 import { UpdateError, type UpdateView } from "../updates/check.ts";
 
 const AUDIT_PAGE = 100;
@@ -27,6 +32,7 @@ export function createApi(options: {
   snapshot: (nodeId: string) => LocalSnapshot;
   live: () => NodeLive[];
   control: (nodeId: string, action: "restart" | "stop") => Promise<ServiceControlResult>;
+  configureSwap: (nodeId: string, sizeGib: 1 | 2 | 4 | 8) => Promise<SwapResult>;
   exportDb: (dest: string) => Promise<void>;
   stageRestore: (bytes: Uint8Array) => void;
   settings: Settings;
@@ -37,6 +43,7 @@ export function createApi(options: {
   secureCookie: boolean;
   checkUpdate: () => Promise<UpdateView>;
   applyUpdate: () => Promise<{ accepted: true; version: string }>;
+  onSettings?: () => void;
 }): Hono {
   const app = new Hono();
 
@@ -401,6 +408,10 @@ export function createApi(options: {
       if (typeof body["publicUrl"] === "string") {
         options.settings.setPublicUrl(body["publicUrl"], user.username);
       }
+      if (isRecord(body["ops"])) {
+        options.settings.setOps(opsPatch(body["ops"]), user.username);
+        options.onSettings?.();
+      }
     } catch (error) {
       if (error instanceof SettingsError) {
         return c.json({ error: { code: "E_INVALID_PARAMS", message: error.message } }, 400);
@@ -464,6 +475,7 @@ export function createApi(options: {
 
   app.post("/api/v1/nodes/:id/restart", (c) => controlRoute(c, "restart"));
   app.post("/api/v1/nodes/:id/stop", (c) => controlRoute(c, "stop"));
+  app.post("/api/v1/nodes/:id/swap", (c) => swapRoute(c));
 
   app.get("/api/v1/backup/panel", async (c) => {
     const user = options.auth.sessionUser(sessionToken(c));
@@ -634,6 +646,60 @@ export function createApi(options: {
 
   app.notFound((c) => c.json({ error: { code: "E_NOT_FOUND", message: "Not found." } }, 404));
 
+  async function swapRoute(c: Context): Promise<Response> {
+    const user = options.auth.sessionUser(sessionToken(c));
+    if (!user) return unauthenticated(c);
+    const body = await readJson(c);
+    if (!body) return invalid(c);
+    const size = body["sizeGib"];
+    if (size !== 1 && size !== 2 && size !== 4 && size !== 8) {
+      return c.json(
+        {
+          error: {
+            code: "E_INVALID_PARAMS",
+            message: "Choose 1, 2, 4, or 8 GiB. Nothing was changed.",
+          },
+        },
+        400,
+      );
+    }
+    const startedAt = Date.now();
+    const nodeId = c.req.param("id") ?? "";
+    try {
+      const result = await options.configureSwap(nodeId, size);
+      options.audit.record({
+        action: "host.swap",
+        result: "ok",
+        actorKind: "user",
+        actorId: user.username,
+        ip: clientIp(c),
+        nodeId,
+        target: result.path,
+        params: { sizeGib: result.sizeGib },
+        durationMs: Date.now() - startedAt,
+      });
+      return c.json({ data: result });
+    } catch (error) {
+      if (error instanceof HubCallError) {
+        options.audit.record({
+          action: "host.swap",
+          result: "error",
+          actorKind: "user",
+          actorId: user.username,
+          ip: clientIp(c),
+          nodeId,
+          errorCode: error.code,
+          durationMs: Date.now() - startedAt,
+        });
+        return c.json(
+          { error: { code: error.code, message: error.message } },
+          error.status as 400 | 403 | 404 | 409 | 412 | 429 | 500 | 501 | 502 | 503 | 504,
+        );
+      }
+      throw error;
+    }
+  }
+
   async function controlRoute(c: Context, action: "restart" | "stop"): Promise<Response> {
     const user = options.auth.sessionUser(sessionToken(c));
     if (!user) return unauthenticated(c);
@@ -714,6 +780,39 @@ async function readJson(c: Context): Promise<Record<string, unknown> | null> {
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function opsPatch(body: Record<string, unknown>): Partial<PanelOps> {
+  const patch: Partial<PanelOps> = {};
+  if ("pollSec" in body) {
+    if (typeof body["pollSec"] !== "number") {
+      throw new SettingsError("Dashboard refresh must be 2, 5, 10, or 30. Nothing was saved.");
+    }
+    patch.pollSec = body["pollSec"] as PanelOps["pollSec"];
+  }
+  if ("historyDays" in body) {
+    if (typeof body["historyDays"] !== "number") {
+      throw new SettingsError("History kept must be 1, 7, or 30. Nothing was saved.");
+    }
+    patch.historyDays = body["historyDays"] as PanelOps["historyDays"];
+  }
+  if ("updateHours" in body) {
+    if (typeof body["updateHours"] !== "number") {
+      throw new SettingsError("Update check must be 0, 1, 6, or 24. Nothing was saved.");
+    }
+    patch.updateHours = body["updateHours"] as PanelOps["updateHours"];
+  }
+  if ("autoUpdate" in body) {
+    if (typeof body["autoUpdate"] !== "boolean") {
+      throw new SettingsError("Automatic install must be on or off. Nothing was saved.");
+    }
+    patch.autoUpdate = body["autoUpdate"];
+  }
+  return patch;
 }
 
 function field(body: Record<string, unknown>, key: string): string {

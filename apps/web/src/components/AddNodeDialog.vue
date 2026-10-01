@@ -5,6 +5,7 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
+import { couldNotReach, readProblem } from "../http-error.ts";
 import EnrollGuide from "./EnrollGuide.vue";
 
 const props = defineProps<{ publicUrl: string }>();
@@ -49,8 +50,7 @@ async function create(): Promise<void> {
       body: JSON.stringify({ name: name.value, tags, publicUrl: panelAddress.value }),
     });
     if (!response.ok) {
-      const body = (await response.json()) as { error?: { message?: string } };
-      error.value = body.error?.message ?? en.auth.invalidResponse;
+      error.value = await readProblem(response, "add the node");
       return;
     }
     const body = (await response.json()) as {
@@ -61,7 +61,7 @@ async function create(): Promise<void> {
     emit("address", body.data.publicUrl);
     emit("created");
   } catch {
-    error.value = en.shell.requestFailed;
+    error.value = couldNotReach("add the node");
   } finally {
     busy.value = false;
   }
@@ -71,6 +71,11 @@ async function create(): Promise<void> {
 <template>
   <form v-if="!installed" @submit.prevent="create">
     <p class="hint">{{ en.shell.addNodeHint }}</p>
+    <ol class="hint-steps">
+      <li>{{ en.shell.addNodeStepName }}</li>
+      <li>{{ en.shell.addNodeStepAddress }}</li>
+      <li>{{ en.shell.addNodeStepScript }}</li>
+    </ol>
     <label class="field">
       <span>{{ en.shell.displayName }}</span>
       <input v-model="name" maxlength="64" required />

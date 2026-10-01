@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import { hostInfoSchema, type HostInfo } from "@unpanel/protocol";
+import { product } from "@unpanel/shared";
 
 /** Best-effort host facts. Linux reads /etc/os-release; other systems use Node's os module. */
 export function collectHostInfo(): HostInfo {
@@ -24,6 +25,7 @@ export function collectHostInfo(): HostInfo {
     memTotal: os.totalmem(),
     bootTime: Math.max(0, Math.floor(Date.now() / 1000 - os.uptime())),
     tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    unpanel: product.version,
     ips: addresses(),
   };
   return hostInfoSchema.parse(info);

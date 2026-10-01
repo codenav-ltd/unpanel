@@ -29,7 +29,7 @@ import EnrollGuide from "../components/EnrollGuide.vue";
 import NodeMenu from "../components/NodeMenu.vue";
 import NodePage from "../components/NodePage.vue";
 import PulseRail from "../components/PulseRail.vue";
-import SettingsPage from "../components/SettingsPage.vue";
+import SettingsPage, { type PanelOps } from "../components/SettingsPage.vue";
 import ThroughputCard from "../components/ThroughputCard.vue";
 import VitalTile from "../components/VitalTile.vue";
 import { loadCards, saveCards, type CardVisibility } from "../cards.ts";
@@ -41,7 +41,9 @@ import {
 } from "../overview-layout.ts";
 import { formatBytes, formatRate, formatUptime } from "../format.ts";
 import { copyText } from "../copy.ts";
+import { formatPath, parsePath, type SettingsSection } from "./route.ts";
 import { en } from "../i18n/en.ts";
+import { couldNotReach, readProblem } from "../http-error.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 
 interface LocalInfo {
@@ -132,6 +134,7 @@ interface NodeCard {
   tcpCount: number | null;
   udpCount: number | null;
   uptime: number | null;
+  agentVersion: string | null;
   error: string | null;
 }
 
@@ -155,8 +158,14 @@ const authenticatorCode = ref("");
 const recoveryCode = ref("");
 const ticket = ref("");
 const copied = ref(false);
-const page = ref<ShellPage>("overview");
-const nodeId = ref("local");
+const opened = parsePath(globalThis.location?.pathname ?? "/");
+const page = ref<ShellPage>(opened.page);
+const nodeId = ref(opened.nodeId);
+const settingsSection = ref<SettingsSection>(opened.settings);
+const routeNotice = ref(opened.unknown ? en.shell.unknownPage : "");
+const ops = ref<PanelOps>({ pollSec: 2, historyDays: 7, updateHours: 6, autoUpdate: false });
+const pollMs = ref(liveSampleMs);
+const updateOffer = ref("");
 const theme = ref<ThemeName>("dark");
 const publicUrl = ref("");
 const prefs = ref<NodePrefs>({ name: "", tags: [], maintenance: false });
@@ -185,6 +194,8 @@ const panelProcess = ref<{ rss: number; uptime: number } | null>(null);
 const sample = ref<LiveSample | null>(null);
 const detail = ref<string>(en.shell.connecting);
 let timer: ReturnType<typeof setInterval> | undefined;
+let updateTimer: ReturnType<typeof setInterval> | undefined;
+let applyingHistory = false;
 
 async function boot(): Promise<void> {
   error.value = "";
@@ -203,7 +214,7 @@ async function boot(): Promise<void> {
     view.value = body.initialized ? "login" : "setup";
   } catch {
     view.value = "unreachable";
-    error.value = en.shell.requestFailed;
+    error.value = couldNotReach("open this page");
   }
 }
 
@@ -234,7 +245,7 @@ async function submitSetup(): Promise<void> {
     copied.value = false;
     view.value = "confirm";
   } catch {
-    error.value = en.shell.requestFailed;
+    error.value = couldNotReach("create the account");
   } finally {
     pending.value = false;
   }
@@ -266,7 +277,7 @@ async function submitConfirm(): Promise<void> {
     stripToken();
     showNode();
   } catch {
-    error.value = en.shell.requestFailed;
+    error.value = couldNotReach("finish setup");
   } finally {
     pending.value = false;
   }
@@ -301,7 +312,7 @@ async function submitLogin(): Promise<void> {
     authenticatorCode.value = "";
     view.value = "mfa";
   } catch {
-    error.value = en.shell.requestFailed;
+    error.value = couldNotReach("sign in");
   } finally {
     pending.value = false;
   }
@@ -325,7 +336,7 @@ async function submitMfa(): Promise<void> {
     authenticatorCode.value = "";
     showNode();
   } catch {
-    error.value = en.shell.requestFailed;
+    error.value = couldNotReach("check the authenticator code");
   } finally {
     pending.value = false;
   }
@@ -349,9 +360,7 @@ async function signOut(): Promise<void> {
     prefs.value = { name: "", tags: [], maintenance: false };
     catalog.value = [];
     tagFilter.value = "";
-    nodeId.value = "local";
     showAdd.value = false;
-    page.value = "overview";
     showHistory.value = false;
     showLogs.value = false;
     showCustomize.value = false;
@@ -363,8 +372,14 @@ async function signOut(): Promise<void> {
     showAddresses.value = false;
     password.value = "";
     view.value = "login";
+    applyingHistory = true;
+    page.value = "overview";
+    nodeId.value = "local";
+    settingsSection.value = "panel";
+    applyingHistory = false;
+    if (globalThis.location.pathname !== "/") globalThis.history.pushState(null, "", "/");
   } catch {
-    error.value = en.shell.requestFailed;
+    error.value = couldNotReach("sign out");
   } finally {
     pending.value = false;
   }
@@ -382,21 +397,68 @@ function showNode(): void {
   void loadTheme();
   void refreshList();
   void refresh();
-  if (!timer) {
-    timer = setInterval(() => {
-      if (page.value === "overview") void refreshList();
-      else void refresh();
-    }, liveSampleMs);
+  void checkOffer();
+  startWatching();
+}
+
+function startWatching(): void {
+  if (timer) clearInterval(timer);
+  timer = setInterval(() => {
+    if (page.value === "overview") void refreshList();
+    else void refresh();
+  }, pollMs.value);
+}
+
+function applyOps(next: PanelOps): void {
+  ops.value = next;
+  const ms = next.pollSec * 1000;
+  if (pollMs.value !== ms) {
+    pollMs.value = ms;
+    if (view.value === "node") startWatching();
   }
+  scheduleUpdateCheck(next.updateHours);
+}
+
+function scheduleUpdateCheck(hours: number): void {
+  if (updateTimer) clearInterval(updateTimer);
+  updateTimer = undefined;
+  if (view.value !== "node" || hours <= 0) return;
+  updateTimer = setInterval(
+    () => {
+      void checkOffer();
+    },
+    hours * 60 * 60 * 1000,
+  );
+}
+
+async function checkOffer(): Promise<void> {
+  try {
+    const response = await fetch("/api/v1/updates");
+    if (!response.ok) return;
+    const body = (await response.json()) as {
+      data?: { update?: { version?: string } | null };
+    };
+    updateOffer.value = body.data?.update?.version ?? "";
+  } catch {
+    // About explains a failed check. The banner keeps the last known release.
+  }
+}
+
+function openUpdate(): void {
+  page.value = "settings";
+  settingsSection.value = "about";
 }
 
 async function loadTheme(): Promise<void> {
   try {
     const response = await fetch("/api/v1/settings");
     if (!response.ok) return;
-    const body = (await response.json()) as { data: { theme: ThemeName; publicUrl: string } };
+    const body = (await response.json()) as {
+      data: { theme: ThemeName; publicUrl: string; ops?: PanelOps };
+    };
     theme.value = body.data.theme;
     publicUrl.value = body.data.publicUrl;
+    if (body.data.ops) applyOps(body.data.ops);
     applyTheme(body.data.theme);
   } catch {
     // Keep the CSS default until settings answer.
@@ -404,9 +466,11 @@ async function loadTheme(): Promise<void> {
 }
 
 function stopWatching(): void {
-  if (!timer) return;
-  clearInterval(timer);
+  if (timer) clearInterval(timer);
   timer = undefined;
+  if (updateTimer) clearInterval(updateTimer);
+  updateTimer = undefined;
+  updateOffer.value = "";
 }
 
 async function refreshList(): Promise<void> {
@@ -460,17 +524,12 @@ async function refresh(): Promise<void> {
   } catch {
     phase.value = "error";
     info.value = null;
-    detail.value = en.shell.requestFailed;
+    detail.value = couldNotReach("refresh this node");
   }
 }
 
 async function errorMessage(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: { message?: string } };
-    return body.error?.message ?? en.auth.invalidResponse;
-  } catch {
-    return en.auth.invalidResponse;
-  }
+  return readProblem(response, "complete that request");
 }
 
 function stripToken(): void {
@@ -787,6 +846,11 @@ const nodeLabel = computed(
   () => selectedNode.value?.name || prefs.value.name || info.value?.hostname || en.shell.localNode,
 );
 
+const updateBanner = computed(() => {
+  const text = ops.value.autoUpdate ? en.shell.updateBannerAuto : en.shell.updateAvailable;
+  return text.replace("{version}", updateOffer.value);
+});
+
 const pageTitle = computed(() => {
   if (page.value === "overview") return en.nav.overview;
   if (page.value === "settings") return en.nav.settings;
@@ -855,7 +919,7 @@ async function submitControl(): Promise<void> {
     controlNote.value = action === "restart" ? en.shell.restartScheduled : en.shell.stopScheduled;
     if (action === "restart") void waitForPanel();
   } catch {
-    controlError.value = en.shell.requestFailed;
+    controlError.value = couldNotReach(action === "stop" ? "stop the panel" : "restart the panel");
   } finally {
     controlBusy.value = false;
   }
@@ -893,12 +957,45 @@ watch(page, (next) => {
   else void refresh();
 });
 
+watch(
+  [page, nodeId, settingsSection],
+  () => {
+    if (applyingHistory || view.value !== "node") return;
+    routeNotice.value = "";
+    const path = formatPath({
+      page: page.value,
+      nodeId: nodeId.value,
+      settings: settingsSection.value,
+      unknown: null,
+    });
+    if (path === globalThis.location.pathname) return;
+    globalThis.history.pushState(null, "", path);
+  },
+  { flush: "sync" },
+);
+
+function onPop(): void {
+  applyingHistory = true;
+  const next = parsePath(globalThis.location.pathname);
+  page.value = next.page;
+  nodeId.value = next.nodeId;
+  settingsSection.value = next.settings;
+  routeNotice.value = next.unknown ? en.shell.unknownPage : "";
+  applyingHistory = false;
+  if (view.value !== "node") return;
+  if (next.page === "overview") void refreshList();
+  else if (next.page !== "settings") void refresh();
+}
+
 onMounted(() => {
+  if (opened.unknown) globalThis.history.replaceState(null, "", "/");
+  globalThis.addEventListener("popstate", onPop);
   setupToken.value = new URLSearchParams(globalThis.location.search).get("token") ?? "";
   void boot();
 });
 
 onUnmounted(() => {
+  globalThis.removeEventListener("popstate", onPop);
   stopWatching();
 });
 </script>
@@ -1004,6 +1101,13 @@ onUnmounted(() => {
         </div>
       </header>
       <div class="app-content">
+        <div v-if="updateOffer" class="form-warn update-banner" role="status">
+          <span>{{ updateBanner }}</span>
+          <button class="quiet" type="button" @click="openUpdate">
+            {{ en.shell.updateReview }}
+          </button>
+        </div>
+        <p v-if="routeNotice" class="form-warn" role="status">{{ routeNotice }}</p>
         <p v-if="prefs.maintenance" class="maint-banner" role="status">
           {{ en.shell.maintenanceOn }}
         </p>
@@ -1133,6 +1237,9 @@ onUnmounted(() => {
           :tags="prefs.tags"
           :maintenance="prefs.maintenance"
           :status="selectedNode?.status ?? 'active'"
+          :swap-used="sample?.swapUsed ?? null"
+          :swap-total="sample?.swapTotal ?? null"
+          :agent-version="selectedNode?.agentVersion ?? ''"
           @saved="prefs = $event"
           @changed="refreshList"
           @removed="onRemoved"
@@ -1142,8 +1249,12 @@ onUnmounted(() => {
           :username="username"
           :theme="theme"
           :public-url="publicUrl"
+          :section="settingsSection"
+          :ops="ops"
           @theme="theme = $event"
           @public-url="publicUrl = $event"
+          @section="settingsSection = $event"
+          @ops="applyOps"
         />
         <div v-else-if="page === 'dashboard' && visibleVitals > 0" class="vitals">
           <VitalTile

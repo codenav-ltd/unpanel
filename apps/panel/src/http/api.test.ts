@@ -19,7 +19,7 @@ const snapshot: LocalSnapshot = {
   trace: { cpu: [], mem: [], disk: [], swap: [] },
   rates: { up: [], down: [], tcp: [], udp: [] },
   sample: null,
-  history: { cpu: [], mem: [], disk: [] },
+  history: { start: 0, stepMs: 60_000, cpu: [], mem: [], disk: [] },
   panel: { rss: 0, uptime: 0 },
 };
 
@@ -46,6 +46,10 @@ function appWith(
       action: "restart" | "stop";
       delayMs: number;
     }>;
+    configureSwap?: (
+      nodeId: string,
+      sizeGib: 1 | 2 | 4 | 8,
+    ) => Promise<{ path: string; sizeGib: 1 | 2 | 4 | 8; fstab: boolean }>;
     exportDb?: (dest: string) => Promise<void>;
     stageRestore?: (bytes: Uint8Array) => void;
     settings?: Settings;
@@ -55,6 +59,8 @@ function appWith(
       nodeId: string,
       minutes: number,
     ) => {
+      start: number;
+      stepMs: number;
       cpu: (number | null)[];
       mem: (number | null)[];
       disk: (number | null)[];
@@ -78,12 +84,17 @@ function appWith(
       (async () => {
         throw new Error("control is not stubbed");
       }),
+    configureSwap:
+      extras.configureSwap ??
+      (async () => {
+        throw new Error("configureSwap is not stubbed");
+      }),
     exportDb: extras.exportDb ?? (async () => undefined),
     stageRestore: extras.stageRestore ?? (() => undefined),
     settings: extras.settings ?? createSettings(openDatabase(":memory:")),
     catalog: extras.catalog ?? createNodes(openDatabase(":memory:")),
     panelPublicKeyPem: "test-key",
-    history: extras.history ?? (() => ({ cpu: [], mem: [], disk: [] })),
+    history: extras.history ?? (() => ({ start: 0, stepMs: 60_000, cpu: [], mem: [], disk: [] })),
     disconnect: extras.disconnect ?? (() => undefined),
     secureCookie: false,
     checkUpdate:
@@ -257,7 +268,13 @@ describe("GET /api/v1/nodes/local/history", () => {
 
   it("returns the requested window", async () => {
     const app = appWith(createAudit(openDatabase(":memory:")), "tok", {
-      history: (_nodeId, minutes) => ({ cpu: [minutes / 100], mem: [], disk: [] }),
+      history: (_nodeId, minutes) => ({
+        start: 0,
+        stepMs: 60_000,
+        cpu: [minutes / 100],
+        mem: [],
+        disk: [],
+      }),
     });
     const response = await app.request("/api/v1/nodes/local/history?minutes=1440", {
       headers: { cookie: "unpanel_sid=tok" },
@@ -281,6 +298,44 @@ describe("PATCH /api/v1/settings", () => {
     expect(response.status).toBe(200);
     expect(body.data.theme).toBe("light");
     expect(settings.view().theme).toBe("light");
+  });
+
+  it("stores refresh, retention, and update settings", async () => {
+    const settings = createSettings(openDatabase(":memory:"));
+    const app = appWith(createAudit(openDatabase(":memory:")), "tok", { settings });
+    const response = await app.request("/api/v1/settings", {
+      method: "PATCH",
+      headers: { cookie: "unpanel_sid=tok", "content-type": "application/json" },
+      body: JSON.stringify({
+        ops: { pollSec: 10, historyDays: 1, updateHours: 0, autoUpdate: false },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(settings.view().ops).toEqual({
+      pollSec: 10,
+      historyDays: 1,
+      updateHours: 0,
+      autoUpdate: false,
+    });
+  });
+
+  it("names a swap size the agent will not be asked to create", async () => {
+    let called = false;
+    const app = appWith(createAudit(openDatabase(":memory:")), "tok", {
+      configureSwap: async () => {
+        called = true;
+        return { path: "/var/lib/unpanel-swap/swapfile", sizeGib: 1, fstab: true };
+      },
+    });
+    const response = await app.request("/api/v1/nodes/local/swap", {
+      method: "POST",
+      headers: { cookie: "unpanel_sid=tok", "content-type": "application/json" },
+      body: JSON.stringify({ sizeGib: 16 }),
+    });
+    const body = (await response.json()) as { error: { message: string } };
+    expect(response.status).toBe(400);
+    expect(body.error.message).toContain("Nothing was changed");
+    expect(called).toBe(false);
   });
 });
 

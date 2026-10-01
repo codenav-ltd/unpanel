@@ -4,7 +4,10 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { product } from "@unpanel/shared";
+import { formatBytes } from "../format.ts";
 import { en } from "../i18n/en.ts";
+import { couldNotReach, readProblem } from "../http-error.ts";
 import EnrollGuide from "./EnrollGuide.vue";
 
 const props = defineProps<{
@@ -23,6 +26,9 @@ const props = defineProps<{
   tags: string[];
   maintenance: boolean;
   status: "pending" | "active" | "disabled";
+  swapUsed: number | null;
+  swapTotal: number | null;
+  agentVersion: string;
 }>();
 
 const emit = defineEmits<{
@@ -43,6 +49,10 @@ const fresh = ref("");
 const accessError = ref("");
 const accessNote = ref("");
 
+const swapping = ref(false);
+const swapGib = ref<1 | 2 | 4 | 8>(1);
+const swapError = ref("");
+const swapNote = ref("");
 const name = ref(props.name);
 const tagText = ref(props.tags.join(", "));
 const maintenance = ref(props.maintenance);
@@ -59,6 +69,8 @@ watch(
     error.value = "";
     accessError.value = "";
     accessNote.value = "";
+    swapError.value = "";
+    swapNote.value = "";
   },
 );
 
@@ -87,8 +99,7 @@ async function save(): Promise<void> {
       body: JSON.stringify({ name: name.value, tags, maintenance: maintenance.value }),
     });
     if (!response.ok) {
-      const body = (await response.json()) as { error?: { message?: string } };
-      error.value = body.error?.message ?? en.auth.invalidResponse;
+      error.value = await readProblem(response, "save this node");
       return;
     }
     const body = (await response.json()) as {
@@ -97,7 +108,7 @@ async function save(): Promise<void> {
     emit("saved", body.data);
     note.value = en.shell.saved;
   } catch {
-    error.value = en.shell.requestFailed;
+    error.value = couldNotReach("save this node");
   } finally {
     busy.value = false;
   }
@@ -113,13 +124,12 @@ async function run(path: string, method: "POST" | "DELETE"): Promise<Response | 
       method,
     });
     if (!response.ok) {
-      const body = (await response.json()) as { error?: { message?: string } };
-      accessError.value = body.error?.message ?? en.auth.invalidResponse;
+      accessError.value = await readProblem(response, "change this node");
       return null;
     }
     return response;
   } catch {
-    accessError.value = en.shell.requestFailed;
+    accessError.value = couldNotReach("change this node");
     return null;
   } finally {
     busy.value = false;
@@ -141,6 +151,45 @@ async function reenroll(): Promise<void> {
   fresh.value = body.data.fresh;
   confirmRemove.value = false;
   emit("changed");
+}
+
+const linux = computed(() => {
+  const name = props.os.toLowerCase();
+  if (!name) return true;
+  return !name.includes("windows") && !name.includes("darwin") && !name.includes("mac");
+});
+const swapOn = computed(() => props.swapTotal != null && props.swapTotal > 0);
+const agentNote = computed(() => {
+  if (!props.agentVersion) return en.shell.agentUnknown;
+  if (props.agentVersion === product.version) return "";
+  return en.shell.agentBehind
+    .replace("{agent}", props.agentVersion)
+    .replace("{panel}", product.version);
+});
+
+async function createSwap(): Promise<void> {
+  if (busy.value) return;
+  busy.value = true;
+  swapping.value = true;
+  swapError.value = "";
+  swapNote.value = "";
+  try {
+    const response = await fetch(`/api/v1/nodes/${encodeURIComponent(props.nodeId)}/swap`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sizeGib: swapGib.value }),
+    });
+    if (!response.ok) {
+      swapError.value = await readProblem(response, "create the swap file");
+      return;
+    }
+    swapNote.value = en.shell.swapCreated;
+  } catch {
+    swapError.value = couldNotReach("create the swap file");
+  } finally {
+    busy.value = false;
+    swapping.value = false;
+  }
 }
 
 async function remove(): Promise<void> {
@@ -225,10 +274,45 @@ async function remove(): Promise<void> {
           <dd>{{ uptime || "—" }}</dd>
         </div>
         <div>
+          <dt>{{ en.shell.agentVersion }}</dt>
+          <dd>{{ agentVersion || "—" }}</dd>
+        </div>
+        <div>
           <dt>{{ en.shell.ipAddresses }}</dt>
           <dd>{{ addresses }}</dd>
         </div>
       </dl>
+      <p v-if="agentNote" class="form-warn" role="status">{{ agentNote }}</p>
+    </section>
+    <section class="wide">
+      <span class="vital-kicker">{{ en.shell.swapTitle }}</span>
+      <p v-if="!linux" class="hint">
+        {{ en.shell.swapLinuxOnly.replace("{os}", os || "an unknown system") }}
+      </p>
+      <template v-else-if="swapOn">
+        <p class="hint">
+          {{ en.shell.swapHave.replace("{size}", formatBytes(swapTotal ?? 0)) }}
+        </p>
+      </template>
+      <form v-else @submit.prevent="createSwap">
+        <p class="hint">{{ en.shell.swapOffer }}</p>
+        <label class="field">
+          <span>{{ en.shell.swapSize }}</span>
+          <select v-model.number="swapGib">
+            <option :value="1">1 GiB</option>
+            <option :value="2">2 GiB</option>
+            <option :value="4">4 GiB</option>
+            <option :value="8">8 GiB</option>
+          </select>
+        </label>
+        <p v-if="swapError" class="form-error" role="alert">{{ swapError }}</p>
+        <p v-else-if="swapNote" class="form-warn" role="status">{{ swapNote }}</p>
+        <div class="actions">
+          <button type="submit" :disabled="busy || status !== 'active' || !online">
+            {{ swapping ? en.shell.swapCreating : en.shell.swapCreate }}
+          </button>
+        </div>
+      </form>
     </section>
     <section class="wide">
       <span class="vital-kicker">{{ en.shell.nodeAccess }}</span>

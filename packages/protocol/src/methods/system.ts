@@ -22,6 +22,8 @@ export const hostInfoSchema = z.object({
   virt: z.string().min(1).optional(),
   bootTime: z.number().int().nonnegative(),
   tz: z.string().min(1),
+  /** Unpanel package on that machine. Absent on agents from before this field. */
+  unpanel: z.string().min(1).optional(),
   ips: z.object({
     v4: z.array(z.string()),
     v6: z.array(z.string()),

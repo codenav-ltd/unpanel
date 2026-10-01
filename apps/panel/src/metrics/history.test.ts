@@ -28,11 +28,27 @@ describe("createHistory", () => {
     });
 
     const series = history.series("local", minute + 60_000, 60);
-    expect(series.cpu[0]).toBeCloseTo(0.6);
-    expect(series.mem[0]).toBeCloseTo(0.65);
-    expect(series.disk[0]).toBeCloseTo(0.25);
-    expect(series.cpu[1]).toBeCloseTo(0.1);
-    expect(series.disk[1]).toBeNull();
+    expect(series.cpu).toHaveLength(60);
+    const end = Math.floor((minute + 60_000) / 60_000) * 60_000;
+    expect(series.start).toBe(end - 59 * 60_000);
+    expect(series.stepMs).toBe(60_000);
+    expect(series.cpu[58]).toBeCloseTo(0.6);
+    expect(series.mem[58]).toBeCloseTo(0.65);
+    expect(series.disk[58]).toBeCloseTo(0.25);
+    expect(series.cpu[59]).toBeCloseTo(0.1);
+    expect(series.disk[59]).toBeNull();
+    expect(series.cpu[0]).toBeNull();
+  });
+
+  it("keeps a missing minute in place so the axis stays in time", () => {
+    const db = new DatabaseSync(":memory:");
+    const history = createHistory(db);
+    history.record("local", 120_000, sample);
+    const series = history.series("local", 180_000, 3);
+    expect(series.start).toBe(60_000);
+    expect(series.cpu[0]).toBeNull();
+    expect(series.cpu[1]).toBeCloseTo(0.4);
+    expect(series.cpu[2]).toBeNull();
   });
 
   it("does not invent a zero when the reading is missing", () => {
@@ -45,10 +61,20 @@ describe("createHistory", () => {
       diskUsed: null,
       diskTotal: null,
     });
-    expect(history.series("local", 60_000, 60)).toEqual({
-      cpu: [null],
-      mem: [0.5],
-      disk: [null],
-    });
+    const series = history.series("local", 60_000, 60);
+    expect(series.cpu.at(-1)).toBeNull();
+    expect(series.mem.at(-1)).toBe(0.5);
+    expect(series.disk.at(-1)).toBeNull();
+    expect(series.cpu[0]).toBeNull();
+  });
+
+  it("drops minutes older than the saved retention", () => {
+    const db = new DatabaseSync(":memory:");
+    const history = createHistory(db, () => 60_000);
+    history.record("local", 60_000, sample);
+    history.record("local", 180_000, sample);
+    const series = history.series("local", 180_000, 3);
+    expect(series.cpu[0]).toBeNull();
+    expect(series.cpu[2]).toBeCloseTo(0.4);
   });
 });

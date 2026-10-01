@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.14] - 2026-10-02
+
+### Added
+
+- The address bar follows Overview, a node, Host, and Settings. Refresh opens that page. An unknown path says so and opens the overview.
+- System history keeps every minute. The times sit under the chart. Moving across it shows that minute's reading, or that there was none. A gap is not drawn as zero.
+- Settings saves how often the dashboard asks for numbers, how long minute history is kept, and how often to look for a release. A new release is shown on every page. Automatic install stays off until it is turned on, and it updates only this machine.
+- Host can create a 1, 2, 4, or 8 GiB swap file when the machine has none. The root agent writes `/var/lib/unpanel-swap/swapfile`. An existing swap file is not replaced.
+- The agent reports its package version. A remote node that is behind says to run its install command again. Updating the panel does not update a remote agent.
+- A screen that is not built, including alerts and certificates, says what was not done.
+
+### Changed
+
+- Failed actions name what did not happen. Sign-in explains the existing attempt limits. The panel is not locked for every address. Turnstile is not connected. Automatic certificates are not issued.
+
 ## [0.1.0-alpha.13] - 2026-10-02
 
 ### Fixed

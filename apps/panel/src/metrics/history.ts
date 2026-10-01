@@ -15,6 +15,9 @@ export interface HistorySample {
 }
 
 export interface HistorySeries {
+  /** Unix milliseconds of the first minute in the window. */
+  start: number;
+  stepMs: number;
   cpu: (number | null)[];
   mem: (number | null)[];
   disk: (number | null)[];
@@ -32,7 +35,10 @@ interface MinuteRow {
 }
 
 /** One row per minute. Missing readings stay null instead of being stored as zero. */
-export function createHistory(db: DatabaseSync): {
+export function createHistory(
+  db: DatabaseSync,
+  retainMs: () => number = () => RETAIN_MS,
+): {
   record: (nodeId: string, at: number, sample: HistorySample) => void;
   series: (nodeId: string, at: number, minutes: number) => HistorySeries;
 } {
@@ -98,7 +104,7 @@ export function createHistory(db: DatabaseSync): {
       current.disk_sum + (disk ?? 0),
       diskN,
     );
-    prune.run(ts - RETAIN_MS);
+    prune.run(ts - retainMs());
   }
 
   function series(nodeId: string, at: number, minutes: number): HistorySeries {
@@ -114,12 +120,11 @@ export function createHistory(db: DatabaseSync): {
     const disk: (number | null)[] = [];
     for (let ts = start; ts <= end; ts += MINUTE_MS) {
       const row = rows.get(ts);
-      if (!row) continue;
-      cpu.push(average(row.cpu_sum, row.cpu_n));
-      mem.push(average(row.mem_sum, row.mem_n));
-      disk.push(average(row.disk_sum, row.disk_n));
+      cpu.push(row ? average(row.cpu_sum, row.cpu_n) : null);
+      mem.push(row ? average(row.mem_sum, row.mem_n) : null);
+      disk.push(row ? average(row.disk_sum, row.disk_n) : null);
     }
-    return { cpu, mem, disk };
+    return { start, stepMs: MINUTE_MS, cpu, mem, disk };
   }
 
   return { record, series };
