@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.8] - 2026-10-02
+
+### Fixed
+
+- The linux package from 0.1.0-alpha.7 stored the password hasher as a symlink to the CI machine. This release contains the binary.
+
 ## [0.1.0-alpha.7] - 2026-10-02
 
 ### Added
