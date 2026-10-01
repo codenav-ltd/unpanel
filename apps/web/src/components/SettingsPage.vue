@@ -4,7 +4,7 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { product } from "@unpanel/shared";
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 
@@ -30,6 +30,12 @@ const passwordNote = ref("");
 const themeNote = ref("");
 const urlNote = ref("");
 const urlError = ref("");
+const updateState = ref<"checking" | "current" | "available" | "error" | "working" | "started">(
+  "checking",
+);
+const updateVersion = ref("");
+const updateNotes = ref("");
+const updateError = ref("");
 
 const themes: { id: ThemeName; label: string }[] = [
   { id: "dark", label: en.shell.themeDark },
@@ -127,6 +133,61 @@ async function savePassword(): Promise<void> {
     busy.value = "";
   }
 }
+
+async function checkUpdates(): Promise<void> {
+  updateState.value = "checking";
+  updateError.value = "";
+  updateVersion.value = "";
+  updateNotes.value = "";
+  try {
+    const response = await fetch("/api/v1/updates");
+    if (!response.ok) throw new Error(String(response.status));
+    const body = (await response.json()) as {
+      data?: {
+        update?: { version?: string; notes?: string } | null;
+        error?: string | null;
+      };
+    };
+    if (body.data?.error) {
+      updateState.value = "error";
+      updateError.value = body.data.error;
+      return;
+    }
+    if (body.data?.update?.version) {
+      updateState.value = "available";
+      updateVersion.value = body.data.update.version;
+      updateNotes.value = body.data.update.notes ?? "";
+      return;
+    }
+    updateState.value = "current";
+  } catch {
+    updateState.value = "error";
+    updateError.value = en.shell.updateFailed;
+  }
+}
+
+async function applyUpdate(): Promise<void> {
+  if (updateState.value !== "available") return;
+  updateState.value = "working";
+  updateError.value = "";
+  try {
+    const response = await fetch("/api/v1/updates", { method: "POST" });
+    if (!response.ok) {
+      const body = (await response.json()) as { error?: { message?: string } };
+      updateState.value = "error";
+      updateError.value = body.error?.message ?? en.shell.updateFailed;
+      return;
+    }
+    updateState.value = "started";
+  } catch {
+    updateState.value = "error";
+    updateError.value = en.shell.requestFailed;
+  }
+}
+
+onMounted(() => {
+  void checkUpdates();
+});
 </script>
 
 <template>
@@ -235,7 +296,38 @@ async function savePassword(): Promise<void> {
             </dd>
           </div>
         </dl>
-        <p class="hint">{{ en.shell.updateHint }}</p>
+        <p
+          class="hint"
+          aria-live="polite"
+          :aria-busy="updateState === 'checking' || updateState === 'working'"
+        >
+          <span
+            v-if="updateState === 'checking' || updateState === 'working'"
+            class="spinner"
+            aria-hidden="true"
+          />
+          <template v-if="updateState === 'checking'">{{ en.shell.updateChecking }}</template>
+          <template v-else-if="updateState === 'current'">{{ en.shell.updateCurrent }}</template>
+          <template v-else-if="updateState === 'available'">
+            {{ en.shell.updateAvailable.replace("{version}", updateVersion) }}
+          </template>
+          <template v-else-if="updateState === 'working'">{{ en.shell.updateWorking }}</template>
+          <template v-else-if="updateState === 'started'">{{ en.shell.updateStarted }}</template>
+          <template v-else>{{ updateError }}</template>
+        </p>
+        <p v-if="updateNotes" class="hint">{{ updateNotes }}</p>
+        <div class="actions">
+          <button v-if="updateState === 'available'" type="button" @click="applyUpdate">
+            {{ en.shell.updateAction }}
+          </button>
+          <button
+            v-else-if="updateState === 'current' || updateState === 'error'"
+            type="button"
+            @click="checkUpdates"
+          >
+            {{ en.shell.updateCheck }}
+          </button>
+        </div>
       </section>
     </div>
   </div>

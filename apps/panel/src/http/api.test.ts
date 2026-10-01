@@ -60,6 +60,12 @@ function appWith(
       disk: (number | null)[];
     };
     disconnect?: (nodeId: string, code: number) => void;
+    checkUpdate?: () => Promise<{
+      current: string;
+      update: { version: string; notes: string } | null;
+      error: string | null;
+    }>;
+    applyUpdate?: () => Promise<{ accepted: true; version: string }>;
   } = {},
 ): ReturnType<typeof createApi> {
   return createApi({
@@ -80,6 +86,13 @@ function appWith(
     history: extras.history ?? (() => ({ cpu: [], mem: [], disk: [] })),
     disconnect: extras.disconnect ?? (() => undefined),
     secureCookie: false,
+    checkUpdate:
+      extras.checkUpdate ?? (async () => ({ current: "0.1.0-alpha.7", update: null, error: null })),
+    applyUpdate:
+      extras.applyUpdate ??
+      (async () => {
+        throw new Error("applyUpdate is not stubbed");
+      }),
   });
 }
 
@@ -323,7 +336,8 @@ describe("POST /api/v1/nodes", () => {
     expect(body.data.command).toContain(body.data.token);
     expect(body.data.command).toContain("https://panel.example.net:28517");
     expect(body.data.command).not.toContain("panel.example.com");
-    expect(body.data.fresh).toContain("git clone");
+    expect(body.data.fresh).toContain("https://unpanel.codenav.dev/install-agent.sh");
+    expect(body.data.fresh).not.toContain("git clone");
     expect(catalog.list().some((node) => node.name === "edge-1" && node.status === "pending")).toBe(
       true,
     );

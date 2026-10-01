@@ -3,3 +3,4 @@
 
 export { liveSampleMs } from "./cadence.ts";
 export { product } from "./product.ts";
+export { allowedReleaseHost, assertReleaseUrl } from "./release-host.ts";

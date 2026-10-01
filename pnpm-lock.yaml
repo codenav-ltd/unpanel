@@ -17,6 +17,9 @@ importers:
       '@vitejs/plugin-vue':
         specifier: ^6.0.1
         version: 6.0.9(vite@8.3.2(@types/node@24.19.0)(esbuild@0.28.2)(tsx@4.23.15))(vue@3.5.43(typescript@6.0.3))
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       eslint:
         specifier: ^10.0.0
         version: 10.11.0

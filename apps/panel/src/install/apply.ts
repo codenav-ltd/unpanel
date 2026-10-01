@@ -31,10 +31,20 @@ export interface UpdateHost {
 }
 
 /** Creates users, keys, env files, and units, then restarts both services. Existing keys stay. */
-export async function installPanel(plan: InstallPlan, host: InstallHost): Promise<void> {
+export async function installPanel(
+  plan: InstallPlan,
+  host: InstallHost,
+  options: { restartAgent?: boolean } = {},
+): Promise<void> {
   assertServiceNode(plan.nodePath);
-  const tsx = `${plan.root}/node_modules/tsx/dist/cli.mjs`;
-  if (!host.exists(tsx)) throw new Error(`tsx is missing at ${tsx}. Install dependencies first.`);
+  if (plan.bundled) {
+    if (!host.exists(`${plan.root}/panel.cjs`) || !host.exists(`${plan.root}/agent.cjs`)) {
+      throw new Error("The release package is missing panel.cjs or agent.cjs.");
+    }
+  } else {
+    const tsx = `${plan.root}/node_modules/tsx/dist/cli.mjs`;
+    if (!host.exists(tsx)) throw new Error(`tsx is missing at ${tsx}. Install dependencies first.`);
+  }
   if (!host.exists(`${plan.webDist}/index.html`)) {
     throw new Error(`The web build is missing ${plan.webDist}/index.html.`);
   }
@@ -78,7 +88,9 @@ export async function installPanel(plan: InstallPlan, host: InstallHost): Promis
   await host.command("systemctl", ["daemon-reload"], plan.root);
   await host.command("systemctl", ["enable", product.units.panel, product.units.agent], plan.root);
   await host.command("systemctl", ["restart", product.units.panel], plan.root);
-  await host.command("systemctl", ["restart", product.units.agent], plan.root);
+  if (options.restartAgent !== false) {
+    await host.command("systemctl", ["restart", product.units.agent], plan.root);
+  }
 }
 
 /**

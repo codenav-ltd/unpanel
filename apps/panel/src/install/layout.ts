@@ -15,8 +15,9 @@ export class InstallUsage extends Error {
 export const installHelp = [
   `Usage: curl -fsSL ${product.siteUrl}/install.sh | sudo bash`,
   "",
-  "Clones that version, builds the web UI, and starts it under systemd.",
-  "There is no signed release package. Update later with: sudo bash /opt/unpanel/scripts/update.sh",
+  "Downloads the release package built for this version and starts it under systemd.",
+  "The download is checked against the SHA-256 published with that release.",
+  "Afterwards, Settings → About checks for a newer release and installs it.",
   "",
   "Options:",
   "  --public-url   Origin browsers and other servers use. Detected when omitted.",
@@ -37,11 +38,12 @@ export interface InstallPlan {
   agentEtc: string;
   agentLib: string;
   webDist: string;
+  bundled: boolean;
 }
 
 export function parseInstallArgs(
   argv: string[],
-  defaults: { root: string; nodePath: string },
+  defaults: { root: string; nodePath: string; bundled?: boolean },
 ): InstallPlan {
   let listen = "0.0.0.0";
   let port = 28517;
@@ -64,7 +66,14 @@ export function parseInstallArgs(
     throw new InstallUsage(`Unknown argument ${arg}`);
   }
   if (!publicUrl) throw new InstallUsage("--public-url is required.");
-  return planFrom({ root: defaults.root, nodePath: defaults.nodePath, listen, port, publicUrl });
+  return planFrom({
+    root: defaults.root,
+    nodePath: defaults.nodePath,
+    listen,
+    port,
+    publicUrl,
+    bundled: defaults.bundled === true,
+  });
 }
 
 export function planFrom(input: {
@@ -73,11 +82,13 @@ export function planFrom(input: {
   listen: string;
   port: number;
   publicUrl: string;
+  bundled?: boolean;
 }): InstallPlan {
   const listen = parseListen(input.listen);
   const publicUrl = parseOrigin(input.publicUrl);
   assertPlain(`Checkout path`, input.root);
   assertPlain("Node path", input.nodePath);
+  const bundled = input.bundled === true;
   return {
     root: input.root,
     listen,
@@ -90,7 +101,8 @@ export function planFrom(input: {
     socket: product.paths.socket,
     agentEtc: product.paths.agentEtc,
     agentLib: product.paths.agentLib,
-    webDist: `${input.root}/apps/web/dist`,
+    webDist: bundled ? `${input.root}/web` : `${input.root}/apps/web/dist`,
+    bundled,
   };
 }
 
@@ -143,7 +155,7 @@ export function panelService(plan: InstallPlan): string {
     `EnvironmentFile=${plan.etc}/panel.env`,
     "Environment=NODE_ENV=production",
     `Environment=HOME=${plan.lib}`,
-    `ExecStart=${plan.nodePath} ${tsx(plan)} ${plan.root}/apps/panel/src/server.ts`,
+    `ExecStart=${panelExec(plan)}`,
     "Restart=on-failure",
     "RestartSec=3",
     "UMask=0077",
@@ -192,7 +204,7 @@ export function agentService(plan: InstallPlan): string {
     `WorkingDirectory=${plan.root}`,
     `EnvironmentFile=${plan.agentEtc}/agent.env`,
     "Environment=NODE_ENV=production",
-    `ExecStart=${plan.nodePath} ${tsx(plan)} ${plan.root}/apps/agent/src/main.ts`,
+    `ExecStart=${agentExec(plan)}`,
     "Restart=always",
     "RestartSec=3",
     "",
@@ -258,7 +270,8 @@ export function installSummary(input: {
   lines.push(
     "",
     "Afterwards:",
-    `  Update: sudo bash ${input.root}/scripts/update.sh`,
+    `  Install path: ${input.root}`,
+    "  Updates: open the panel, then Settings → About.",
     "  Logs: journalctl -u unpanel -u unpanel-agent -f",
     "",
   );
@@ -272,6 +285,16 @@ function privateAddress(publicUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+function panelExec(plan: InstallPlan): string {
+  if (plan.bundled) return `${plan.nodePath} ${plan.root}/panel.cjs`;
+  return `${plan.nodePath} ${tsx(plan)} ${plan.root}/apps/panel/src/server.ts`;
+}
+
+function agentExec(plan: InstallPlan): string {
+  if (plan.bundled) return `${plan.nodePath} ${plan.root}/agent.cjs`;
+  return `${plan.nodePath} ${tsx(plan)} ${plan.root}/apps/agent/src/main.ts`;
 }
 
 function tsx(plan: InstallPlan): string {

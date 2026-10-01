@@ -67,6 +67,13 @@ describe("installPanel", () => {
     expect(fake.keys).toBe(2);
   });
 
+  it("leaves the agent process running when the update asks it to", async () => {
+    const fake = installHost({ user: true });
+    await installPanel(plan, fake.host, { restartAgent: false });
+    expect(fake.commands).toContain("systemctl restart unpanel.service");
+    expect(fake.commands).not.toContain("systemctl restart unpanel-agent.service");
+  });
+
   it("keeps keys that are already on disk and creates a missing user", async () => {
     const fake = installHost({ keys: true, user: false });
     await installPanel(plan, fake.host);

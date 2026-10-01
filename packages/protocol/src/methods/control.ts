@@ -41,3 +41,31 @@ export const panelStop = defineMethod({
   result: serviceControlResultSchema,
   since: "1.0",
 });
+
+export const panelUpgradeResultSchema = z.object({
+  accepted: z.literal(true),
+  version: z.string().min(1),
+  /** Milliseconds before the agent swaps the install and restarts the panel. */
+  delayMs: z.number().int().nonnegative(),
+});
+
+export type PanelUpgradeResult = z.infer<typeof panelUpgradeResultSchema>;
+
+/**
+ * Download and verify happen before the reply, so a bad package never restarts
+ * the panel. The swap itself waits until this reply can reach the browser.
+ */
+export const panelUpgrade = defineMethod({
+  name: "panel.upgrade",
+  capability: "control",
+  risk: "danger",
+  permission: "panel:control",
+  timeoutMs: 180_000,
+  params: z.object({
+    version: z.string().min(1),
+    url: z.string().url(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  }),
+  result: panelUpgradeResultSchema,
+  since: "1.0",
+});

@@ -7,6 +7,7 @@ import { WebSocket } from "ws";
 import { product } from "@unpanel/shared";
 import { ControlUnsupported, controlPanel } from "./control.ts";
 import { sampleHost } from "./cpu.ts";
+import { performUpgrade } from "./upgrade.ts";
 import {
   authMessage,
   closeCode,
@@ -14,6 +15,7 @@ import {
   encodeTextFrame,
   panelRestart,
   panelStop,
+  panelUpgrade,
   PROTOCOL_VERSION,
   randomNonce,
   signMessage,
@@ -127,6 +129,25 @@ export function connectAgent(options: {
             r: sampleHost(),
           }),
         );
+      }
+      if (frame.t === "req" && frame.m === panelUpgrade.name) {
+        void performUpgrade(frame.p)
+          .then((result) => {
+            socket?.send(encodeTextFrame({ t: "res", id: frame.id, ok: true, r: result }));
+          })
+          .catch((error: unknown) => {
+            socket?.send(
+              encodeTextFrame({
+                t: "res",
+                id: frame.id,
+                ok: false,
+                e: {
+                  code: error instanceof ControlUnsupported ? "E_UNSUPPORTED" : "E_INTERNAL",
+                  msg: error instanceof Error ? error.message : "update failed",
+                },
+              }),
+            );
+          });
       }
       if (frame.t === "req" && (frame.m === panelRestart.name || frame.m === panelStop.name)) {
         const action = frame.m === panelRestart.name ? "restart" : "stop";

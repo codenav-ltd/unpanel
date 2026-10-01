@@ -3,9 +3,7 @@
 
 import { discoverPublicHost, type ProbeRequest, type ProbeResult } from "./address.ts";
 
-const isEntry =
-  process.argv[1]?.endsWith("public-ip.ts") === true ||
-  process.argv[1]?.endsWith("public-ip.js") === true;
+const isEntry = /(?:^|[\\/])public-ip\.(?:ts|js|mjs|cjs)$/.test(process.argv[1] ?? "");
 
 if (isEntry) {
   const local = process.argv[2]?.trim() || null;
@@ -24,7 +22,7 @@ async function probe(request: ProbeRequest): Promise<ProbeResult> {
   try {
     const response = await fetch(request.url, {
       method: request.method ?? "GET",
-      headers: request.headers,
+      ...(request.headers ? { headers: request.headers } : {}),
       redirect: "error",
       signal: AbortSignal.timeout(metadata ? 1000 : 4000),
     });

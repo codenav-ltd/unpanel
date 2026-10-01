@@ -6,7 +6,7 @@ import { readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono, type Context } from "hono";
-import { closeCode, type ServiceControlResult } from "@unpanel/protocol";
+import { closeCode, httpStatusFor, type ServiceControlResult } from "@unpanel/protocol";
 import { product } from "@unpanel/shared";
 import { backupFilename } from "../backup/panel.ts";
 import type { Audit } from "../audit/log.ts";
@@ -16,6 +16,7 @@ import type { HistorySeries } from "../metrics/history.ts";
 import { enrollmentScripts } from "../nodes/enroll-script.ts";
 import { NodesError, type NodeCatalog, type NodeRecord } from "../nodes/store.ts";
 import { SettingsError, type Settings, type Theme } from "../settings/store.ts";
+import { UpdateError, type UpdateView } from "../updates/check.ts";
 
 const AUDIT_PAGE = 100;
 const HISTORY_WINDOWS = new Set([60, 1440, 10080]);
@@ -34,6 +35,8 @@ export function createApi(options: {
   history: (nodeId: string, minutes: number) => HistorySeries;
   disconnect: (nodeId: string, code: number) => void;
   secureCookie: boolean;
+  checkUpdate: () => Promise<UpdateView>;
+  applyUpdate: () => Promise<{ accepted: true; version: string }>;
 }): Hono {
   const app = new Hono();
 
@@ -337,6 +340,47 @@ export function createApi(options: {
       license: product.license,
       sourceUrl: product.sourceUrl,
     });
+  });
+
+  app.get("/api/v1/updates", async (c) => {
+    const user = options.auth.sessionUser(sessionToken(c));
+    if (!user) return unauthenticated(c);
+    return c.json({ data: await options.checkUpdate() });
+  });
+
+  app.post("/api/v1/updates", async (c) => {
+    const user = options.auth.sessionUser(sessionToken(c));
+    if (!user) return unauthenticated(c);
+    const startedAt = Date.now();
+    try {
+      const result = await options.applyUpdate();
+      options.audit.record({
+        action: "panel.update",
+        result: "ok",
+        actorKind: "user",
+        actorId: user.username,
+        ip: clientIp(c),
+        params: { version: result.version },
+        durationMs: Date.now() - startedAt,
+      });
+      return c.json({ data: result });
+    } catch (error) {
+      if (!(error instanceof UpdateError) && !(error instanceof HubCallError)) throw error;
+      options.audit.record({
+        action: "panel.update",
+        result: "error",
+        actorKind: "user",
+        actorId: user.username,
+        ip: clientIp(c),
+        errorCode: error.code,
+        durationMs: Date.now() - startedAt,
+      });
+      return c.json(
+        { error: { code: error.code, message: error.message } },
+        httpStatusFor(error.code) as
+          400 | 403 | 404 | 409 | 412 | 429 | 500 | 501 | 502 | 503 | 504,
+      );
+    }
   });
 
   app.get("/api/v1/settings", (c) => {

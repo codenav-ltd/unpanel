@@ -63,6 +63,13 @@ describe("systemd units", () => {
     expect(agent).toContain(`After=network-online.target ${product.units.panel}`);
     expect(agent).toContain("/opt/unpanel/apps/agent/src/main.ts");
     expect(envValue(panelEnvironment(plan), "UNPANEL_WEB_DIST")).toBe("/opt/unpanel/apps/web/dist");
+    const bundled = parseInstallArgs(["--public-url", "http://203.0.113.10:28517"], {
+      ...defaults,
+      bundled: true,
+    });
+    expect(panelService(bundled)).toContain("/opt/unpanel/panel.cjs");
+    expect(agentService(bundled)).toContain("/opt/unpanel/agent.cjs");
+    expect(envValue(panelEnvironment(bundled), "UNPANEL_WEB_DIST")).toBe("/opt/unpanel/web");
   });
 
   it("adds bind capability only for a privileged port", () => {
@@ -85,7 +92,7 @@ describe("install summary", () => {
       root: "/opt/unpanel",
     });
     expect(text).toContain("http://203.0.113.10:28517/?token=st_token");
-    expect(text).toContain("sudo bash /opt/unpanel/scripts/update.sh");
+    expect(text).toContain("Settings → About");
     expect(text).toContain("ufw allow 28517/tcp");
     expect(text).toContain("security group or firewall");
     expect(text).toContain("create the owner account");

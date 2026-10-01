@@ -10,7 +10,7 @@ const SOURCE = "/opt/unpanel";
 export interface EnrollmentScripts {
   /** Agent binary is already on PATH. Creates the key files, enrolls, and starts it. */
   installed: string;
-  /** No binary yet. Clones the source, installs it, then enrolls and starts. */
+  /** No agent yet. One curl command. The release package is downloaded; git is not used. */
   fresh: string;
 }
 
@@ -60,15 +60,7 @@ export function enrollmentScripts(input: {
     "fi",
     ...fromSource,
   ]);
-  const fresh = shellScript([
-    "set -eu",
-    "umask 077",
-    `mkdir -p ${product.paths.agentLib} ${product.paths.agentEtc}`,
-    `if [ ! -d ${SOURCE}/.git ]; then`,
-    `  git clone --depth 1 ${quote(product.sourceUrl)} ${SOURCE}`,
-    "fi",
-    ...fromSource,
-  ]);
+  const fresh = `curl -fsSL ${product.siteUrl}/install-agent.sh | sudo bash -s -- --panel ${quote(input.panelUrl)} --token ${quote(input.token)} --agent-id ${quote(input.agentId)} --agent-url ${quote(input.wsUrl)}\n`;
   return { installed, fresh };
 }
 

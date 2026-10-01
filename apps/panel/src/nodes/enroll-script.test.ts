@@ -22,9 +22,14 @@ describe("enrollmentScripts", () => {
     expect(scripts.installed).not.toContain("panel.example.com");
   });
 
-  it("clones a fixed directory when the agent is not installed", () => {
-    expect(scripts.fresh).toContain("git clone --depth 1 'https://github.com/codenav-ltd/unpanel'");
+  it("downloads the agent from the public site when it is not installed", () => {
+    expect(
+      scripts.fresh.startsWith("curl -fsSL https://unpanel.codenav.dev/install-agent.sh"),
+    ).toBe(true);
+    expect(scripts.fresh).toContain("--panel 'https://panel.example.net:28517'");
     expect(scripts.fresh).toContain("--token 'pe_abc'");
-    expect(scripts.fresh).toContain("UNPANEL_AGENT_URL='wss://panel.example.net:28517/_agent/ws'");
+    expect(scripts.fresh).toContain("--agent-id 'nd_abc'");
+    expect(scripts.fresh).toContain("--agent-url 'wss://panel.example.net:28517/_agent/ws'");
+    expect(scripts.fresh).not.toContain("git clone");
   });
 });

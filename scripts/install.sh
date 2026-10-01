@@ -2,13 +2,48 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 CodeNav Ltd and contributors
 
-# One command installs this pre-alpha. There is no signed release package.
+# One command installs the release package built by CI.
 #   curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 set -eu
 
-REPO="https://github.com/codenav-ltd/unpanel.git"
-REF="v0.1.0-alpha.6"
+VERSION="0.1.0-alpha.7"
+REF="v${VERSION}"
+ASSET="unpanel-${VERSION}-linux-x64.tar.gz"
+RELEASE="https://github.com/codenav-ltd/unpanel/releases/download/${REF}"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"
+
+fetch_release() {
+  dest=$1
+  case "$(uname -m)" in
+    x86_64|amd64) ;;
+    *)
+      echo "This release is built for linux-x64. This machine is $(uname -m)." >&2
+      exit 1
+      ;;
+  esac
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is required." >&2
+    exit 1
+  fi
+  if ! command -v tar >/dev/null 2>&1; then
+    echo "tar is required." >&2
+    exit 1
+  fi
+  if ! command -v sha256sum >/dev/null 2>&1; then
+    echo "sha256sum is required." >&2
+    exit 1
+  fi
+  tmp=$(mktemp -d)
+  curl -fsSL "$RELEASE/SHA256SUMS" -o "$tmp/SHA256SUMS"
+  curl -fsSL "$RELEASE/$ASSET" -o "$tmp/$ASSET"
+  (
+    cd "$tmp"
+    sha256sum -c --ignore-missing SHA256SUMS
+  )
+  mkdir -p "$dest"
+  tar -xzf "$tmp/$ASSET" -C "$dest"
+  rm -rf "$tmp"
+}
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root:" >&2
@@ -30,25 +65,15 @@ case "$(ps -p 1 -o comm= | tr -d '[:space:]')" in
     exit 1
     ;;
 esac
-if ! command -v git >/dev/null 2>&1; then
-  echo "git is required." >&2
-  exit 1
-fi
 
-# Piped into a shell, $0 is the shell. Clone the pinned version and run that copy.
-# An older checkout at PREFIX is moved to this tag first, so a failed install
-# does not keep running the previous script.
+# Piped into a shell, $0 is the shell. Download the package and run that copy.
 script_name=$(basename -- "$0" 2>/dev/null || printf '%s' "")
 if [ "$script_name" != "install.sh" ] || [ ! -f "$0" ]; then
-  if [ -d "$PREFIX/.git" ]; then
-    git -C "$PREFIX" fetch --depth 1 origin "refs/tags/${REF}:refs/tags/${REF}"
-    git -C "$PREFIX" checkout --detach "$REF"
-  elif [ -e "$PREFIX" ]; then
-    echo "$PREFIX already exists and is not an Unpanel checkout." >&2
+  if [ -e "$PREFIX" ]; then
+    echo "$PREFIX already exists. Update from Settings → About, or remove that directory to reinstall." >&2
     exit 1
-  else
-    git clone --depth 1 --branch "$REF" "$REPO" "$PREFIX"
   fi
+  fetch_release "$PREFIX"
   exec bash "$PREFIX/scripts/install.sh" "$@"
 fi
 
@@ -60,25 +85,20 @@ NODE=$(discover_node)
 NODE=$(stage_node "$NODE")
 export PATH="$(dirname "$NODE"):$PATH"
 
-if ! command -v corepack >/dev/null 2>&1; then
-  echo "corepack is missing from $NODE. Node.js 24 includes it." >&2
-  exit 1
-fi
-if [ ! -f "$ROOT/pnpm-lock.yaml" ]; then
-  echo "This checkout is incomplete." >&2
-  exit 1
-fi
-
-corepack enable
-corepack prepare pnpm@10.30.1 --activate
-# NODE_ENV=production would skip the TypeScript runner and the web build tools.
-NODE_ENV=development pnpm install --frozen-lockfile
-NODE_ENV=development pnpm --filter @unpanel/web build
-
-TSX="$ROOT/node_modules/tsx/dist/cli.mjs"
-if [ ! -f "$TSX" ]; then
-  echo "tsx is missing at $TSX" >&2
-  exit 1
+if [ ! -f "$ROOT/panel.cjs" ]; then
+  if ! command -v corepack >/dev/null 2>&1; then
+    echo "corepack is missing from $NODE. Node.js 24 includes it." >&2
+    exit 1
+  fi
+  if [ ! -f "$ROOT/pnpm-lock.yaml" ]; then
+    echo "This checkout is incomplete." >&2
+    exit 1
+  fi
+  corepack enable
+  corepack prepare pnpm@10.30.1 --activate
+  # NODE_ENV=production would skip the TypeScript runner and the web build tools.
+  NODE_ENV=development pnpm install --frozen-lockfile
+  NODE_ENV=development pnpm --filter @unpanel/web build
 fi
 
 port=28517
@@ -103,11 +123,19 @@ if [ "$has_url" -eq 0 ]; then
   if [ -z "$local_ip" ]; then
     local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
   fi
-  ip=$("$NODE" "$TSX" "$ROOT/apps/panel/src/install/public-ip.ts" ${local_ip:+"$local_ip"} | tr -d '[:space:]')
+  if [ -f "$ROOT/public-ip.cjs" ]; then
+    ip=$("$NODE" "$ROOT/public-ip.cjs" ${local_ip:+"$local_ip"} | tr -d '[:space:]')
+  else
+    ip=$("$NODE" "$ROOT/node_modules/tsx/dist/cli.mjs" "$ROOT/apps/panel/src/install/public-ip.ts" ${local_ip:+"$local_ip"} | tr -d '[:space:]')
+  fi
   if [ -z "$ip" ]; then
     ip=${local_ip:-127.0.0.1}
   fi
   set -- --public-url "http://${ip}:${port}" "$@"
 fi
 
-exec "$NODE" "$TSX" "$ROOT/apps/panel/src/install/cli.ts" install "$@"
+if [ -f "$ROOT/panel.cjs" ]; then
+  exec "$NODE" "$ROOT/install.cjs" install "$@"
+fi
+
+exec "$NODE" "$ROOT/node_modules/tsx/dist/cli.mjs" "$ROOT/apps/panel/src/install/cli.ts" install "$@"

@@ -13,6 +13,7 @@ import {
   httpStatusFor,
   panelRestart,
   panelStop,
+  panelUpgrade,
   protocolCompatible,
   randomNonce,
   signMessage,
@@ -22,6 +23,7 @@ import {
   welcomeMessage,
   type ErrorCode,
   type HostInfo,
+  type PanelUpgradeResult,
   type ServiceControlResult,
   type TextFrame,
 } from "@unpanel/protocol";
@@ -143,6 +145,11 @@ type Pending =
       kind: "control";
       resolve: (value: ServiceControlResult) => void;
       reject: (error: HubCallError) => void;
+    }
+  | {
+      kind: "upgrade";
+      resolve: (value: PanelUpgradeResult) => void;
+      reject: (error: HubCallError) => void;
     };
 
 interface Link {
@@ -182,6 +189,10 @@ export function createHub(options: {
   observe: (nodeId: string) => LocalSnapshot;
   live: () => NodeLive[];
   control: (nodeId: string, action: "restart" | "stop") => Promise<ServiceControlResult>;
+  upgrade: (
+    nodeId: string,
+    release: { version: string; url: string; sha256: string },
+  ) => Promise<PanelUpgradeResult>;
   disconnect: (nodeId: string, code: number) => void;
   close: () => void;
 } {
@@ -254,7 +265,13 @@ export function createHub(options: {
     };
   }
 
-  function request(link: Link, method: string, timeoutMs: number, wait: Pending): number | null {
+  function request(
+    link: Link,
+    method: string,
+    timeoutMs: number,
+    wait: Pending,
+    params: Record<string, unknown> = {},
+  ): number | null {
     if (!link.socket || link.socket.readyState !== WebSocket.OPEN) return null;
     const id = link.nextId;
     link.nextId += 1;
@@ -264,7 +281,7 @@ export function createHub(options: {
         t: "req",
         id,
         m: method,
-        p: {},
+        p: params,
         to: timeoutMs,
       }),
     );
@@ -273,7 +290,7 @@ export function createHub(options: {
 
   function dropPending(link: Link, error: HubCallError): void {
     for (const wait of link.pending.values()) {
-      if (wait.kind === "control") wait.reject(error);
+      if (wait.kind === "control" || wait.kind === "upgrade") wait.reject(error);
     }
     link.pending.clear();
   }
@@ -316,6 +333,45 @@ export function createHub(options: {
       if (id === null) {
         clearTimeout(timer);
         reject(new HubCallError("E_NODE_OFFLINE", "The node is offline."));
+      }
+    });
+  }
+
+  function upgrade(
+    nodeId: string,
+    release: { version: string; url: string; sha256: string },
+  ): Promise<PanelUpgradeResult> {
+    const link = links.get(nodeId);
+    if (!link?.socket || link.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new HubCallError("E_NODE_OFFLINE", "The local agent is offline."));
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (id !== null && link.pending.get(id)?.kind === "upgrade") {
+          link.pending.delete(id);
+          reject(new HubCallError("E_TIMEOUT", "update timed out"));
+        }
+      }, panelUpgrade.timeoutMs);
+      const id = request(
+        link,
+        panelUpgrade.name,
+        panelUpgrade.timeoutMs,
+        {
+          kind: "upgrade",
+          resolve: (value) => {
+            clearTimeout(timer);
+            resolve(value);
+          },
+          reject: (error) => {
+            clearTimeout(timer);
+            reject(error);
+          },
+        },
+        release,
+      );
+      if (id === null) {
+        clearTimeout(timer);
+        reject(new HubCallError("E_NODE_OFFLINE", "The local agent is offline."));
       }
     });
   }
@@ -446,6 +502,19 @@ export function createHub(options: {
         wait.resolve(parsed.data);
         return;
       }
+      if (wait.kind === "upgrade") {
+        if (!frame.ok) {
+          wait.reject(new HubCallError(frame.e.code, frame.e.msg));
+          return;
+        }
+        const parsed = panelUpgrade.result.safeParse(frame.r);
+        if (!parsed.success) {
+          wait.reject(new HubCallError("E_INTERNAL", "upgrade result did not match the schema"));
+          return;
+        }
+        wait.resolve(parsed.data);
+        return;
+      }
       if (wait.kind === "cpu") {
         link.cpuInflight = false;
         if (!frame.ok) return;
@@ -526,6 +595,7 @@ export function createHub(options: {
       });
     },
     control,
+    upgrade,
     disconnect(nodeId, code) {
       const socket = links.get(nodeId)?.socket;
       if (!socket || socket.readyState !== WebSocket.OPEN) return;

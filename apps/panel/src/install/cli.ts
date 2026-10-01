@@ -4,17 +4,30 @@
 import { execFile, execFileSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import { chmodSync, chownSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { product } from "@unpanel/shared";
 import { installPanel, updatePanel, type InstallHost, type UpdateHost } from "./apply.ts";
 import { InstallUsage, installHelp, installSummary, parseInstallArgs } from "./layout.ts";
 
-const root = fileURLToPath(new URL("../../../../", import.meta.url)).replace(/[/\\]$/, "");
+function packageRoot(): string {
+  const invoked = process.argv[1];
+  if (!invoked) throw new Error("Cannot find the install directory.");
+  const here = dirname(invoked);
+  if (existsSync(join(here, "panel.cjs"))) return here;
+  // apps/panel/src/install -> repository root, when this file is run with tsx.
+  return dirname(dirname(dirname(dirname(here))));
+}
+
+const root = packageRoot();
 
 async function installCommand(argv: string[]): Promise<void> {
   assertLinux();
-  const plan = parseInstallArgs(argv, { root, nodePath: process.execPath });
-  await installPanel(plan, systemHost);
+  const keepAgent = argv.includes("--keep-agent");
+  const plan = parseInstallArgs(
+    argv.filter((arg) => arg !== "--keep-agent"),
+    { root, nodePath: process.execPath, bundled: existsSync(join(root, "panel.cjs")) },
+  );
+  await installPanel(plan, systemHost, { restartAgent: !keepAgent });
   if (!(await waitHealthy(plan.port))) {
     throw new Error(
       `The panel did not answer on port ${plan.port}. Logs: journalctl -u ${product.units.panel} -e`,
@@ -124,8 +137,7 @@ async function waitHealthy(port: number): Promise<boolean> {
 
 // The command starts only after systemHost exists. An async function runs up to
 // its first await immediately, and that reads the host object.
-const isEntry =
-  process.argv[1]?.endsWith("cli.ts") === true || process.argv[1]?.endsWith("cli.js") === true;
+const isEntry = /(?:^|[\\/])(?:cli|install)\.(?:ts|js|mjs|cjs)$/.test(process.argv[1] ?? "");
 
 if (isEntry) {
   const command = process.argv[2];

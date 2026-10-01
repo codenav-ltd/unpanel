@@ -34,7 +34,10 @@ export { defineMethod, type MethodDef, type Risk } from "./methods.ts";
 export {
   panelRestart,
   panelStop,
+  panelUpgrade,
+  panelUpgradeResultSchema,
   serviceControlResultSchema,
+  type PanelUpgradeResult,
   type ServiceControlResult,
 } from "./methods/control.ts";
 export { hostInfoSchema, systemInfo, type HostInfo } from "./methods/system.ts";

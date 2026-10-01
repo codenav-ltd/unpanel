@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.7] - 2026-10-02
+
+### Added
+
+- A release tag builds a linux-x64 package in CI. `install.sh` downloads that package and checks its SHA-256. It does not clone the repository or build on the server.
+- Settings → About checks for a newer release and can install it. The local agent downloads the package, and a failed start restores the previous install. The database is kept.
+- A server that does not run the panel installs only the agent with `curl -fsSL https://unpanel.codenav.dev/install-agent.sh`.
+
 ## [0.1.0-alpha.6] - 2026-10-02
 
 ### Fixed

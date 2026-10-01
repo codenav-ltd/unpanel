@@ -16,6 +16,7 @@ import { createHub } from "./hub.ts";
 import { createHistory } from "./metrics/history.ts";
 import { createNodes } from "./nodes/store.ts";
 import { createSettings, seedPublicUrl } from "./settings/store.ts";
+import { findUpdate, releaseToApply } from "./updates/check.ts";
 import { createApi } from "./http/api.ts";
 import { handleHttp } from "./http/node.ts";
 
@@ -87,6 +88,27 @@ export async function startPanel(options: {
     panelPublicKeyPem: publicPem(options.panelKey),
     history: (nodeId, minutes) => history.series(nodeId, Date.now(), minutes),
     secureCookie,
+    checkUpdate: async () => {
+      const status = await findUpdate({
+        current: product.version,
+        manifestUrl: product.updatesUrl,
+        sourceUrl: product.sourceUrl,
+      });
+      return { current: status.current, update: status.update, error: status.error };
+    },
+    applyUpdate: async () => {
+      const release = await releaseToApply({
+        current: product.version,
+        manifestUrl: product.updatesUrl,
+        sourceUrl: product.sourceUrl,
+      });
+      const result = await hub.upgrade("local", {
+        version: release.version,
+        url: release.url,
+        sha256: release.sha256,
+      });
+      return { accepted: true as const, version: result.version };
+    },
   });
   const onRequest = handleHttp(app, options.webRoot);
 
@@ -169,9 +191,7 @@ function readPem(envName: string): string {
   return readFileSync(file, "utf8");
 }
 
-const isEntry = process.argv[1]?.endsWith("server.ts") || process.argv[1]?.endsWith("server.js");
-
-if (isEntry) {
+export function bootFromEnv(): void {
   const port = Number(process.env["UNPANEL_PORT"] ?? 28517);
   const host = process.env["UNPANEL_HOST"] ?? "127.0.0.1";
   const dataDir = process.env["UNPANEL_DATA_DIR"];
@@ -201,3 +221,7 @@ if (isEntry) {
       process.exit(1);
     });
 }
+
+const isEntry = /(?:^|[\\/])server\.(?:ts|js|mjs)$/.test(process.argv[1] ?? "");
+
+if (isEntry) bootFromEnv();

@@ -121,7 +121,7 @@ export const en = {
     installReadyHint:
       "Paste the whole block on that server and press Enter. It runs under sudo, enrolls, and starts the agent in this terminal. A failure stays inside the script and does not close your login shell. Leave the terminal open.",
     installFreshHint:
-      "There is no packaged build yet. Paste the whole block on that server. It clones the source into /opt/unpanel, installs it, enrolls, and starts the agent. That server needs sudo, git, and Node.js 24. Leave the terminal open.",
+      "Paste this one line on that server and press Enter. It downloads the release from unpanel.codenav.dev, enrolls, and starts the agent as a service. You can close the terminal after it finishes. The server needs curl and Node.js 24.",
     enrollmentCommand: "Script",
     tokenOnce:
       "Shown once. Closing this dialog does not delete the node. Open it and choose Re-enroll if you need the script again.",
@@ -178,7 +178,15 @@ export const en = {
     version: "Version",
     license: "License",
     source: "Source code",
-    updateHint: "On this server, update with: sudo bash scripts/update.sh",
+    updateChecking: "Checking for updates…",
+    updateCurrent: "This panel is up to date.",
+    updateAvailable: "Version {version} is available.",
+    updateAction: "Update",
+    updateWorking: "Downloading the release…",
+    updateStarted:
+      "The panel is restarting. Reload this page in a moment. If the new version does not come up, the previous one is restored.",
+    updateCheck: "Check again",
+    updateFailed: "Could not check for updates.",
     publicUrl: "Panel address",
     publicUrlHint:
       "Origin agents use to enroll and connect, including the scheme and port. The listen address stays in the config file.",
@@ -211,6 +219,7 @@ export const en = {
       "node.replaced": "Node reconnected",
       "panel.restart": "Panel restart",
       "panel.stop": "Panel stop",
+      "panel.update": "Panel update",
       "panel.backup.export": "Panel backup exported",
       "panel.backup.restore": "Panel restore staged",
       "node.create": "Node added",
