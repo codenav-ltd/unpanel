@@ -7,7 +7,7 @@
 #     --panel URL --token TOKEN --agent-id ID --agent-url WS
 set -eu
 
-VERSION="0.1.0-alpha.12"
+VERSION="0.1.0-alpha.13"
 REF="v${VERSION}"
 RELEASE="https://github.com/codenav-ltd/unpanel/releases/download/${REF}"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"
@@ -99,10 +99,18 @@ if [ -z "$panel" ] || [ -z "$token" ] || [ -z "$agent_id" ] || [ -z "$agent_url"
   exit 1
 fi
 
-if [ ! -f "$PREFIX/agent.cjs" ]; then
-  if [ -e "$PREFIX" ]; then
+installed_version=
+if [ -f "$PREFIX/VERSION" ]; then
+  installed_version=$(tr -d '[:space:]' < "$PREFIX/VERSION")
+fi
+if [ ! -f "$PREFIX/agent.cjs" ] || [ "$installed_version" != "$VERSION" ]; then
+  if [ -e "$PREFIX" ] && [ ! -f "$PREFIX/agent.cjs" ]; then
     echo "$PREFIX already exists and is not an Unpanel release package." >&2
     exit 1
+  fi
+  if [ -d "$PREFIX" ]; then
+    systemctl stop unpanel-agent.service >/dev/null 2>&1 || true
+    rm -rf "$PREFIX"
   fi
   fetch_release "$PREFIX"
 fi

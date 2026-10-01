@@ -62,6 +62,7 @@ describe("release tags", () => {
     expect(swap).toContain('chmod 755 "$ROOT"');
     expect(script).toContain('chmod 755 "$dest"');
     expect(agent).toContain('chmod 755 "$dest"');
+    expect(agent).toContain('"$installed_version" != "$VERSION"');
     expect(readFileSync("scripts/pack.mjs", "utf8")).toContain("chmodSync(dir, 0o755)");
   });
 

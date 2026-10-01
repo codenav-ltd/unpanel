@@ -114,19 +114,20 @@ export const en = {
     addNode: "Add node",
     addNodeCard: "Enroll another server",
     addNodeHint:
-      "Name the server and enter the address it will use to reach this panel. The script is filled in for you.",
+      "Name the server you are adding. The address below is this panel, the one open in this browser. The new server connects to it.",
     installChoice: "How this server gets the agent",
     installReady: "Already installed",
     installFresh: "Not installed",
     installReadyHint:
-      "Paste the whole block on that server and press Enter. It runs under sudo, enrolls, and starts the agent in this terminal. A failure stays inside the script and does not close your login shell. Leave the terminal open.",
+      "Paste the whole block on the new server and press Enter. The address inside it is this panel. It runs under sudo, enrolls, and starts the agent in this terminal. A failure stays inside the script and does not close your login shell. Leave the terminal open.",
     installFreshHint:
-      "Paste this one line on that server and press Enter. It downloads the release from unpanel.codenav.dev, enrolls, and starts the agent as a service. You can close the terminal after it finishes. The server needs curl and Node.js 24.",
+      "Paste this one line on the new server and press Enter. The address inside it is this panel. It downloads the release from unpanel.codenav.dev, enrolls, and starts the agent as a service. You can close the terminal after it finishes. The server needs curl and Node.js 24.",
     enrollmentCommand: "Script",
     tokenOnce:
       "Shown once. Closing this dialog does not delete the node. Open it and choose Re-enroll if you need the script again.",
+    panelAddressLabel: "Address of this panel",
     publicUrlForNode:
-      "Scheme, host, and port. This value is written into the script. You do not edit the script.",
+      "Use the address of the panel you have open now, including http:// and the port. The new server opens it to enroll. This field does not take the new server's IP.",
     publicUrlLoopback: "This address only works on the same machine as the panel.",
     publicUrlPlaceholder: "https://panel.example.com:28517",
     copyCommand: "Copy",
@@ -189,7 +190,7 @@ export const en = {
     updateFailed: "Could not check for updates.",
     publicUrl: "Panel address",
     publicUrlHint:
-      "Origin agents use to enroll and connect, including the scheme and port. The listen address stays in the config file.",
+      "The address of this panel. Other servers use it to enroll and connect. Include the scheme and port. The listen address stays in the config file.",
   },
   settings: {
     panel: "Panel",

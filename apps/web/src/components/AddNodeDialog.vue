@@ -80,7 +80,7 @@ async function create(): Promise<void> {
       <input v-model="tagText" :placeholder="en.shell.tagsHint" />
     </label>
     <label class="field">
-      <span>{{ en.shell.publicUrl }}</span>
+      <span>{{ en.shell.panelAddressLabel }}</span>
       <input
         v-model="panelAddress"
         type="url"

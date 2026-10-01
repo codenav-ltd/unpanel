@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.13] - 2026-10-02
+
+### Fixed
+
+- Adding a node asks for the address of this panel, the one the new server opens. The field says so.
+- When the agent cannot reach the panel, the installer names that address and why the connection failed.
+
 ## [0.1.0-alpha.12] - 2026-10-02
 
 ### Fixed
