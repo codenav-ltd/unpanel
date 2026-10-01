@@ -3,16 +3,16 @@
 # Copyright (C) 2026 CodeNav Ltd and contributors
 
 # One command installs this pre-alpha. There is no signed release package.
-#   curl -fsSL https://raw.githubusercontent.com/codenav-ltd/unpanel/v0.1.0-alpha.1/scripts/install.sh | sudo bash
+#   curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 set -eu
 
 REPO="https://github.com/codenav-ltd/unpanel.git"
-REF="v0.1.0-alpha.1"
+REF="v0.1.0-alpha.2"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root:" >&2
-  echo "  curl -fsSL https://raw.githubusercontent.com/codenav-ltd/unpanel/${REF}/scripts/install.sh | sudo bash" >&2
+  echo "  curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash" >&2
   exit 1
 fi
 if [ "$(uname -s)" != "Linux" ]; then

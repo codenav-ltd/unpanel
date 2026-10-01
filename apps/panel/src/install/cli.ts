@@ -11,27 +11,6 @@ import { InstallUsage, installHelp, installSummary, parseInstallArgs } from "./l
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url)).replace(/[/\\]$/, "");
 
-const isEntry =
-  process.argv[1]?.endsWith("cli.ts") === true || process.argv[1]?.endsWith("cli.js") === true;
-
-if (isEntry) {
-  const command = process.argv[2];
-  const run =
-    command === "install"
-      ? installCommand(process.argv.slice(3))
-      : command === "update"
-        ? updateCommand()
-        : Promise.reject(new InstallUsage());
-  run.catch((error: unknown) => {
-    if (error instanceof InstallUsage) {
-      process.stderr.write(`${error.message ? `${error.message}\n\n` : ""}${installHelp}\n`);
-    } else {
-      process.stderr.write(`${error instanceof Error ? error.message : "install failed"}\n`);
-    }
-    process.exit(1);
-  });
-}
-
 async function installCommand(argv: string[]): Promise<void> {
   assertLinux();
   const plan = parseInstallArgs(argv, { root, nodePath: process.execPath });
@@ -136,4 +115,27 @@ async function waitHealthy(port: number): Promise<boolean> {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return false;
+}
+
+// The command starts only after systemHost exists. An async function runs up to
+// its first await immediately, and that reads the host object.
+const isEntry =
+  process.argv[1]?.endsWith("cli.ts") === true || process.argv[1]?.endsWith("cli.js") === true;
+
+if (isEntry) {
+  const command = process.argv[2];
+  const run =
+    command === "install"
+      ? installCommand(process.argv.slice(3))
+      : command === "update"
+        ? updateCommand()
+        : Promise.reject(new InstallUsage());
+  run.catch((error: unknown) => {
+    if (error instanceof InstallUsage) {
+      process.stderr.write(`${error.message ? `${error.message}\n\n` : ""}${installHelp}\n`);
+    } else {
+      process.stderr.write(`${error instanceof Error ? error.message : "install failed"}\n`);
+    }
+    process.exit(1);
+  });
 }

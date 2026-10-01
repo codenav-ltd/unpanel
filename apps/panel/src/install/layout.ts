@@ -12,7 +12,7 @@ export class InstallUsage extends Error {
 }
 
 export const installHelp = [
-  `Usage: curl -fsSL https://raw.githubusercontent.com/codenav-ltd/unpanel/v${product.version}/scripts/install.sh | sudo bash`,
+  `Usage: curl -fsSL ${product.siteUrl}/install.sh | sudo bash`,
   "",
   "Clones that version, builds the web UI, and starts it under systemd.",
   "There is no signed release package. Update later with: sudo bash /opt/unpanel/scripts/update.sh",

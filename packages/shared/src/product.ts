@@ -5,9 +5,10 @@
 export const product = {
   name: "Unpanel",
   tagline: "The server panel that doesn't act like one.",
-  version: "0.1.0-alpha.1",
+  version: "0.1.0-alpha.2",
   license: "AGPL-3.0-or-later",
   sourceUrl: "https://github.com/codenav-ltd/unpanel",
+  siteUrl: "https://unpanel.codenav.dev",
   bin: "unpanel",
   agentBin: "unpanel-agent",
   user: "unpanel",

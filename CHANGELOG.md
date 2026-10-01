@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] - 2026-10-02
+
+### Added
+
+- Public site in `apps/site` for `unpanel.codenav.dev`. The one-line install is `curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash`. The built site includes that script.
+
+### Fixed
+
+- The installer no longer crashes with `Cannot access 'systemHost' before initialization` after the web build. The command was reading that object while it was still being created.
+
 ## [0.1.0-alpha.1] - 2026-10-02
 
 ### Fixed

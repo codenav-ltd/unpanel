@@ -30,9 +30,15 @@ describe("release tags", () => {
   it("the one-line installer is pinned to this version", () => {
     const script = readFileSync("scripts/install.sh", "utf8");
     const readme = readFileSync("README.md", "utf8");
-    const url = `https://raw.githubusercontent.com/codenav-ltd/unpanel/${tag}/scripts/install.sh`;
+    const url = "https://unpanel.codenav.dev/install.sh";
     expect(script).toContain(`REF="${tag}"`);
+    expect(script).toContain(url);
     expect(readme).toContain(url);
+  });
+
+  it("starts the install command after the host object exists", () => {
+    const source = readFileSync("apps/panel/src/install/cli.ts", "utf8");
+    expect(source.indexOf("if (isEntry)")).toBeGreaterThan(source.indexOf("const systemHost"));
   });
 });
 

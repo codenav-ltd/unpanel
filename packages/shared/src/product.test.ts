@@ -15,6 +15,7 @@ describe("product", () => {
     expect(product.envPrefix).toBe("UNPANEL_");
     expect(product.cookies.host).toBe("__Host-unpanel_sid");
     expect(product.sourceUrl).toBe("https://github.com/codenav-ltd/unpanel");
+    expect(product.siteUrl).toBe("https://unpanel.codenav.dev");
     expect(product.license).toBe("AGPL-3.0-or-later");
   });
 });

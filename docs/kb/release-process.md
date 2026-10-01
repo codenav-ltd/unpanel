@@ -24,7 +24,7 @@ The update check reads a signed manifest (`channels.json` + `channels.json.minis
 
 | URL | Contents |
 |---|---|
-| `https://unpanel.codenav.dev/install.sh` | Panel installer (redirects to the asset of the latest stable GitHub Release) |
+| `https://unpanel.codenav.dev/install.sh` | Panel installer. The pre-alpha script is served as-is and clones the pinned git tag. A later release can redirect this URL at a signed asset. |
 | `https://unpanel.codenav.dev/channels.json` (+ `.minisig`) | Update manifest; default of `updates.manifest_url` ([design/09](../design/09-deployment.md) §4.1) |
 | `https://github.com/codenav-ltd/unpanel/releases` | Release artifacts, `SHA256SUMS`, `SHA256SUMS.minisig` |
 

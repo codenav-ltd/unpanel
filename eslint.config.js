@@ -60,7 +60,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/web/**/*.{ts,vue}"],
+    files: ["apps/web/**/*.{ts,vue}", "apps/site/**/*.{ts,vue}"],
     languageOptions: {
       globals: { ...globals.browser },
     },
