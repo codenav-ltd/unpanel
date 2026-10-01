@@ -26,7 +26,7 @@ export function newerRelease(current: string, names: string[]): string | null {
   return best;
 }
 
-/** Keeps tag names from `git ls-remote --tags` and drops peeled `^{}` lines. */
+/** Keeps release tag names and drops peeled `^{}` lines. */
 export function tagNames(lsRemote: string): string[] {
   const names: string[] = [];
   for (const line of lsRemote.split("\n")) {

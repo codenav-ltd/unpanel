@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.11] - 2026-10-02
+
+### Changed
+
+- Updates download the release package for this machine and check its SHA-256. The current install is moved to `/opt/unpanel.previous` before the new package replaces it. If the new process does not answer, that directory, the systemd units, and panel.env are put back.
+
 ## [0.1.0-alpha.10] - 2026-10-02
 
 ### Fixed

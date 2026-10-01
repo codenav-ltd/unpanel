@@ -6,7 +6,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { chmodSync, chownSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { product } from "@unpanel/shared";
-import { installPanel, updatePanel, type InstallHost, type UpdateHost } from "./apply.ts";
+import { installPanel, type InstallHost } from "./apply.ts";
 import { InstallUsage, installHelp, installSummary, parseInstallArgs } from "./layout.ts";
 
 function packageRoot(): string {
@@ -38,19 +38,11 @@ async function installCommand(argv: string[]): Promise<void> {
   process.stdout.write(installSummary({ ...plan, setupToken }));
 }
 
-async function updateCommand(): Promise<void> {
-  assertLinux();
-  const result = await updatePanel(root, systemHost);
-  process.stdout.write(
-    result === "current" ? "Already up to date.\n" : "Updated. The previous database was kept.\n",
-  );
-}
-
 function assertLinux(): void {
   if (process.platform !== "linux") throw new Error("This command runs on Linux with systemd.");
 }
 
-const systemHost: InstallHost & UpdateHost = {
+const systemHost: InstallHost = {
   exists: existsSync,
   mkdir(dir, mode) {
     mkdirSync(dir, { recursive: true, mode });
@@ -86,13 +78,6 @@ const systemHost: InstallHost & UpdateHost = {
       publicPem: typeof publicPem === "string" ? publicPem : publicPem.toString(),
     };
   },
-  git(args, cwd) {
-    return run("git", ["-C", cwd, ...args], cwd).then((stdout) => stdout);
-  },
-  read(file) {
-    return readFileSync(file, "utf8");
-  },
-  healthy: waitHealthy,
 };
 
 /** A missing account is a normal answer, so `id` must not print its own error. */
@@ -141,12 +126,14 @@ const isEntry = /(?:^|[\\/])(?:cli|install)\.(?:ts|js|mjs|cjs)$/.test(process.ar
 
 if (isEntry) {
   const command = process.argv[2];
+  if (command === "update") {
+    process.stderr.write("Run: sudo bash /opt/unpanel/scripts/update.sh\n");
+    process.exit(1);
+  }
   const run =
     command === "install"
       ? installCommand(process.argv.slice(3))
-      : command === "update"
-        ? updateCommand()
-        : Promise.reject(new InstallUsage());
+      : Promise.reject(new InstallUsage());
   run.catch((error: unknown) => {
     if (error instanceof InstallUsage) {
       process.stderr.write(`${error.message ? `${error.message}\n\n` : ""}${installHelp}\n`);

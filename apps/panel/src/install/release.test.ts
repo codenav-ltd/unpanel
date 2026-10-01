@@ -4,7 +4,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { product } from "@unpanel/shared";
-import { updatePanel, type UpdateHost } from "./apply.ts";
 import { newerRelease, tagNames } from "./release.ts";
 
 describe("release tags", () => {
@@ -44,6 +43,16 @@ describe("release tags", () => {
     const nodeSh = readFileSync("scripts/node.sh", "utf8");
     expect(nodeSh).toContain("linux-arm64");
     expect(nodeSh).toContain("https://nodejs.org/dist/");
+    const update = readFileSync("scripts/update.sh", "utf8");
+    expect(update).not.toMatch(/\bgit\b/);
+    expect(update).toContain("panel-swap.sh");
+    expect(update).toContain("select-update.mjs");
+    expect(update).toContain("sha256sum");
+    expect(update).toContain("/opt/unpanel.previous");
+    const bundle = readFileSync("scripts/bundle.mjs", "utf8");
+    expect(bundle).toContain('"update.sh"');
+    expect(bundle).toContain('"select-update.mjs"');
+    expect(bundle).toContain('join(out, "VERSION")');
     expect(apply).toContain("panel-swap.sh");
     const swap = readFileSync("scripts/panel-swap.sh", "utf8");
     expect(swap).toContain("Restoring the previous version");
@@ -57,51 +66,3 @@ describe("release tags", () => {
     expect(source.indexOf("if (isEntry)")).toBeGreaterThan(source.indexOf("const systemHost"));
   });
 });
-
-describe("updatePanel release checkout", () => {
-  it("builds a newer tag beside the install and restores it when the new process does not answer", async () => {
-    const fake = tagHost({ next: "v0.1.0-alpha.1", healthy: false });
-    await expect(updatePanel("/opt/unpanel", fake.host)).rejects.toThrow(
-      /Restored the previous version/,
-    );
-    expect(fake.gitCalls).toContainEqual(["checkout", "--detach", "v0.1.0-alpha.1"]);
-    expect(fake.gitCalls).not.toContainEqual(["checkout", "--detach", "v0.1.0-alpha.0"]);
-    expect(fake.commands.map((command) => command.join(" "))).toContain(
-      "bash /opt/unpanel/scripts/panel-swap.sh --restore",
-    );
-  });
-
-  it("stays put when no newer tag exists", async () => {
-    const fake = tagHost({ next: null, healthy: true });
-    await expect(updatePanel("/opt/unpanel", fake.host)).resolves.toBe("current");
-    expect(fake.commands).toEqual([]);
-  });
-});
-
-function tagHost(options: { next: string | null; healthy: boolean }): {
-  host: UpdateHost;
-  gitCalls: string[][];
-  commands: string[][];
-} {
-  const gitCalls: string[][] = [];
-  const commands: string[][] = [];
-  const listed = ["aaa\trefs/tags/v0.1.0-alpha.0"];
-  if (options.next) listed.push(`bbb\trefs/tags/${options.next}`);
-  const host: UpdateHost = {
-    command: (file, args) => {
-      commands.push([file, ...args]);
-      return Promise.resolve();
-    },
-    git: (args) => {
-      gitCalls.push(args);
-      if (args[0] === "status") return Promise.resolve("");
-      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return Promise.resolve("HEAD\n");
-      if (args[0] === "describe") return Promise.resolve("v0.1.0-alpha.0\n");
-      if (args[0] === "ls-remote") return Promise.resolve(`${listed.join("\n")}\n`);
-      return Promise.resolve("");
-    },
-    read: () => "UNPANEL_PORT=28517\n",
-    healthy: () => Promise.resolve(options.healthy),
-  };
-  return { host, gitCalls, commands };
-}

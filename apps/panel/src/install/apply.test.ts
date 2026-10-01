@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { product } from "@unpanel/shared";
-import { installPanel, updatePanel, type InstallHost, type UpdateHost } from "./apply.ts";
+import { installPanel, type InstallHost } from "./apply.ts";
 import { parseInstallArgs } from "./layout.ts";
 
 const plan = parseInstallArgs(["--public-url", "http://203.0.113.10:28517"], {
@@ -88,92 +88,3 @@ describe("installPanel", () => {
     await expect(installPanel(plan, fake.host)).rejects.toThrow(/incomplete/);
   });
 });
-
-describe("updatePanel", () => {
-  it("does nothing when the branch is already current", async () => {
-    const fake = updateHost({ advance: false });
-    await expect(updatePanel("/opt/unpanel", fake.host)).resolves.toBe("current");
-    expect(fake.commands).toEqual([]);
-  });
-
-  it("builds the next commit beside the running install", async () => {
-    const fake = updateHost({ advance: true });
-    await expect(updatePanel("/opt/unpanel", fake.host)).resolves.toBe("updated");
-    expect(fake.commands.map((command) => command.join(" "))).toEqual([
-      "rm -rf /opt/unpanel.next",
-      "git clone --local --no-hardlinks /opt/unpanel /opt/unpanel.next",
-      "pnpm install --frozen-lockfile",
-      "pnpm --filter @unpanel/web build",
-      "bash /opt/unpanel.next/scripts/panel-swap.sh /opt/unpanel.next",
-    ]);
-    expect(fake.gitCalls).not.toContainEqual(["reset", "--hard", "aaa"]);
-  });
-
-  it("leaves the running install in place when the new build fails", async () => {
-    const fake = updateHost({ advance: true, failBuild: true });
-    await expect(updatePanel("/opt/unpanel", fake.host)).rejects.toThrow(/not changed/);
-    expect(fake.commands.some((command) => command[0] === "bash")).toBe(false);
-    expect(fake.commands.at(-1)?.join(" ")).toBe("rm -rf /opt/unpanel.next");
-  });
-
-  it("restores the previous install when the new process does not answer", async () => {
-    const fake = updateHost({ advance: true, healthy: false });
-    await expect(updatePanel("/opt/unpanel", fake.host)).rejects.toThrow(
-      /Restored the previous version/,
-    );
-    expect(fake.commands.map((command) => command.join(" "))).toContain(
-      "bash /opt/unpanel/scripts/panel-swap.sh --restore",
-    );
-  });
-
-  it("refuses a dirty checkout before fetching", async () => {
-    const fake = updateHost({ dirty: " M apps/panel/src/server.ts" });
-    await expect(updatePanel("/opt/unpanel", fake.host)).rejects.toThrow(/local changes/);
-    expect(fake.gitCalls.some((args) => args[0] === "fetch")).toBe(false);
-  });
-});
-
-function updateHost(options: {
-  advance?: boolean;
-  healthy?: boolean;
-  dirty?: string;
-  failBuild?: boolean;
-}): {
-  host: UpdateHost;
-  commands: string[][];
-  gitCalls: string[][];
-  head: string;
-} {
-  let current = "aaa";
-  const commands: string[][] = [];
-  const gitCalls: string[][] = [];
-  const host: UpdateHost = {
-    command: (file, args) => {
-      commands.push([file, ...args]);
-      if (options.failBuild && args.includes("build")) {
-        return Promise.reject(new Error("build failed"));
-      }
-      return Promise.resolve();
-    },
-    git: (args) => {
-      gitCalls.push(args);
-      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return Promise.resolve("main\n");
-      if (args[0] === "status") return Promise.resolve(options.dirty ?? "");
-      if (args[0] === "rev-parse" && args[1] === "origin/main") {
-        return Promise.resolve(options.advance ? "bbb\n" : `${current}\n`);
-      }
-      if (args[0] === "rev-parse") return Promise.resolve(`${current}\n`);
-      return Promise.resolve("");
-    },
-    read: () => "UNPANEL_PORT=28517\n",
-    healthy: () => Promise.resolve(options.healthy !== false),
-  };
-  return {
-    host,
-    commands,
-    gitCalls,
-    get head() {
-      return current;
-    },
-  };
-}

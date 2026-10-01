@@ -57,7 +57,15 @@ cpSync(join(root, "apps", "web", "dist"), join(out, "web"), { recursive: true })
 copyPackage("@node-rs/argon2");
 assertNative(join(out, "node_modules", "@node-rs"));
 mkdirSync(join(out, "scripts"), { recursive: true });
-for (const name of ["install.sh", "install-agent.sh", "apply-update.sh", "panel-swap.sh", "node.sh"]) {
+for (const name of [
+  "install.sh",
+  "install-agent.sh",
+  "apply-update.sh",
+  "panel-swap.sh",
+  "node.sh",
+  "update.sh",
+  "select-update.mjs",
+]) {
   cpSync(join(root, "scripts", name), join(out, "scripts", name));
 }
 cpSync(join(root, "LICENSE"), join(out, "LICENSE"));
@@ -69,6 +77,7 @@ if (!version) {
   process.exit(1);
 }
 writeFileSync(join(out, "SOURCE"), `https://github.com/codenav-ltd/unpanel/tree/v${version}\n`);
+writeFileSync(join(out, "VERSION"), `${version}\n`);
 process.stdout.write(`Bundled ${version} into ${out}\n`);
 
 function copyPackage(name) {

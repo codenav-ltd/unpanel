@@ -6,12 +6,10 @@ import {
   agentEnvironment,
   agentService,
   assertServiceNode,
-  envValue,
   panelEnvironment,
   panelService,
   type InstallPlan,
 } from "./layout.ts";
-import { newerRelease, tagNames } from "./release.ts";
 
 export interface InstallHost {
   exists(file: string): boolean;
@@ -21,13 +19,6 @@ export interface InstallHost {
   lookup(name: string): { uid: number; gid: number } | null;
   command(file: string, args: string[], cwd: string): Promise<void>;
   keypair(): { privatePem: string; publicPem: string };
-}
-
-export interface UpdateHost {
-  command(file: string, args: string[], cwd: string): Promise<void>;
-  git(args: string[], cwd: string): Promise<string>;
-  read(file: string): string;
-  healthy(port: number): Promise<boolean>;
 }
 
 /** Creates users, keys, env files, and units, then restarts both services. Existing keys stay. */
@@ -93,106 +84,6 @@ export async function installPanel(
   }
 }
 
-/**
- * Builds the next revision beside the running install, then swaps it in.
- * A failed build does not stop the panel. A swap that does not answer health
- * puts the previous tree and systemd files back.
- */
-export async function updatePanel(root: string, host: UpdateHost): Promise<"current" | "updated"> {
-  const dirty = (await host.git(["status", "--porcelain"], root)).trim();
-  if (dirty) {
-    throw new Error("This checkout has local changes. Commit or stash them, then update.");
-  }
-  const port = installedPort(host);
-  const branch = (await host.git(["rev-parse", "--abbrev-ref", "HEAD"], root)).trim();
-  if (branch === "HEAD") return updateTag(root, host, port);
-  return updateBranch(root, host, port, branch);
-}
-
-async function updateBranch(
-  root: string,
-  host: UpdateHost,
-  port: number,
-  branch: string,
-): Promise<"current" | "updated"> {
-  const before = (await host.git(["rev-parse", "HEAD"], root)).trim();
-  await host.git(["fetch", "origin"], root);
-  const after = (await host.git(["rev-parse", `origin/${branchName(branch)}`], root)).trim();
-  if (before === after) return "current";
-  return swapRevision(root, host, port, after);
-}
-
-async function updateTag(
-  root: string,
-  host: UpdateHost,
-  port: number,
-): Promise<"current" | "updated"> {
-  let current: string;
-  try {
-    current = (await host.git(["describe", "--tags", "--exact-match"], root)).trim();
-  } catch (error) {
-    throw new Error(
-      "This checkout is not on a release tag or a branch. Reinstall from the one-line command.",
-      { cause: error },
-    );
-  }
-  const remote = await host.git(["ls-remote", "--tags", "origin"], root);
-  const next = newerRelease(current, tagNames(remote));
-  if (!next) return "current";
-  await host.git(["fetch", "origin", "tag", next], root);
-  return swapRevision(root, host, port, next);
-}
-
-/** The new tree is built at `<root>.next`. The live directory is not checked out. */
-async function swapRevision(
-  root: string,
-  host: UpdateHost,
-  port: number,
-  revision: string,
-): Promise<"updated"> {
-  const next = `${root}.next`;
-  await host.command("rm", ["-rf", next], root);
-  try {
-    await host.command("git", ["clone", "--local", "--no-hardlinks", root, next], root);
-    await host.git(["checkout", "--detach", revision], next);
-    await host.command("pnpm", ["install", "--frozen-lockfile"], next);
-    await host.command("pnpm", ["--filter", "@unpanel/web", "build"], next);
-  } catch (error) {
-    await host.command("rm", ["-rf", next], root);
-    throw new Error(`Update failed. The running panel was not changed. ${message(error)}`, {
-      cause: error,
-    });
-  }
-  const script = `${next}/scripts/panel-swap.sh`;
-  try {
-    await host.command("bash", [script, next], root);
-  } catch (error) {
-    throw new Error(`Update failed. ${message(error)}`, { cause: error });
-  }
-  if (!(await host.healthy(port))) {
-    await host.command("bash", [`${root}/scripts/panel-swap.sh`, "--restore"], root);
-    throw new Error("Update failed. Restored the previous version.");
-  }
-  return "updated";
-}
-
-function branchName(branch: string): string {
-  return branch.startsWith("origin/") ? branch.slice("origin/".length) : branch;
-}
-
-function installedPort(host: UpdateHost): number {
-  const envFile = `${product.paths.etc}/panel.env`;
-  let envText: string;
-  try {
-    envText = host.read(envFile);
-  } catch (error) {
-    throw new Error("The panel is not installed. Run scripts/install.sh first.", { cause: error });
-  }
-  const port = Number(envValue(envText, "UNPANEL_PORT"));
-  if (!Number.isInteger(port) || port < 1) throw new Error(`${envFile} has no UNPANEL_PORT.`);
-  return port;
-}
-
 function ensureKey(
   host: InstallHost,
   privatePath: string,
@@ -211,8 +102,4 @@ function ensureKey(
   }
   host.own(privatePath, owner.uid, owner.gid, privateMode);
   host.own(publicPath, owner.uid, owner.gid, publicMode);
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : "update failed";
 }

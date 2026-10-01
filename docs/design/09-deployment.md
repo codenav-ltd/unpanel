@@ -2,13 +2,13 @@
 
 > Status: Draft · Related ADRs: [0003](../adr/0003-unprivileged-panel-local-agent.md), [0010](../adr/0010-https-by-default.md) · Release process: [kb/release-process.md](../kb/release-process.md)
 
-**Shipped now (0.1.0-alpha.10 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
+**Shipped now (0.1.0-alpha.11 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
 
 ```bash
 curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 ```
 
-`pnpm --filter @unpanel/site build` writes `apps/site/dist`, including `install.sh` and `install-agent.sh`. Point `unpanel.codenav.dev` at that directory. Serve those scripts as `text/plain` with `Cache-Control: no-store`, and fall back other paths to `index.html`. The panel installer downloads the pinned release package and checks its SHA-256. It does not clone the repository.
+`pnpm --filter @unpanel/site build` writes `apps/site/dist`, including `install.sh` and `install-agent.sh`. Point `unpanel.codenav.dev` at that directory. Serve those scripts as `text/plain` with `Cache-Control: no-store`, and fall back other paths to `index.html`. The panel installer downloads the pinned release package and checks its SHA-256.
 
 A machine that should only run the agent uses the command the panel fills in:
 
@@ -16,11 +16,11 @@ A machine that should only run the agent uses the command the panel fills in:
 curl -fsSL https://unpanel.codenav.dev/install-agent.sh | sudo bash -s -- --panel <url> --token <token> --agent-id <id> --agent-url <ws>
 ```
 
-Settings → About reads `channels.json` from the site and, if that file is missing, the newest GitHub release. When a newer release exists, Update asks the local agent to download the package for this machine, check the SHA-256, and switch `/opt/unpanel` only after that package is complete. A package for the wrong architecture is refused before the running panel is stopped. If the new process does not answer `GET /api/v1/health`, the previous tree, systemd units, and `panel.env` are restored and the previous panel is started again. The database is kept. A source update is built in a side directory first, so a failed build does not stop the panel. A source checkout can still move with `scripts/update.sh`, which uses git. Signed packages, the guard timer, and HTTPS in the sections below are not built yet.
+Settings → About reads `channels.json` from the site and, if that file is missing, the newest GitHub release. When a newer release exists, Update asks the local agent to download the package for this machine, check the SHA-256, and switch `/opt/unpanel` only after that package is complete. `scripts/update.sh` does the same download and check. The current install directory is moved to `/opt/unpanel.previous` before the new package replaces it. A package for the wrong architecture is refused before the running panel is stopped. If the new process does not answer `GET /api/v1/health`, that directory, the systemd units, and `panel.env` are restored and the previous panel is started again. The database is kept. Signed packages, the guard timer, and HTTPS in the sections below are not built yet.
 
 `sudo` does not keep the caller's PATH. If root would otherwise see an older system Node, the script uses the Node 24 from the account that ran sudo, and copies a home-directory install to `/usr/local/lib/unpanel-node` so systemd can run it.
 
-`install.sh` creates the `unpanel` user and the panel and agent keys, and starts `unpanel.service` (unprivileged) and `unpanel-agent.service` (root, local socket). The panel serves the built UI and the API on one port over HTTP. The public origin is detected; `--public-url` overrides it. A packaged install updates from Settings. `update.sh` remains for a checkout that is still on a git tag or branch.
+`install.sh` creates the `unpanel` user and the panel and agent keys, and starts `unpanel.service` (unprivileged) and `unpanel-agent.service` (root, local socket). The panel serves the built UI and the API on one port over HTTP. The public origin is detected; `--public-url` overrides it. A packaged install updates from Settings or `scripts/update.sh`. Rollback is the directory saved as `/opt/unpanel.previous`.
 
 ## 1. Artifacts
 

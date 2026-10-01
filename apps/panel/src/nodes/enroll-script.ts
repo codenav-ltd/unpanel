@@ -10,7 +10,7 @@ const SOURCE = "/opt/unpanel";
 export interface EnrollmentScripts {
   /** Agent binary is already on PATH. Creates the key files, enrolls, and starts it. */
   installed: string;
-  /** No agent yet. One curl command. The release package is downloaded; git is not used. */
+  /** No agent yet. One curl command. The release package is downloaded. */
   fresh: string;
 }
 
@@ -37,15 +37,6 @@ export function enrollmentScripts(input: {
     `UNPANEL_AGENT_KEY=${KEY}`,
     `UNPANEL_PANEL_PUB=${PUB}`,
   ].join(" ");
-  const fromSource = [
-    `cd ${SOURCE}`,
-    "corepack enable",
-    "corepack prepare pnpm@10.30.1 --activate",
-    "NODE_ENV=development pnpm install --frozen-lockfile",
-    `pnpm --filter @unpanel/agent exec tsx src/main.ts ${enrollArgs}`,
-    `cd ${SOURCE}/apps/agent`,
-    `${start} exec pnpm exec tsx src/main.ts`,
-  ];
   const installed = shellScript([
     "set -eu",
     "umask 077",
@@ -54,11 +45,18 @@ export function enrollmentScripts(input: {
     `  ${product.agentBin} ${enrollArgs}`,
     `  ${start} exec ${product.agentBin}`,
     "fi",
-    `if [ ! -f ${SOURCE}/apps/agent/src/main.ts ]; then`,
-    `  echo "This machine has no Unpanel agent. In the panel, choose Not installed and run that script." >&2`,
-    "  exit 1",
+    `if [ -f ${SOURCE}/agent.cjs ]; then`,
+    "  node=/usr/local/lib/unpanel-node/bin/node",
+    '  if [ ! -x "$node" ]; then node=$(command -v node || true); fi',
+    '  if [ ! -x "$node" ]; then',
+    '    echo "Node.js was not found. In the panel, choose Not installed and run that script." >&2',
+    "    exit 1",
+    "  fi",
+    `  "$node" ${SOURCE}/agent.cjs ${enrollArgs}`,
+    `  ${start} exec "$node" ${SOURCE}/agent.cjs`,
     "fi",
-    ...fromSource,
+    'echo "This machine has no Unpanel agent. In the panel, choose Not installed and run that script." >&2',
+    "exit 1",
   ]);
   const fresh = `curl -fsSL ${product.siteUrl}/install-agent.sh | sudo bash -s -- --panel ${quote(input.panelUrl)} --token ${quote(input.token)} --agent-id ${quote(input.agentId)} --agent-url ${quote(input.wsUrl)}\n`;
   return { installed, fresh };

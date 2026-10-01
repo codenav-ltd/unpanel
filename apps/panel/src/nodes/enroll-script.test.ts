@@ -19,6 +19,8 @@ describe("enrollmentScripts", () => {
     expect(scripts.installed).toContain("--token 'pe_abc'");
     expect(scripts.installed).toContain("UNPANEL_AGENT_ID='nd_abc'");
     expect(scripts.installed).toContain("/var/lib/unpanel-agent/agent.pem");
+    expect(scripts.installed).toContain("/opt/unpanel/agent.cjs");
+    expect(scripts.installed).not.toContain("pnpm");
     expect(scripts.installed).not.toContain("panel.example.com");
   });
 
