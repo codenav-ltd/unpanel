@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.10] - 2026-10-02
+
+### Fixed
+
+- A failed update no longer leaves the panel unreachable. The next version is built beside the running install. The running process is stopped only to swap in a finished tree. If that tree does not answer, the previous program, systemd units, and panel.env are put back and started. A package built for another architecture is refused before anything is stopped.
+
 ## [0.1.0-alpha.9] - 2026-10-02
 
 ### Added

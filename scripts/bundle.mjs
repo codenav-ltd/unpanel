@@ -57,7 +57,7 @@ cpSync(join(root, "apps", "web", "dist"), join(out, "web"), { recursive: true })
 copyPackage("@node-rs/argon2");
 assertNative(join(out, "node_modules", "@node-rs"));
 mkdirSync(join(out, "scripts"), { recursive: true });
-for (const name of ["install.sh", "install-agent.sh", "apply-update.sh", "node.sh"]) {
+for (const name of ["install.sh", "install-agent.sh", "apply-update.sh", "panel-swap.sh", "node.sh"]) {
   cpSync(join(root, "scripts", name), join(out, "scripts", name));
 }
 cpSync(join(root, "LICENSE"), join(out, "LICENSE"));

@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 CodeNav Ltd and contributors
 
-# Moves a release install to a newer tag, or fast-forwards a branch. A failed start restores the previous version.
+# Builds the next revision beside the running install, then swaps it in.
+# A failed build does not stop the panel. A swap that does not answer health puts the previous install back.
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then

@@ -94,8 +94,9 @@ export async function installPanel(
 }
 
 /**
- * Moves a release install to a newer tag, or fast-forwards a branch checkout.
- * A failed start restores the previous tag or commit. The database stays.
+ * Builds the next revision beside the running install, then swaps it in.
+ * A failed build does not stop the panel. A swap that does not answer health
+ * puts the previous tree and systemd files back.
  */
 export async function updatePanel(root: string, host: UpdateHost): Promise<"current" | "updated"> {
   const dirty = (await host.git(["status", "--porcelain"], root)).trim();
@@ -105,22 +106,20 @@ export async function updatePanel(root: string, host: UpdateHost): Promise<"curr
   const port = installedPort(host);
   const branch = (await host.git(["rev-parse", "--abbrev-ref", "HEAD"], root)).trim();
   if (branch === "HEAD") return updateTag(root, host, port);
-  return updateBranch(root, host, port);
+  return updateBranch(root, host, port, branch);
 }
 
 async function updateBranch(
   root: string,
   host: UpdateHost,
   port: number,
+  branch: string,
 ): Promise<"current" | "updated"> {
   const before = (await host.git(["rev-parse", "HEAD"], root)).trim();
   await host.git(["fetch", "origin"], root);
-  await host.git(["pull", "--ff-only"], root);
-  const after = (await host.git(["rev-parse", "HEAD"], root)).trim();
+  const after = (await host.git(["rev-parse", `origin/${branchName(branch)}`], root)).trim();
   if (before === after) return "current";
-  return restart(root, host, port, async () => {
-    await host.git(["reset", "--hard", before], root);
-  });
+  return swapRevision(root, host, port, after);
 }
 
 async function updateTag(
@@ -140,42 +139,45 @@ async function updateTag(
   const remote = await host.git(["ls-remote", "--tags", "origin"], root);
   const next = newerRelease(current, tagNames(remote));
   if (!next) return "current";
-  await host.git(["fetch", "--depth", "1", "origin", `refs/tags/${next}:refs/tags/${next}`], root);
-  await host.git(["checkout", "--detach", next], root);
-  return restart(root, host, port, async () => {
-    await host.git(["checkout", "--detach", current], root);
-  });
+  await host.git(["fetch", "origin", "tag", next], root);
+  return swapRevision(root, host, port, next);
 }
 
-async function restart(
+/** The new tree is built at `<root>.next`. The live directory is not checked out. */
+async function swapRevision(
   root: string,
   host: UpdateHost,
   port: number,
-  restore: () => Promise<void>,
+  revision: string,
 ): Promise<"updated"> {
+  const next = `${root}.next`;
+  await host.command("rm", ["-rf", next], root);
   try {
-    await rebuild(root, host);
-    await host.command("systemctl", ["restart", product.units.panel], root);
-    if (!(await host.healthy(port)))
-      throw new Error("The new panel did not answer /api/v1/health.");
-    await host.command("systemctl", ["restart", product.units.agent], root);
-    return "updated";
+    await host.command("git", ["clone", "--local", "--no-hardlinks", root, next], root);
+    await host.git(["checkout", "--detach", revision], next);
+    await host.command("pnpm", ["install", "--frozen-lockfile"], next);
+    await host.command("pnpm", ["--filter", "@unpanel/web", "build"], next);
   } catch (error) {
-    try {
-      await restore();
-      await rebuild(root, host);
-      await host.command("systemctl", ["restart", product.units.panel], root);
-      await host.command("systemctl", ["restart", product.units.agent], root);
-    } catch (rollback) {
-      throw new Error(
-        `Update failed and restoring the previous version failed. ${message(error)} ${message(rollback)}`,
-        { cause: rollback },
-      );
-    }
-    throw new Error(`Update failed. Restored the previous version. ${message(error)}`, {
+    await host.command("rm", ["-rf", next], root);
+    throw new Error(`Update failed. The running panel was not changed. ${message(error)}`, {
       cause: error,
     });
   }
+  const script = `${next}/scripts/panel-swap.sh`;
+  try {
+    await host.command("bash", [script, next], root);
+  } catch (error) {
+    throw new Error(`Update failed. ${message(error)}`, { cause: error });
+  }
+  if (!(await host.healthy(port))) {
+    await host.command("bash", [`${root}/scripts/panel-swap.sh`, "--restore"], root);
+    throw new Error("Update failed. Restored the previous version.");
+  }
+  return "updated";
+}
+
+function branchName(branch: string): string {
+  return branch.startsWith("origin/") ? branch.slice("origin/".length) : branch;
 }
 
 function installedPort(host: UpdateHost): number {
@@ -189,11 +191,6 @@ function installedPort(host: UpdateHost): number {
   const port = Number(envValue(envText, "UNPANEL_PORT"));
   if (!Number.isInteger(port) || port < 1) throw new Error(`${envFile} has no UNPANEL_PORT.`);
   return port;
-}
-
-async function rebuild(root: string, host: UpdateHost): Promise<void> {
-  await host.command("pnpm", ["install", "--frozen-lockfile"], root);
-  await host.command("pnpm", ["--filter", "@unpanel/web", "build"], root);
 }
 
 function ensureKey(

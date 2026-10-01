@@ -48,6 +48,7 @@ const x64Asset = `unpanel-${version}-linux-x64.tar.gz`;
 const armAsset = `unpanel-${version}-linux-arm64.tar.gz`;
 assertNative(stage, "linux-x64-gnu.node");
 const x64Archive = join(releaseDir, x64Asset);
+writeFileSync(join(stage, "ARCH"), "linux-x64\n");
 tarInto(stage, x64Archive);
 
 const armStage = mkdtempSync(join(tmpdir(), "unpanel-arm64-"));
@@ -66,6 +67,7 @@ try {
   if (extracted.status !== 0) process.exit(extracted.status ?? 1);
   rmSync(tgz);
   assertNative(armStage, "linux-arm64-gnu.node");
+  writeFileSync(join(armStage, "ARCH"), "linux-arm64\n");
   tarInto(armStage, join(releaseDir, armAsset));
 } finally {
   rmSync(armStage, { recursive: true, force: true });

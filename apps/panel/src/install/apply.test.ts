@@ -96,24 +96,34 @@ describe("updatePanel", () => {
     expect(fake.commands).toEqual([]);
   });
 
-  it("rebuilds and restarts when the branch moved", async () => {
+  it("builds the next commit beside the running install", async () => {
     const fake = updateHost({ advance: true });
     await expect(updatePanel("/opt/unpanel", fake.host)).resolves.toBe("updated");
     expect(fake.commands.map((command) => command.join(" "))).toEqual([
+      "rm -rf /opt/unpanel.next",
+      "git clone --local --no-hardlinks /opt/unpanel /opt/unpanel.next",
       "pnpm install --frozen-lockfile",
       "pnpm --filter @unpanel/web build",
-      "systemctl restart unpanel.service",
-      "systemctl restart unpanel-agent.service",
+      "bash /opt/unpanel.next/scripts/panel-swap.sh /opt/unpanel.next",
     ]);
+    expect(fake.gitCalls).not.toContainEqual(["reset", "--hard", "aaa"]);
   });
 
-  it("restores the previous commit when the new process does not answer", async () => {
+  it("leaves the running install in place when the new build fails", async () => {
+    const fake = updateHost({ advance: true, failBuild: true });
+    await expect(updatePanel("/opt/unpanel", fake.host)).rejects.toThrow(/not changed/);
+    expect(fake.commands.some((command) => command[0] === "bash")).toBe(false);
+    expect(fake.commands.at(-1)?.join(" ")).toBe("rm -rf /opt/unpanel.next");
+  });
+
+  it("restores the previous install when the new process does not answer", async () => {
     const fake = updateHost({ advance: true, healthy: false });
     await expect(updatePanel("/opt/unpanel", fake.host)).rejects.toThrow(
       /Restored the previous version/,
     );
-    expect(fake.gitCalls).toContainEqual(["reset", "--hard", "aaa"]);
-    expect(fake.head).toBe("aaa");
+    expect(fake.commands.map((command) => command.join(" "))).toContain(
+      "bash /opt/unpanel/scripts/panel-swap.sh --restore",
+    );
   });
 
   it("refuses a dirty checkout before fetching", async () => {
@@ -123,7 +133,12 @@ describe("updatePanel", () => {
   });
 });
 
-function updateHost(options: { advance?: boolean; healthy?: boolean; dirty?: string }): {
+function updateHost(options: {
+  advance?: boolean;
+  healthy?: boolean;
+  dirty?: string;
+  failBuild?: boolean;
+}): {
   host: UpdateHost;
   commands: string[][];
   gitCalls: string[][];
@@ -135,15 +150,19 @@ function updateHost(options: { advance?: boolean; healthy?: boolean; dirty?: str
   const host: UpdateHost = {
     command: (file, args) => {
       commands.push([file, ...args]);
+      if (options.failBuild && args.includes("build")) {
+        return Promise.reject(new Error("build failed"));
+      }
       return Promise.resolve();
     },
     git: (args) => {
       gitCalls.push(args);
       if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return Promise.resolve("main\n");
       if (args[0] === "status") return Promise.resolve(options.dirty ?? "");
+      if (args[0] === "rev-parse" && args[1] === "origin/main") {
+        return Promise.resolve(options.advance ? "bbb\n" : `${current}\n`);
+      }
       if (args[0] === "rev-parse") return Promise.resolve(`${current}\n`);
-      if (args[0] === "pull" && options.advance) current = "bbb";
-      if (args[0] === "reset") current = args[2] ?? current;
       return Promise.resolve("");
     },
     read: () => "UNPANEL_PORT=28517\n",

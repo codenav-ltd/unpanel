@@ -44,8 +44,12 @@ describe("release tags", () => {
     const nodeSh = readFileSync("scripts/node.sh", "utf8");
     expect(nodeSh).toContain("linux-arm64");
     expect(nodeSh).toContain("https://nodejs.org/dist/");
-    expect(apply).toContain("Restoring the previous version");
-    expect(apply).toContain("systemd-run");
+    expect(apply).toContain("panel-swap.sh");
+    const swap = readFileSync("scripts/panel-swap.sh", "utf8");
+    expect(swap).toContain("Restoring the previous version");
+    expect(swap).toContain("update-snapshot");
+    expect(swap).toContain("The running panel was not changed.");
+    expect(swap).toContain("systemd-run");
   });
 
   it("starts the install command after the host object exists", () => {
@@ -55,13 +59,16 @@ describe("release tags", () => {
 });
 
 describe("updatePanel release checkout", () => {
-  it("checks out a newer tag and restores it when the new process does not answer", async () => {
+  it("builds a newer tag beside the install and restores it when the new process does not answer", async () => {
     const fake = tagHost({ next: "v0.1.0-alpha.1", healthy: false });
     await expect(updatePanel("/opt/unpanel", fake.host)).rejects.toThrow(
       /Restored the previous version/,
     );
     expect(fake.gitCalls).toContainEqual(["checkout", "--detach", "v0.1.0-alpha.1"]);
-    expect(fake.gitCalls).toContainEqual(["checkout", "--detach", "v0.1.0-alpha.0"]);
+    expect(fake.gitCalls).not.toContainEqual(["checkout", "--detach", "v0.1.0-alpha.0"]);
+    expect(fake.commands.map((command) => command.join(" "))).toContain(
+      "bash /opt/unpanel/scripts/panel-swap.sh --restore",
+    );
   });
 
   it("stays put when no newer tag exists", async () => {

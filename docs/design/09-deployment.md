@@ -2,7 +2,7 @@
 
 > Status: Draft · Related ADRs: [0003](../adr/0003-unprivileged-panel-local-agent.md), [0010](../adr/0010-https-by-default.md) · Release process: [kb/release-process.md](../kb/release-process.md)
 
-**Shipped now (0.1.0-alpha.9 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
+**Shipped now (0.1.0-alpha.10 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
 
 ```bash
 curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
@@ -16,7 +16,7 @@ A machine that should only run the agent uses the command the panel fills in:
 curl -fsSL https://unpanel.codenav.dev/install-agent.sh | sudo bash -s -- --panel <url> --token <token> --agent-id <id> --agent-url <ws>
 ```
 
-Settings → About reads `channels.json` from the site and, if that file is missing, the newest GitHub release. When a newer release exists, Update asks the local agent to download the package for this machine, check the SHA-256, switch `/opt/unpanel`, and restart. If the new process does not answer `GET /api/v1/health`, the previous tree is restored. The database is kept. A source checkout can still move with `scripts/update.sh`, which uses git. Signed packages, the guard timer, and HTTPS in the sections below are not built yet.
+Settings → About reads `channels.json` from the site and, if that file is missing, the newest GitHub release. When a newer release exists, Update asks the local agent to download the package for this machine, check the SHA-256, and switch `/opt/unpanel` only after that package is complete. A package for the wrong architecture is refused before the running panel is stopped. If the new process does not answer `GET /api/v1/health`, the previous tree, systemd units, and `panel.env` are restored and the previous panel is started again. The database is kept. A source update is built in a side directory first, so a failed build does not stop the panel. A source checkout can still move with `scripts/update.sh`, which uses git. Signed packages, the guard timer, and HTTPS in the sections below are not built yet.
 
 `sudo` does not keep the caller's PATH. If root would otherwise see an older system Node, the script uses the Node 24 from the account that ran sudo, and copies a home-directory install to `/usr/local/lib/unpanel-node` so systemd can run it.
 
