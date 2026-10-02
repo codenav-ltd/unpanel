@@ -4,6 +4,8 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { auditDetail } from "../audit-detail.ts";
+import { couldNotReach, readProblem } from "../http-error.ts";
 import { en } from "../i18n/en.ts";
 
 interface AuditEntry {
@@ -16,11 +18,12 @@ interface AuditEntry {
   target: string | null;
   result: "ok" | "denied" | "error";
   errorCode: string | null;
+  params: Record<string, unknown> | null;
 }
 
 const entries = ref<AuditEntry[]>([]);
 const loading = ref(true);
-const failed = ref(false);
+const problem = ref("");
 
 const labels: Record<string, string> = en.audit.actions;
 const outcomes: Record<AuditEntry["result"], string> = {
@@ -31,14 +34,17 @@ const outcomes: Record<AuditEntry["result"], string> = {
 
 async function load(): Promise<void> {
   loading.value = true;
-  failed.value = false;
+  problem.value = "";
   try {
     const response = await fetch("/api/v1/audit?limit=100");
-    if (!response.ok) throw new Error(String(response.status));
+    if (!response.ok) {
+      problem.value = await readProblem(response, "load the log");
+      return;
+    }
     const body = (await response.json()) as { data?: AuditEntry[] };
     entries.value = body.data ?? [];
   } catch {
-    failed.value = true;
+    problem.value = couldNotReach("load the log");
   } finally {
     loading.value = false;
   }
@@ -48,9 +54,8 @@ function actionLabel(entry: AuditEntry): string {
   return labels[entry.action] ?? entry.action;
 }
 
-/** The target and the error code are both secondary to the action, so they share one slot. */
 function detailLabel(entry: AuditEntry): string {
-  return [entry.target, entry.errorCode].filter(Boolean).join(" · ");
+  return auditDetail(entry);
 }
 
 function actorLabel(entry: AuditEntry): string {
@@ -81,8 +86,8 @@ onMounted(() => {
         <span class="skeleton-line" />
       </li>
     </ul>
-    <p v-else-if="failed" class="audit-note">
-      {{ en.audit.failed }}
+    <p v-else-if="problem" class="audit-note">
+      {{ problem }}
       <button class="audit-retry" type="button" @click="load">{{ en.audit.retry }}</button>
     </p>
     <p v-else-if="entries.length === 0" class="audit-note">{{ en.audit.empty }}</p>

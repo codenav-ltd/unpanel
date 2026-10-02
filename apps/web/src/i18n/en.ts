@@ -237,6 +237,8 @@ export const en = {
     swapCreate: "Create swap file",
     swapCreating: "Creating the swap file…",
     swapCreated: "Swap is on. The next reading should show it. Refresh if the number stays empty.",
+    swapNoReply:
+      "This page did not receive a reply. The swap file may already exist. Open Logs. That list has the request and the result when the panel received them.",
     swapSize: "Size",
     agentVersion: "Agent",
     agentBehind:
@@ -258,7 +260,6 @@ export const en = {
     title: "Logs",
     subtitle: "Panel activity, newest first",
     empty: "Nothing recorded yet.",
-    failed: "Could not load the log.",
     retry: "Retry",
     system: "system",
     unknownActor: "unknown",
@@ -276,7 +277,9 @@ export const en = {
       "panel.restart": "Panel restart",
       "panel.stop": "Panel stop",
       "panel.update": "Panel update",
-      "host.swap": "Swap file created",
+      "host.swap": "Swap",
+      "host.swap.request": "Swap requested",
+      "host.swap.reply": "Swap reply lost",
       "panel.backup.export": "Panel backup exported",
       "panel.backup.restore": "Panel restore staged",
       "node.create": "Node added",

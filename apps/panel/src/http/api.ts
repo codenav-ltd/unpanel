@@ -14,7 +14,7 @@ import {
 } from "@unpanel/protocol";
 import { product } from "@unpanel/shared";
 import { backupFilename } from "../backup/panel.ts";
-import type { Audit } from "../audit/log.ts";
+import type { Audit, AuditInput } from "../audit/log.ts";
 import type { Auth, AuthFailure } from "../auth/service.ts";
 import { blankNodeLive, HubCallError, type LocalSnapshot, type NodeLive } from "../hub.ts";
 import type { HistorySeries } from "../metrics/history.ts";
@@ -473,6 +473,29 @@ export function createApi(options: {
     });
   });
 
+  app.post("/api/v1/audit/note", async (c) => {
+    const user = options.auth.sessionUser(sessionToken(c));
+    if (!user) return unauthenticated(c);
+    const body = await readJson(c);
+    if (!body || body["kind"] !== "swap-reply-lost") return invalid(c);
+    const size = body["sizeGib"];
+    if (size !== 1 && size !== 2 && size !== 4 && size !== 8) return invalid(c);
+    const nodeId = typeof body["nodeId"] === "string" ? body["nodeId"] : "";
+    recordSwap(options.audit, {
+      action: "host.swap.reply",
+      result: "error",
+      actorId: user.username,
+      ip: clientIp(c),
+      nodeId,
+      errorCode: "E_NO_REPLY",
+      params: {
+        sizeGib: size,
+        detail: `The browser did not receive a reply while creating a ${size} GiB swap file. The file may already exist. This row is the page's record of the lost reply.`,
+      },
+    });
+    return c.json({ status: "ok" });
+  });
+
   app.post("/api/v1/nodes/:id/restart", (c) => controlRoute(c, "restart"));
   app.post("/api/v1/nodes/:id/stop", (c) => controlRoute(c, "stop"));
   app.post("/api/v1/nodes/:id/swap", (c) => swapRoute(c));
@@ -653,50 +676,71 @@ export function createApi(options: {
     if (!body) return invalid(c);
     const size = body["sizeGib"];
     if (size !== 1 && size !== 2 && size !== 4 && size !== 8) {
-      return c.json(
-        {
-          error: {
-            code: "E_INVALID_PARAMS",
-            message: "Choose 1, 2, 4, or 8 GiB. Nothing was changed.",
-          },
-        },
-        400,
-      );
+      const message = `The size was ${String(size)}. Choose 1, 2, 4, or 8 GiB. Nothing was changed. This is recorded in Logs.`;
+      recordSwap(options.audit, {
+        action: "host.swap",
+        result: "error",
+        actorId: user.username,
+        ip: clientIp(c),
+        nodeId: c.req.param("id") ?? "",
+        errorCode: "E_INVALID_PARAMS",
+        params: { detail: message },
+      });
+      return c.json({ error: { code: "E_INVALID_PARAMS", message } }, 400);
     }
     const startedAt = Date.now();
     const nodeId = c.req.param("id") ?? "";
+    const ip = clientIp(c);
+    recordSwap(options.audit, {
+      action: "host.swap.request",
+      result: "ok",
+      actorId: user.username,
+      ip,
+      nodeId,
+      params: {
+        sizeGib: size,
+        detail: `Asked the agent to create a ${size} GiB swap file at /var/lib/unpanel-swap/swapfile.`,
+      },
+    });
     try {
       const result = await options.configureSwap(nodeId, size);
-      options.audit.record({
+      const fstab = result.fstab
+        ? "It is listed in /etc/fstab."
+        : "It was not added to /etc/fstab.";
+      recordSwap(options.audit, {
         action: "host.swap",
         result: "ok",
-        actorKind: "user",
         actorId: user.username,
-        ip: clientIp(c),
+        ip,
         nodeId,
         target: result.path,
-        params: { sizeGib: result.sizeGib },
         durationMs: Date.now() - startedAt,
+        params: {
+          sizeGib: result.sizeGib,
+          detail: `Created a ${result.sizeGib} GiB swap file at ${result.path}. ${fstab}`,
+        },
       });
       return c.json({ data: result });
     } catch (error) {
-      if (error instanceof HubCallError) {
-        options.audit.record({
-          action: "host.swap",
-          result: "error",
-          actorKind: "user",
-          actorId: user.username,
-          ip: clientIp(c),
-          nodeId,
-          errorCode: error.code,
-          durationMs: Date.now() - startedAt,
-        });
-        return c.json(
-          { error: { code: error.code, message: error.message } },
-          error.status as 400 | 403 | 404 | 409 | 412 | 429 | 500 | 501 | 502 | 503 | 504,
-        );
-      }
-      throw error;
+      const code = error instanceof HubCallError ? error.code : "E_INTERNAL";
+      const reason =
+        error instanceof Error
+          ? error.message
+          : "Swap failed before the panel could confirm the result. The file may already exist.";
+      const message = reason.includes("Logs") ? reason : `${reason} This is recorded in Logs.`;
+      const status = (error instanceof HubCallError ? error.status : 500) as
+        400 | 403 | 404 | 409 | 412 | 429 | 500 | 501 | 502 | 503 | 504;
+      recordSwap(options.audit, {
+        action: "host.swap",
+        result: "error",
+        actorId: user.username,
+        ip,
+        nodeId,
+        errorCode: code,
+        durationMs: Date.now() - startedAt,
+        params: { sizeGib: size, detail: message },
+      });
+      return c.json({ error: { code, message } }, status);
     }
   }
 
@@ -813,6 +857,15 @@ function opsPatch(body: Record<string, unknown>): Partial<PanelOps> {
     patch.autoUpdate = body["autoUpdate"];
   }
   return patch;
+}
+
+/** A log write must not hide the swap result. The row is what Logs shows. */
+function recordSwap(audit: Audit, input: AuditInput): void {
+  try {
+    audit.record({ actorKind: "user", ...input });
+  } catch {
+    // The response still carries the same sentence.
+  }
 }
 
 function field(body: Record<string, unknown>, key: string): string {

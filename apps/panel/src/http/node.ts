@@ -36,10 +36,18 @@ export function handleHttp(
     });
     request.on("end", () => {
       if (response.writableEnded) return;
-      void dispatch(app, request, response, Buffer.concat(chunks)).catch(() => {
+      void dispatch(app, request, response, Buffer.concat(chunks)).catch((error: unknown) => {
         if (response.writableEnded) return;
-        response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
-        response.end("internal error");
+        const reason = error instanceof Error && error.message ? error.message : "unknown failure";
+        response.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+        response.end(
+          JSON.stringify({
+            error: {
+              code: "E_INTERNAL",
+              message: `The panel failed before it could finish (${reason}). Open Logs.`,
+            },
+          }),
+        );
       });
     });
   };

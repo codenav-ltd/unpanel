@@ -55,6 +55,19 @@ describe("audit log", () => {
     expect(stored?.params).toEqual(entry.params);
   });
 
+  it("keeps a long failure sentence instead of cutting it to a code", () => {
+    const audit = createAudit(openDatabase(":memory:"));
+    const detail = `mkswap: ${"permission denied. ".repeat(40)}`;
+    const entry = audit.record({
+      action: "host.swap",
+      result: "error",
+      errorCode: "E_EXTERNAL",
+      params: { detail },
+    });
+    expect(entry.params?.["detail"]).toBe(detail);
+    expect(audit.list(1)[0]?.params?.["detail"]).toBe(detail);
+  });
+
   it("lists the newest records first and caps the limit", () => {
     const audit = createAudit(openDatabase(":memory:"));
     for (let index = 0; index < 5; index += 1) {

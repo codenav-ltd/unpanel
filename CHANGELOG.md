@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.15] - 2026-10-02
+
+### Fixed
+
+- Creating a swap file no longer says that nothing changed when the page loses the reply. Logs records the request, the agent's reason, and a lost reply, and the row shows that sentence.
+
 ## [0.1.0-alpha.14] - 2026-10-02
 
 ### Added

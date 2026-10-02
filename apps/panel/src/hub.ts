@@ -142,6 +142,17 @@ export class HubCallError extends Error {
   }
 }
 
+/** A refusal with an empty message is still a sentence the log can show. */
+function agentRefusal(error: { code: ErrorCode; msg: string } | undefined): HubCallError {
+  if (!error?.msg.trim()) {
+    return new HubCallError(
+      error?.code ?? "E_INTERNAL",
+      "The agent refused the request and did not say why.",
+    );
+  }
+  return new HubCallError(error.code, error.msg);
+}
+
 type Pending =
   | { kind: "info" }
   | { kind: "cpu" }
@@ -306,7 +317,14 @@ export function createHub(options: {
 
   function dropPending(link: Link, error: HubCallError): void {
     for (const wait of link.pending.values()) {
-      if (wait.kind === "control" || wait.kind === "upgrade" || wait.kind === "swap") {
+      if (wait.kind === "swap") {
+        wait.reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The agent connection closed while a swap file was being created. The file may already exist. Open Logs.",
+          ),
+        );
+      } else if (wait.kind === "control" || wait.kind === "upgrade") {
         wait.reject(error);
       }
     }
@@ -359,7 +377,10 @@ export function createHub(options: {
     const link = links.get(nodeId);
     if (!link?.socket || link.socket.readyState !== WebSocket.OPEN) {
       return Promise.reject(
-        new HubCallError("E_NODE_OFFLINE", "The node is offline. Swap was not changed."),
+        new HubCallError(
+          "E_NODE_OFFLINE",
+          "The node is offline, so the request was not sent and no swap file was created.",
+        ),
       );
     }
     return new Promise((resolve, reject) => {
@@ -369,7 +390,7 @@ export function createHub(options: {
           reject(
             new HubCallError(
               "E_TIMEOUT",
-              "The agent did not answer. It may be an older version that cannot configure swap. Check that machine before trying again. This panel did not confirm a swap file.",
+              `The agent did not answer within ${hostSwap.timeoutMs / 1000} seconds. It may be an older version, or it may still be creating the file. The swap file may already exist. Open Logs.`,
             ),
           );
         }
@@ -393,7 +414,12 @@ export function createHub(options: {
       );
       if (id === null) {
         clearTimeout(timer);
-        reject(new HubCallError("E_NODE_OFFLINE", "The node is offline. Swap was not changed."));
+        reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The node is offline, so the request was not sent and no swap file was created.",
+          ),
+        );
       }
     });
   }
@@ -536,23 +562,42 @@ export function createHub(options: {
       const wait = link.pending.get(frame.id);
       link.pending.delete(frame.id);
       if (!wait) return;
+      try {
+        deliverResult(wait, frame, link, agentId);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "The panel failed while reading the agent's reply.";
+        if (wait.kind === "control" || wait.kind === "upgrade" || wait.kind === "swap") {
+          wait.reject(new HubCallError("E_INTERNAL", `${message} Open Logs.`));
+        }
+      }
+    });
+
+    function deliverResult(
+      wait: Pending,
+      frame: Extract<TextFrame, { t: "res" }>,
+      current: Link,
+      id: string,
+    ): void {
       if (wait.kind === "info") {
         if (!frame.ok) {
-          link.error = frame.e.msg;
+          current.error = frame.e.msg || "The agent refused system.info and did not say why.";
           return;
         }
         const parsed = systemInfo.result.safeParse(frame.r);
         if (!parsed.success) {
-          link.error = "system.info result did not match the schema";
+          current.error = "system.info result did not match the schema";
           return;
         }
-        link.info = parsed.data;
-        link.error = null;
+        current.info = parsed.data;
+        current.error = null;
         return;
       }
       if (wait.kind === "control") {
         if (!frame.ok) {
-          wait.reject(new HubCallError(frame.e.code, frame.e.msg));
+          wait.reject(agentRefusal(frame.e));
           return;
         }
         const parsed = panelRestart.result.safeParse(frame.r);
@@ -565,7 +610,7 @@ export function createHub(options: {
       }
       if (wait.kind === "upgrade") {
         if (!frame.ok) {
-          wait.reject(new HubCallError(frame.e.code, frame.e.msg));
+          wait.reject(agentRefusal(frame.e));
           return;
         }
         const parsed = panelUpgrade.result.safeParse(frame.r);
@@ -578,7 +623,7 @@ export function createHub(options: {
       }
       if (wait.kind === "swap") {
         if (!frame.ok) {
-          wait.reject(new HubCallError(frame.e.code, frame.e.msg));
+          wait.reject(agentRefusal(frame.e));
           return;
         }
         const parsed = hostSwap.result.safeParse(frame.r);
@@ -590,27 +635,27 @@ export function createHub(options: {
         return;
       }
       if (wait.kind === "cpu") {
-        link.cpuInflight = false;
+        current.cpuInflight = false;
         if (!frame.ok) return;
         const parsed = metricsCpu.result.safeParse(frame.r);
         if (!parsed.success) return;
-        link.sample = parsed.data;
-        options.record?.(agentId, parsed.data, now());
-        pushTrace(link.traceMem, usageRatio(parsed.data.memUsed, parsed.data.memTotal));
-        pushTrace(link.traceDisk, usageRatio(parsed.data.diskUsed, parsed.data.diskTotal));
-        pushTrace(link.traceSwap, usageRatio(parsed.data.swapUsed, parsed.data.swapTotal));
-        pushRate(link.rateUp, parsed.data.txBps);
-        pushRate(link.rateDown, parsed.data.rxBps);
-        pushRate(link.rateTcp, parsed.data.tcpCount);
-        pushRate(link.rateUdp, parsed.data.udpCount);
+        current.sample = parsed.data;
+        options.record?.(id, parsed.data, now());
+        pushTrace(current.traceMem, usageRatio(parsed.data.memUsed, parsed.data.memTotal));
+        pushTrace(current.traceDisk, usageRatio(parsed.data.diskUsed, parsed.data.diskTotal));
+        pushTrace(current.traceSwap, usageRatio(parsed.data.swapUsed, parsed.data.swapTotal));
+        pushRate(current.rateUp, parsed.data.txBps);
+        pushRate(current.rateDown, parsed.data.rxBps);
+        pushRate(current.rateTcp, parsed.data.tcpCount);
+        pushRate(current.rateUdp, parsed.data.udpCount);
         if (parsed.data.ratio === null) return;
-        pushTrace(link.traceCpu, parsed.data.ratio);
-        if (link.cpu.length > 0 && now() - link.railAt < 10_000) return;
-        link.railAt = now();
-        link.cpu.push(parsed.data.ratio);
-        if (link.cpu.length > 60) link.cpu.shift();
+        pushTrace(current.traceCpu, parsed.data.ratio);
+        if (current.cpu.length > 0 && now() - current.railAt < 10_000) return;
+        current.railAt = now();
+        current.cpu.push(parsed.data.ratio);
+        if (current.cpu.length > 60) current.cpu.shift();
       }
-    });
+    }
 
     socket.on("close", () => {
       clearTimeout(timer);

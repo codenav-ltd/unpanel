@@ -2,7 +2,7 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 import { describe, expect, it } from "vitest";
-import { SWAP_PATH, SwapRefused, configureSwap } from "./swap.ts";
+import { SWAP_PATH, SwapRefused, commandText, configureSwap, resolveSwapBinary } from "./swap.ts";
 
 const free = 20 * 1024 * 1024 * 1024;
 
@@ -101,5 +101,31 @@ describe("configureSwap", () => {
       }),
     ).rejects.toThrow(/already at/);
     expect(ran).toBe(false);
+  });
+
+  it("keeps the command's own error text in the refusal", async () => {
+    const failure = new Error("Command failed: mkswap /var/lib/unpanel-swap/swapfile");
+    (failure as unknown as { stderr: string }).stderr = "mkswap: permission denied";
+    await expect(
+      configureSwap(1, {
+        platform: "linux",
+        swapTotalBytes: 0,
+        freeBytes: free,
+        exists: () => false,
+        makeDir: async () => undefined,
+        run: async () => {
+          throw failure;
+        },
+        removeFile: () => undefined,
+      }),
+    ).rejects.toThrow(/permission denied/);
+    expect(commandText(failure)).toContain("permission denied");
+  });
+
+  it("names a missing swap command instead of failing with a blank error", () => {
+    expect(() => resolveSwapBinary("mkswap", () => false)).toThrow(
+      "mkswap was not found (/usr/sbin/mkswap or /sbin/mkswap)",
+    );
+    expect(resolveSwapBinary("swapon", (path) => path === "/sbin/swapon")).toBe("/sbin/swapon");
   });
 });

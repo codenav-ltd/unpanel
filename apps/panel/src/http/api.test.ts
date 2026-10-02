@@ -321,7 +321,8 @@ describe("PATCH /api/v1/settings", () => {
 
   it("names a swap size the agent will not be asked to create", async () => {
     let called = false;
-    const app = appWith(createAudit(openDatabase(":memory:")), "tok", {
+    const audit = createAudit(openDatabase(":memory:"));
+    const app = appWith(audit, "tok", {
       configureSwap: async () => {
         called = true;
         return { path: "/var/lib/unpanel-swap/swapfile", sizeGib: 1, fstab: true };
@@ -336,6 +337,70 @@ describe("PATCH /api/v1/settings", () => {
     expect(response.status).toBe(400);
     expect(body.error.message).toContain("Nothing was changed");
     expect(called).toBe(false);
+    expect(audit.list(1)[0]?.params?.["detail"]).toContain("Nothing was changed");
+  });
+
+  it("records the agent's swap refusal and still answers with that sentence", async () => {
+    const audit = createAudit(openDatabase(":memory:"));
+    const reason =
+      "Could not create the swap file (mkswap: permission denied). Any partial file was removed, and /etc/fstab was not changed.";
+    const app = appWith(audit, "tok", {
+      configureSwap: async () => {
+        throw new HubCallError("E_EXTERNAL", reason);
+      },
+    });
+    const response = await app.request("/api/v1/nodes/local/swap", {
+      method: "POST",
+      headers: { cookie: "unpanel_sid=tok", "content-type": "application/json" },
+      body: JSON.stringify({ sizeGib: 2 }),
+    });
+    const body = (await response.json()) as { error: { message: string } };
+    expect(response.status).toBe(502);
+    expect(body.error.message).toContain("permission denied");
+    expect(body.error.message).toContain("Logs");
+    const rows = audit.list(5);
+    expect(rows[0]?.action).toBe("host.swap");
+    expect(rows[0]?.result).toBe("error");
+    expect(rows[0]?.errorCode).toBe("E_EXTERNAL");
+    expect(rows[0]?.params?.["detail"]).toContain("permission denied");
+    expect(rows[1]?.action).toBe("host.swap.request");
+    expect(rows[1]?.params?.["detail"]).toContain("2 GiB");
+  });
+
+  it("records an unexpected swap failure instead of dropping the connection", async () => {
+    const audit = createAudit(openDatabase(":memory:"));
+    const app = appWith(audit, "tok", {
+      configureSwap: async () => {
+        throw new Error("database is locked");
+      },
+    });
+    const response = await app.request("/api/v1/nodes/local/swap", {
+      method: "POST",
+      headers: { cookie: "unpanel_sid=tok", "content-type": "application/json" },
+      body: JSON.stringify({ sizeGib: 1 }),
+    });
+    const body = (await response.json()) as { error: { code: string; message: string } };
+    expect(response.status).toBe(500);
+    expect(body.error.code).toBe("E_INTERNAL");
+    expect(body.error.message).toContain("database is locked");
+    expect(
+      audit.list(5).some((row) => String(row.params?.["detail"]).includes("database is locked")),
+    ).toBe(true);
+  });
+
+  it("records that the browser lost the swap reply", async () => {
+    const audit = createAudit(openDatabase(":memory:"));
+    const app = appWith(audit, "tok");
+    const response = await app.request("/api/v1/audit/note", {
+      method: "POST",
+      headers: { cookie: "unpanel_sid=tok", "content-type": "application/json" },
+      body: JSON.stringify({ kind: "swap-reply-lost", nodeId: "local", sizeGib: 4 }),
+    });
+    expect(response.status).toBe(200);
+    const row = audit.list(1)[0];
+    expect(row?.action).toBe("host.swap.reply");
+    expect(row?.params?.["detail"]).toContain("did not receive a reply");
+    expect(row?.params?.["detail"]).toContain("4 GiB");
   });
 });
 

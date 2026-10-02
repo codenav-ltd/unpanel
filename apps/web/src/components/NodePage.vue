@@ -185,7 +185,21 @@ async function createSwap(): Promise<void> {
     }
     swapNote.value = en.shell.swapCreated;
   } catch {
-    swapError.value = couldNotReach("create the swap file");
+    swapError.value = en.shell.swapNoReply;
+    try {
+      await fetch("/api/v1/audit/note", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: "swap-reply-lost",
+          nodeId: props.nodeId,
+          sizeGib: swapGib.value,
+        }),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch {
+      // The sentence on the page already points at Logs.
+    }
   } finally {
     busy.value = false;
     swapping.value = false;

@@ -9,6 +9,8 @@ const RETAIN_MS = 180 * 24 * 60 * 60 * 1000;
 const GENESIS = "0".repeat(64);
 const MAX_LIMIT = 200;
 const MAX_TEXT = 200;
+/** Logs shows params.detail as the sentence for the row, so it is not cut to a code. */
+const MAX_DETAIL = 2_000;
 const SECRET_KEY = /pass|secret|token|code|key|otp|recovery|cookie|authorization/i;
 
 export type ActorKind = "user" | "system" | "anonymous";
@@ -220,7 +222,8 @@ function redactValue(value: unknown): unknown {
   if (value && typeof value === "object") {
     return redactParams(value as Record<string, unknown>);
   }
-  if (typeof value === "string" && value.length > MAX_TEXT) return `${value.slice(0, MAX_TEXT)}…`;
+  if (typeof value === "string" && value.length > MAX_DETAIL)
+    return `${value.slice(0, MAX_DETAIL)}…`;
   if (typeof value === "number" && !Number.isFinite(value)) return null;
   return value;
 }

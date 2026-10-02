@@ -96,9 +96,9 @@ export async function configureSwap(
   } catch (error) {
     if (hooks.removeFile) hooks.removeFile();
     else tryRemove();
-    const detail = error instanceof Error ? error.message : "the command failed";
+    if (error instanceof SwapRefused) throw error;
     throw new SwapRefused(
-      `Could not create the swap file (${detail}). Any partial file was removed, and /etc/fstab was not changed.`,
+      `Could not create the swap file (${commandText(error)}). Any partial file was removed, and /etc/fstab was not changed.`,
     );
   }
   const read = hooks.readFstab ?? (() => readFileSync("/etc/fstab", "utf8"));
@@ -148,9 +148,54 @@ function tryRemove(): void {
   }
 }
 
+const COMMAND_MS = 55_000;
+const SWAP_BINARIES: Record<string, readonly string[]> = {
+  fallocate: ["/usr/bin/fallocate", "/bin/fallocate"],
+  chmod: ["/bin/chmod", "/usr/bin/chmod"],
+  mkswap: ["/usr/sbin/mkswap", "/sbin/mkswap"],
+  swapon: ["/usr/sbin/swapon", "/sbin/swapon"],
+};
+
+/** systemd often has no /sbin on PATH. A missing binary is a sentence, not ENOENT. */
+export function resolveSwapBinary(
+  file: string,
+  exists: (path: string) => boolean = existsSync,
+): string {
+  const candidates = SWAP_BINARIES[file];
+  if (!candidates) return file;
+  for (const path of candidates) {
+    if (exists(path)) return path;
+  }
+  throw new Error(`${file} was not found (${candidates.join(" or ")})`);
+}
+
+/** Keep the command's own stderr. That text is what the panel log stores. */
+export function commandText(error: unknown): string {
+  if (!(error instanceof Error)) return "the command failed";
+  const stderr = stderrText(error);
+  const timedOut = "killed" in error && error.killed === true;
+  let text = error.message.trim() || "the command failed";
+  if (stderr && !text.includes(stderr)) text = `${text} ${stderr}`;
+  if (timedOut) text = `${text} The command was stopped after 55 seconds.`;
+  return text.length > 1_500 ? `${text.slice(0, 1_500)}…` : text;
+}
+
+function stderrText(error: Error): string {
+  const raw = (error as { stderr?: unknown }).stderr;
+  if (typeof raw === "string") return raw.trim();
+  if (raw instanceof Uint8Array) return new TextDecoder().decode(raw).trim();
+  return "";
+}
+
 function runFile(file: string, args: string[]): Promise<void> {
+  let path: string;
+  try {
+    path = resolveSwapBinary(file);
+  } catch (error) {
+    return Promise.reject(error instanceof Error ? error : new Error("the command failed"));
+  }
   return new Promise((resolve, reject) => {
-    execFile(file, args, (error) => {
+    execFile(path, args, { timeout: COMMAND_MS }, (error) => {
       if (error) reject(error);
       else resolve();
     });

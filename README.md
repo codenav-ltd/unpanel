@@ -2,7 +2,7 @@
 
 **The server panel that doesn't act like one.** Simple, modern, and lightweight: one web UI for the load, alerts, containers, processes, sites, and certificates of all your servers — without turning any of them into a "panel server".
 
-> **Status: 0.1.0-alpha.14 pre-alpha.** First-run setup creates the owner account with a password and TOTP. After sign-in, the address bar follows the page. System history shows the time and the reading under the pointer. Settings saves refresh, retention, and update checks. A new release is shown on every page. Automatic install stays off until it is turned on. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
+> **Status: 0.1.0-alpha.15 pre-alpha.** First-run setup creates the owner account with a password and TOTP. After sign-in, the address bar follows the page. System history shows the time and the reading under the pointer. Settings saves refresh, retention, and update checks. A new release is shown on every page. Automatic install stays off until it is turned on. A swap failure is written to Logs with the reason. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
 
 ## Install
 
