@@ -377,6 +377,49 @@ button.settings-tab[aria-current="true"] {
     var(--raised);
 }
 
+.update-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--ok) 34%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--ok) 10%, var(--raised));
+  color: var(--ok);
+}
+
+.update-success > .anticon {
+  flex: none;
+  margin-top: 2px;
+  font-size: 18px;
+}
+
+.update-success strong {
+  display: block;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.update-success p {
+  margin: 3px 0 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.update-result-enter-active,
+.update-result-leave-active {
+  transition:
+    opacity var(--transition),
+    transform var(--transition);
+}
+
+.update-result-enter-from,
+.update-result-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
 .update-section-head {
   display: flex;
   align-items: flex-start;
@@ -412,6 +455,12 @@ button.settings-tab[aria-current="true"] {
   border-color: color-mix(in srgb, var(--ok) 32%, var(--line));
   background: color-mix(in srgb, var(--ok) 10%, transparent);
   color: var(--ok);
+}
+
+.update-state-chip[data-state="busy"] {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--line));
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
 }
 
 .update-state-chip[data-state="warning"],
@@ -482,6 +531,45 @@ button.settings-tab[aria-current="true"] {
   margin: 12px 0 0;
   color: var(--text-2);
   font-size: 13px;
+  line-height: 1.5;
+}
+
+.panel-update-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.panel-update-loader {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--primary) 38%, var(--line));
+  border-radius: 50%;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--raised));
+}
+
+.panel-update-loader .anticon {
+  animation: spin var(--dur-spin) linear infinite;
+}
+
+.panel-update-progress strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.panel-update-progress p {
+  margin: 3px 0 0;
+  color: var(--text-2);
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -585,6 +673,10 @@ button.settings-tab[aria-current="true"] {
 
 .agent-update-result[data-state="error"] {
   color: var(--danger);
+}
+
+.agent-update-result[data-state="manual"] {
+  color: var(--warn);
 }
 
 .update-empty {

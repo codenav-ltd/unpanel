@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.18] - 2026-10-02
+
+### Changed
+
+- Agents that predate remote self-update now say that a one-time manual upgrade is required and explain that later updates will work from the panel.
+
+### Fixed
+
+- Panel updates keep their target version in the URL, show a reconnecting loader, probe the panel automatically, reload the new frontend when it returns, and show the confirmed version after the refresh. A rollback or timeout now produces a specific recovery message.
+
 ## [0.1.0-alpha.17] - 2026-10-02
 
 ### Added

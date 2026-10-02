@@ -271,7 +271,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const app = appWith(audit, "tok", {
       applyAgentUpdate: async (nodeId) => ({
         accepted: true,
-        version: nodeId === "nd_1" ? "0.1.0-alpha.17" : "unexpected",
+        version: nodeId === "nd_1" ? "0.1.0-alpha.18" : "unexpected",
       }),
     });
 
@@ -282,7 +282,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const body = (await response.json()) as { data: { version: string } };
 
     expect(response.status).toBe(200);
-    expect(body.data.version).toBe("0.1.0-alpha.17");
+    expect(body.data.version).toBe("0.1.0-alpha.18");
     expect(audit.list(1)[0]).toMatchObject({ action: "agent.update", nodeId: "nd_1" });
   });
 

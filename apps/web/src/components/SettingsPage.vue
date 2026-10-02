@@ -4,6 +4,7 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import {
+  CheckCircleOutlined,
   CloudSyncOutlined,
   DashboardOutlined,
   InfoCircleOutlined,
@@ -11,11 +12,12 @@ import {
   WarningOutlined,
 } from "@ant-design/icons-vue";
 import { compareVersions, product } from "@unpanel/shared";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import type { BanDurationMode, LoginSecuritySettings, RateLimitMode } from "../security.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
+import { updateResultVersion, waitForPanelUpdate } from "../update-flow.ts";
 import SelectField from "./SelectField.vue";
 
 export interface PanelOps {
@@ -93,6 +95,7 @@ const updateState = ref<"checking" | "current" | "available" | "error" | "workin
 const updateVersion = ref("");
 const updateNotes = ref("");
 const updateError = ref("");
+const updateSuccessVersion = ref(updateResultVersion(globalThis.location.search, product.version));
 const agentBusy = ref("");
 const agentResult = ref<Record<string, { kind: "working" | "success" | "error"; text: string }>>(
   {},
@@ -128,6 +131,8 @@ const remoteNodes = computed(() => props.nodes.filter((node) => node.id !== "loc
 const panelBlocksAgentUpdates = computed(
   () => updateState.value !== "current" || Boolean(updateVersion.value),
 );
+let updateMonitorTarget = "";
+let settingsUnmounted = false;
 
 const themes: { id: ThemeName; label: string }[] = [
   { id: "dark", label: en.shell.themeDark },
@@ -556,23 +561,83 @@ async function checkUpdates(): Promise<void> {
 
 async function applyUpdate(): Promise<void> {
   if (updateState.value !== "available") return;
+  const target = updateVersion.value;
   updateState.value = "working";
   updateError.value = "";
+  setUpdateMarker("updating", target);
   try {
     const response = await fetch("/api/v1/updates", { method: "POST" });
     if (!response.ok) {
       updateState.value = "error";
       updateError.value = await readProblem(response, "install the update");
+      setUpdateMarker(null, "");
       return;
     }
-    updateState.value = "started";
+    const body = (await response.json()) as { data?: { version?: string } };
+    await monitorPanelUpdate(body.data?.version || target);
   } catch {
-    updateState.value = "error";
-    updateError.value = replyNotReceived(
-      "install the update",
-      "The update may already be running. Wait a minute, then reload Updates before trying again.",
-    );
+    // A dropped response is expected while the service is replaced. The health
+    // probe below determines whether the target or the rollback came back.
+    await monitorPanelUpdate(target);
   }
+}
+
+async function monitorPanelUpdate(target: string): Promise<void> {
+  if (!target || updateMonitorTarget === target) return;
+  updateMonitorTarget = target;
+  updateState.value = "started";
+  updateVersion.value = target;
+  updateError.value = "";
+  emit("updateFound", "");
+  setUpdateMarker("updating", target);
+  const outcome = await waitForPanelUpdate(target);
+  if (settingsUnmounted) return;
+  updateMonitorTarget = "";
+  if (outcome.kind === "updated") {
+    const url = updateMarkerUrl("updated", target);
+    globalThis.location.replace(url);
+    return;
+  }
+  updateState.value = "error";
+  setUpdateMarker(null, "");
+  updateError.value =
+    outcome.kind === "rolled-back"
+      ? en.updates.updateRolledBack.replace("{version}", outcome.version)
+      : en.updates.updateTimedOut.replace(
+          "{version}",
+          outcome.version ?? en.updates.unknownVersion,
+        );
+}
+
+function updateMarkerUrl(marker: "updating" | "updated" | null, version: string): string {
+  const url = new URL(globalThis.location.href);
+  url.searchParams.delete("updating");
+  url.searchParams.delete("updated");
+  if (marker && version) url.searchParams.set(marker, version);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function setUpdateMarker(marker: "updating" | "updated" | null, version: string): void {
+  globalThis.history.replaceState(null, "", updateMarkerUrl(marker, version));
+}
+
+function resumePanelUpdate(): boolean {
+  const target = new URLSearchParams(globalThis.location.search).get("updating")?.trim() ?? "";
+  if (!target) return false;
+  const runningAgainstTarget = compareVersions(product.version, target);
+  if (runningAgainstTarget === null) {
+    setUpdateMarker(null, "");
+    return false;
+  }
+  if (runningAgainstTarget >= 0) {
+    setUpdateMarker("updated", product.version);
+    updateSuccessVersion.value = product.version;
+    void checkUpdates();
+    return true;
+  }
+  updateVersion.value = target;
+  void monitorPanelUpdate(target);
+  return true;
 }
 
 function updateNodeName(node: UpdateNode): string {
@@ -677,8 +742,12 @@ async function waitForAgent(nodeId: string): Promise<boolean> {
 }
 
 onMounted(() => {
-  void checkUpdates();
+  if (!resumePanelUpdate()) void checkUpdates();
   if (props.section === "security") void loadBans();
+});
+
+onUnmounted(() => {
+  settingsUnmounted = true;
 });
 </script>
 
@@ -1087,6 +1156,17 @@ onMounted(() => {
       </section>
     </div>
     <div v-else-if="section === 'updates'" class="page-stack">
+      <Transition name="update-result">
+        <div v-if="updateSuccessVersion" class="update-success" role="status">
+          <CheckCircleOutlined aria-hidden="true" />
+          <div>
+            <strong>{{
+              en.updates.updatedTitle.replace("{version}", updateSuccessVersion)
+            }}</strong>
+            <p>{{ en.updates.updatedHint }}</p>
+          </div>
+        </div>
+      </Transition>
       <section class="wide update-panel-card">
         <div class="update-section-head">
           <div>
@@ -1096,11 +1176,21 @@ onMounted(() => {
           <span
             class="update-state-chip"
             :data-state="
-              updateState === 'available' ? 'warning' : updateState === 'error' ? 'error' : 'ok'
+              updateState === 'available'
+                ? 'warning'
+                : updateState === 'error'
+                  ? 'error'
+                  : updateState === 'checking' ||
+                      updateState === 'working' ||
+                      updateState === 'started'
+                    ? 'busy'
+                    : 'ok'
             "
           >
             <span
-              v-if="updateState === 'checking' || updateState === 'working'"
+              v-if="
+                updateState === 'checking' || updateState === 'working' || updateState === 'started'
+              "
               class="spinner"
               aria-hidden="true"
             />
@@ -1131,7 +1221,23 @@ onMounted(() => {
             <strong>{{ updateVersion ? `v${updateVersion}` : en.updates.noNewRelease }}</strong>
           </div>
         </div>
+        <div
+          v-if="updateState === 'started'"
+          class="panel-update-progress"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <span class="panel-update-loader" aria-hidden="true">
+            <CloudSyncOutlined />
+          </span>
+          <div>
+            <strong>{{ en.updates.waitingForRestart }}</strong>
+            <p>{{ en.shell.updateStarted }}</p>
+          </div>
+        </div>
         <p
+          v-else
           class="update-message"
           aria-live="polite"
           :class="{ 'form-error': updateState === 'error' }"
@@ -1143,7 +1249,6 @@ onMounted(() => {
             {{ en.shell.updateAvailable.replace("{version}", updateVersion) }}
           </template>
           <template v-else-if="updateState === 'working'">{{ en.shell.updateWorking }}</template>
-          <template v-else-if="updateState === 'started'">{{ en.shell.updateStarted }}</template>
           <template v-else>{{ updateError }}</template>
         </p>
         <p v-if="updateNotes" class="release-notes">{{ updateNotes }}</p>
@@ -1228,6 +1333,13 @@ onMounted(() => {
               role="status"
             >
               {{ agentResult[node.id]?.text }}
+            </p>
+            <p
+              v-else-if="nodeVersionState(node) === 'outdated' && !node.canUpdateAgent"
+              class="agent-update-result"
+              data-state="manual"
+            >
+              {{ en.updates.nodeManualHint }}
             </p>
           </article>
         </div>

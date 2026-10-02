@@ -195,7 +195,7 @@ export const en = {
     updateAction: "Update",
     updateWorking: "Downloading the release…",
     updateStarted:
-      "The panel is restarting. Reload this page in a moment. If the new version does not come up, the previous one is restored.",
+      "Keep this page open. It checks the panel automatically and reloads the new interface when the target version answers. If startup fails, the previous version is restored.",
     updateCheck: "Check again",
     updateFailed: "Could not check for updates.",
     updateReview: "Review",
@@ -261,6 +261,15 @@ export const en = {
     restartingShort: "Restarting",
     checkFailedShort: "Check failed",
     currentShort: "Current",
+    updatedTitle: "Updated to v{version}",
+    updatedHint:
+      "The panel restarted successfully and this page loaded the new frontend bundle. Remote agents can now be reviewed below.",
+    waitingForRestart: "Waiting for the updated panel",
+    updateRolledBack:
+      "The panel returned on v{version}, so the update did not stay active and the previous version was restored. Check Logs or unpanel.service before trying again.",
+    updateTimedOut:
+      "The update could not be confirmed. The last version that answered was v{version}. Check Logs or unpanel.service before trying again.",
+    unknownVersion: "unknown",
     installed: "Installed",
     target: "Available",
     noNewRelease: "No newer release",
@@ -279,12 +288,14 @@ export const en = {
     nodeAhead: "Newer than panel",
     nodeCurrent: "Current",
     nodeOffline: "Update when online",
-    nodeManual: "Manual update required",
+    nodeManual: "One-time manual upgrade",
     nodeOutdated: "Update available",
     archUnknown: "Architecture unknown",
     agentVersion: "Agent version",
     updateAgent: "Update agent",
-    manualSteps: "Open node",
+    manualSteps: "Open upgrade steps",
+    nodeManualHint:
+      "This agent predates remote updates. Reinstall it once from the node page; future agent updates can be installed here.",
     updatingAgent: "Updating…",
     agentDownloading: "Downloading and verifying the release…",
     agentReconnecting: "Update accepted. Waiting for the agent to reconnect…",

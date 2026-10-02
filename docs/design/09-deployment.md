@@ -2,7 +2,7 @@
 
 > Status: Draft · Related ADRs: [0003](../adr/0003-unprivileged-panel-local-agent.md), [0010](../adr/0010-https-by-default.md) · Release process: [kb/release-process.md](../kb/release-process.md)
 
-**Shipped now (0.1.0-alpha.17 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
+**Shipped now (0.1.0-alpha.18 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
 
 ```bash
 curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
@@ -17,6 +17,8 @@ curl -fsSL https://unpanel.codenav.dev/install-agent.sh | sudo bash -s -- --pane
 ```
 
 Settings → Updates reads `channels.json` from the site and, if that file is missing, the newest GitHub release. A newer panel release appears above Sign out in the sidebar. Automatic install stays off until Settings turns it on. When a newer release exists, Update asks the local agent to download the package for this machine, check the SHA-256, and switch `/opt/unpanel` only after that package is complete. `scripts/update.sh` does the same download and check. The current install directory is moved to `/opt/unpanel.previous` before the new package replaces it. A package for the wrong architecture is refused before the running panel is stopped. If the new process does not answer `GET /api/v1/health`, that directory, the systemd units, and `panel.env` are restored and the previous panel is started again. The database is kept.
+
+The browser records the target as `/settings/updates?updating=<version>` before it starts the request, probes `/api/v1/health` through the restart, and reloads the frontend from `/settings/updates?updated=<version>` only after that version answers. Reloading during the restart resumes the probe. If the previous version returns after the outage, the page reports that the update rolled back instead of claiming success.
 
 After the panel is current, the same Updates screen compares every remote agent version with the panel version. Supported online agents update one at a time: the agent downloads the release for its own architecture, verifies the hash, hands the swap to a transient systemd unit, restarts, and reconnects with its existing key. The previous agent tree is restored when the new service does not stay active. Offline nodes wait until they reconnect. Agents from before protocol 1.1 cannot self-update and show a one-time manual re-enrollment path. Signed packages, the guard timer, and HTTPS in the sections below are not built yet.
 
