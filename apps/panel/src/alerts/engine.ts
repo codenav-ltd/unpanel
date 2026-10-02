@@ -149,22 +149,35 @@ export function createAlertEngine(options: {
     if (target.maintenance || incident.silencedUntil > now()) return;
     const title = `Unpanel · ${kind === "resolved" ? "Resolved" : rule.severity === "critical" ? "Critical" : "Warning"}: ${rule.name}`;
     const address = options.publicUrl();
-    channels.notify(
+    const queued = channels.notify(
       {
         title,
         text: `${target.name}\n${detail(rule, target)}\n${new Date(now()).toISOString()}${address ? `\n\n${address}/alerts` : ""}`,
         key: incident.id,
+        source: { ruleId: rule.id, incidentId: incident.id, event: kind },
       },
       rule.severity,
       rule.channelIds,
     );
-    db.prepare("UPDATE alert_incidents SET lastNotified = ? WHERE id = ?").run(now(), incident.id);
+    if (queued)
+      db.prepare("UPDATE alert_incidents SET lastNotified = ? WHERE id = ?").run(
+        now(),
+        incident.id,
+      );
   }
   function closeRule(id: string, reason: string): void {
+    channels.cancelRule(id);
     db.prepare(
       "UPDATE alert_incidents SET resolvedAt = ?, detail = ? WHERE ruleId = ? AND resolvedAt IS NULL",
     ).run(now(), reason, id);
     for (const key of pending.keys()) if (key.startsWith(`${id}:`)) pending.delete(key);
+  }
+  function refreshNotificationTime(id: string): number {
+    const at = channels.lastNotification(id);
+    db.prepare(
+      "UPDATE alert_incidents SET lastNotified = ? WHERE id = ? AND lastNotified != ?",
+    ).run(at, id, at);
+    return at;
   }
   return {
     rules,
@@ -248,6 +261,9 @@ export function createAlertEngine(options: {
         .run(now(), id);
       if (!result.changes)
         throw new AlertError("This incident has already resolved or no longer exists.", 409);
+      channels.cancelIncident(id, "Incident acknowledged before this reminder was delivered.", [
+        "repeat",
+      ]);
     },
     silence(id: string, seconds: unknown): void {
       const until = now() + integer(seconds, "Silence duration", 0, 7 * 86400) * 1000;
@@ -256,6 +272,8 @@ export function createAlertEngine(options: {
         .run(until, id);
       if (!result.changes)
         throw new AlertError("This incident has already resolved or no longer exists.", 409);
+      if (until > now() && channels.cancelIncident(id, "Incident silenced before delivery."))
+        refreshNotificationTime(id);
     },
     tick(): void {
       const live = new Map(options.live().map((node) => [node.id, node]));
@@ -275,6 +293,12 @@ export function createAlertEngine(options: {
           const state = pending.get(key) ?? { breachAt: null, recoveryAt: null };
           const incident = openMap.get(key);
           pending.set(key, state);
+          if (
+            incident &&
+            target.maintenance &&
+            channels.cancelIncident(incident.id, "Node entered maintenance before delivery.")
+          )
+            incident.lastNotified = refreshNotificationTime(incident.id);
           if (target.value === null || !Number.isFinite(target.value)) {
             state.breachAt = null;
             state.recoveryAt = null;
@@ -326,9 +350,16 @@ export function createAlertEngine(options: {
             );
             notify(rule, created, target, "firing");
           } else {
+            if (!incident.lastNotified)
+              incident.lastNotified = refreshNotificationTime(incident.id);
             if (recovered) {
               state.recoveryAt ??= now();
               if (now() - state.recoveryAt >= 60_000) {
+                channels.endIncident(incident.id);
+                channels.cancelIncident(incident.id, "Incident recovered before delivery.", [
+                  "firing",
+                  "repeat",
+                ]);
                 db.prepare(
                   "UPDATE alert_incidents SET resolvedAt = ?, detail = ? WHERE id = ?",
                 ).run(now(), detail(rule, target), incident.id);
@@ -344,11 +375,13 @@ export function createAlertEngine(options: {
                 (rule.repeatMinutes > 0 &&
                   now() - incident.lastNotified >= rule.repeatMinutes * 60_000))
             )
-              notify(rule, incident, target, "repeat");
+              notify(rule, incident, target, incident.lastNotified ? "repeat" : "firing");
           }
         }
       for (const incident of open)
         if (!valid.has(`${incident.ruleId}:${incident.targetId}`)) {
+          channels.endIncident(incident.id);
+          channels.cancelIncident(incident.id, "Monitoring ended before delivery.");
           db.prepare(
             "UPDATE alert_incidents SET resolvedAt = ?, detail = 'Monitoring ended: the rule or target was disabled, removed, or replaced.' WHERE id = ?",
           ).run(now(), incident.id);

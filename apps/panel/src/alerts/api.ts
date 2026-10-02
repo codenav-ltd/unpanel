@@ -106,6 +106,9 @@ export function registerAlertApi(
   app.put("/api/v1/alerts/channels/:id/email", (c) =>
     run(c, "alert.channel.update", (body) => alerts.channels.saveEmail(body, id(c))),
   );
+  app.put("/api/v1/alerts/channels/:id/telegram", (c) =>
+    run(c, "alert.channel.update", (body) => alerts.channels.updateTelegram(body, id(c))),
+  );
   app.patch("/api/v1/alerts/channels/:id", (c) =>
     run(c, "alert.channel.enable", (body) => alerts.channels.enable(id(c), body["enabled"])),
   );
@@ -134,7 +137,10 @@ export function registerAlertApi(
   app.post("/api/v1/alerts/telegram/:id/confirm", (c) =>
     run(c, "alert.telegram.confirm", (body, user) => {
       const binding = alerts.telegram.confirm(id(c), user, body["chatId"]);
-      alerts.channels.saveTelegram(body, binding);
+      const channelId = body["channelId"];
+      if (channelId !== undefined && (typeof channelId !== "string" || !channelId.trim()))
+        throw new AlertError("Choose the Telegram channel to reconnect.");
+      alerts.channels.saveTelegram(body, binding, channelId);
       alerts.telegram.cancel(id(c), user);
     }),
   );

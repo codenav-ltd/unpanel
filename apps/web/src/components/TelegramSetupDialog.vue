@@ -3,13 +3,13 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from "vue";
-import type { AlertsView, TelegramSetup } from "@unpanel/shared";
-import { alertRequest, alertSeverities } from "../alerts-client.ts";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import type { AlertsView, NotificationChannel, TelegramSetup } from "@unpanel/shared";
+import { AlertRequestError, alertRequest, alertSeverities } from "../alerts-client.ts";
 import { copyText } from "../copy.ts";
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
-const props = defineProps<{ open: boolean }>();
+const props = defineProps<{ open: boolean; channel: NotificationChannel | null }>();
 const emit = defineEmits<{ close: []; saved: [AlertsView] }>();
 const token = ref("");
 const name = ref("Telegram");
@@ -22,8 +22,11 @@ const checking = ref(false);
 const copying = ref(false);
 const error = ref("");
 const note = ref("");
+const reconnecting = ref(false);
+const editing = computed(() => Boolean(props.channel) && !reconnecting.value);
 let timer: ReturnType<typeof setTimeout> | undefined;
 let generation = 0;
+let disposed = false;
 function stop(): void {
   if (timer) clearTimeout(timer);
   timer = undefined;
@@ -35,37 +38,56 @@ watch(
     stop();
     if (open) {
       token.value = "";
-      name.value = "Telegram";
-      minimum.value = "warning";
-      enabled.value = true;
+      name.value = props.channel?.name ?? "Telegram";
+      minimum.value = props.channel?.minimumSeverity ?? "warning";
+      enabled.value = props.channel?.enabled ?? true;
+      reconnecting.value = false;
       setup.value = null;
       selection.value = "";
       error.value = "";
       note.value = "";
+      busy.value = "";
+      checking.value = false;
     }
   },
 );
 async function start(): Promise<void> {
+  if (busy.value) return;
+  const current = generation;
   busy.value = "start";
   error.value = "";
   try {
-    setup.value = await alertRequest<TelegramSetup>("/telegram/setup", "POST", {
+    const result = await alertRequest<TelegramSetup>("/telegram/setup", "POST", {
       token: token.value,
     });
+    if (disposed || generation !== current || !props.open) {
+      abandon(result.id);
+      return;
+    }
+    setup.value = result;
     token.value = "";
     schedule();
   } catch (failure) {
-    error.value = failure instanceof Error ? failure.message : "Could not connect this bot.";
+    if (generation === current)
+      error.value = failure instanceof Error ? failure.message : "Could not connect this bot.";
   } finally {
-    busy.value = "";
+    if (generation === current) busy.value = "";
   }
 }
 function schedule(): void {
   stop();
-  if (props.open && setup.value && !setup.value.candidates.length)
+  if (!disposed && props.open && setup.value && !setup.value.candidates.length)
     timer = setTimeout(() => {
       void poll();
     }, 3000);
+}
+function expired(failure: unknown): boolean {
+  if (!(failure instanceof AlertRequestError) || failure.status !== 404) return false;
+  stop();
+  setup.value = null;
+  selection.value = "";
+  error.value = "This setup expired. Paste your bot token to start again.";
+  return true;
 }
 async function poll(): Promise<void> {
   if (!setup.value || checking.value) return;
@@ -80,29 +102,34 @@ async function poll(): Promise<void> {
     if (result.candidates.length === 1) selection.value = result.candidates[0]?.id ?? "";
     schedule();
   } catch (failure) {
-    if (generation === current)
+    if (generation === current && !expired(failure))
       error.value = failure instanceof Error ? failure.message : "Could not check for a message.";
   } finally {
-    checking.value = false;
+    if (generation === current) checking.value = false;
   }
 }
 async function another(): Promise<void> {
   if (!setup.value) return;
+  const current = generation;
   busy.value = "restart";
   error.value = "";
   try {
-    setup.value = await alertRequest<TelegramSetup>(`/telegram/${setup.value.id}/restart`, "POST");
+    const result = await alertRequest<TelegramSetup>(`/telegram/${setup.value.id}/restart`, "POST");
+    if (generation !== current || disposed) return;
+    setup.value = result;
     selection.value = "";
     schedule();
   } catch (failure) {
-    error.value =
-      failure instanceof Error ? failure.message : "Could not restart conversation discovery.";
+    if (generation === current && !expired(failure))
+      error.value =
+        failure instanceof Error ? failure.message : "Could not restart conversation discovery.";
   } finally {
-    busy.value = "";
+    if (generation === current) busy.value = "";
   }
 }
 async function confirm(): Promise<void> {
   if (!setup.value || !selection.value) return;
+  const current = generation;
   busy.value = "save";
   stop();
   error.value = "";
@@ -112,14 +139,43 @@ async function confirm(): Promise<void> {
       name: name.value,
       enabled: enabled.value,
       minimumSeverity: minimum.value,
+      ...(props.channel ? { channelId: props.channel.id } : {}),
     });
+    if (generation !== current || disposed) return;
     setup.value = null;
     emit("saved", data);
   } catch (failure) {
-    error.value = failure instanceof Error ? failure.message : "Could not save this conversation.";
+    if (generation === current && !expired(failure))
+      error.value =
+        failure instanceof Error ? failure.message : "Could not save this conversation.";
   } finally {
-    busy.value = "";
+    if (generation === current) busy.value = "";
   }
+}
+async function saveSettings(): Promise<void> {
+  if (!props.channel || busy.value) return;
+  busy.value = "save";
+  error.value = "";
+  const current = generation;
+  try {
+    const data = await alertRequest<AlertsView>(`/channels/${props.channel.id}/telegram`, "PUT", {
+      name: name.value,
+      enabled: enabled.value,
+      minimumSeverity: minimum.value,
+    });
+    if (!disposed && generation === current) emit("saved", data);
+  } catch (failure) {
+    if (generation === current)
+      error.value = failure instanceof Error ? failure.message : "Could not save this channel.";
+  } finally {
+    if (generation === current) busy.value = "";
+  }
+}
+function reconnect(): void {
+  reconnecting.value = true;
+  error.value = "";
+  note.value =
+    "Confirm a conversation to replace this connection. Your rules keep using this channel.";
 }
 async function close(): Promise<void> {
   if (busy.value) return;
@@ -132,8 +188,13 @@ async function close(): Promise<void> {
     token.value = "";
     emit("close");
   } catch (failure) {
+    if (failure instanceof AlertRequestError && failure.status === 404) {
+      setup.value = null;
+      token.value = "";
+      emit("close");
+      return;
+    }
     error.value = `${failure instanceof Error ? failure.message : "Could not cancel setup."} The unsaved guide expires after 10 minutes.`;
-    setup.value = null;
   } finally {
     busy.value = "";
   }
@@ -150,15 +211,36 @@ async function copy(): Promise<void> {
     copying.value = false;
   }
 }
-onUnmounted(() => {
+function abandon(id: string): void {
+  // A page navigation may stop ordinary requests. Server expiry remains the
+  // fallback when the browser cannot deliver this best-effort cancellation.
+  void fetch(`/api/v1/alerts/telegram/${id}`, { method: "DELETE", keepalive: true }).catch(
+    () => undefined,
+  );
+}
+function leave(): void {
   stop();
   generation++;
+  if (setup.value) abandon(setup.value.id);
+  setup.value = null;
   token.value = "";
+  busy.value = "";
+  checking.value = false;
+}
+onMounted(() => globalThis.addEventListener("pagehide", leave));
+onUnmounted(() => {
+  disposed = true;
+  globalThis.removeEventListener("pagehide", leave);
+  leave();
 });
 </script>
 <template>
-  <AppDialog :open="open" title="Telegram setup guide" @close="close">
-    <ol class="alert-steps" aria-label="Setup progress">
+  <AppDialog
+    :open="open"
+    :title="editing ? 'Edit Telegram channel' : 'Telegram setup guide'"
+    @close="close"
+  >
+    <ol v-if="!editing" class="alert-steps" aria-label="Setup progress">
       <li :aria-current="!setup ? 'step' : undefined">1 · Connect bot</li>
       <li :aria-current="setup && !setup.candidates.length ? 'step' : undefined">
         2 · Send a message
@@ -168,7 +250,31 @@ onUnmounted(() => {
       </li>
     </ol>
     <Transition name="update-result" mode="out-in">
-      <form v-if="!setup" id="telegram-connect" key="connect" @submit.prevent="start">
+      <form v-if="editing" id="telegram-settings" key="settings" @submit.prevent="saveSettings">
+        <p class="hint">{{ channel?.destination }}</p>
+        <fieldset :disabled="Boolean(busy)">
+          <label class="field"
+            ><span>Channel name</span><input v-model="name" required maxlength="80"
+          /></label>
+          <SelectField
+            v-model="minimum"
+            label="Notify me about"
+            :options="alertSeverities"
+            :disabled="Boolean(busy)"
+          />
+          <label class="alert-check"
+            ><input v-model="enabled" type="checkbox" />Enable this channel</label
+          >
+        </fieldset>
+        <button type="button" class="quiet" :disabled="Boolean(busy)" @click="reconnect">
+          Reconnect bot or conversation…
+        </button>
+        <p class="hint">
+          Use the setup guide to replace a revoked token or choose another conversation. Existing
+          rules stay connected to this channel.
+        </p>
+      </form>
+      <form v-else-if="!setup" id="telegram-connect" key="connect" @submit.prevent="start">
         <p>
           Create a dedicated bot with
           <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">@BotFather</a>
@@ -278,7 +384,17 @@ onUnmounted(() => {
       ><button class="quiet" :disabled="Boolean(busy)" @click="close">
         <span v-if="busy === 'cancel'" class="button-spinner" aria-hidden="true" />Cancel</button
       ><button
-        v-if="!setup"
+        v-if="editing"
+        class="primary"
+        form="telegram-settings"
+        type="submit"
+        :disabled="Boolean(busy)"
+        :aria-busy="busy === 'save'"
+      >
+        <span v-if="busy === 'save'" class="button-spinner" aria-hidden="true" />Save Telegram
+        channel</button
+      ><button
+        v-else-if="!setup"
         class="primary"
         form="telegram-connect"
         type="submit"

@@ -38,6 +38,7 @@ it("protects every alert route, refuses cross-origin changes, and never returns 
       ["/incidents/id/silence", "POST"],
       ["/channels/email", "POST"],
       ["/channels/id/email", "PUT"],
+      ["/channels/id/telegram", "PUT"],
       ["/channels/id", "PATCH"],
       ["/channels/id", "DELETE"],
       ["/channels/id/test", "POST"],

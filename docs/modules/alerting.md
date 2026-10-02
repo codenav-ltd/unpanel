@@ -18,7 +18,7 @@ Default enabled rules:
 - CPU usage at least 95% for 10 minutes: warning.
 - Active panel certificate has at most 14 days remaining: warning; at most 3 days: critical.
 
-Critical defaults repeat hourly; warning defaults do not repeat. These are editable defaults, seeded only once. Removing every rule does not recreate them on restart. Without a notification channel, incidents still appear in the panel and an onboarding notice explains how to connect a destination.
+Critical defaults repeat hourly; warning defaults do not repeat. These are editable defaults, seeded only once. Removing every rule does not recreate them on restart. Without a notification channel, incidents still appear in the panel and an onboarding notice explains how to connect a destination. An incident is not marked notified until at least one eligible delivery is queued, so connecting the first channel can notify an already active incident on the next evaluation.
 
 ## State and recovery
 

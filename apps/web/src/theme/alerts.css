@@ -5,6 +5,7 @@
   min-width: 0;
 }
 #telegram-confirm > fieldset,
+#telegram-settings > fieldset,
 #email-channel-form > fieldset,
 #alert-rule-form > fieldset {
   min-width: 0;
@@ -170,6 +171,9 @@
   max-width: 480px;
   margin: 12px auto 20px;
   line-height: 1.7;
+}
+.alert-empty .form-error {
+  color: var(--danger);
 }
 .alert-channel-options,
 .alert-form-grid {

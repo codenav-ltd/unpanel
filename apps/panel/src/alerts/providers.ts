@@ -14,6 +14,11 @@ export interface NotificationMessage {
   title: string;
   text: string;
   key: string;
+  source?: {
+    ruleId: string;
+    incidentId: string;
+    event: "firing" | "repeat" | "resolved";
+  };
 }
 export class DeliveryError extends Error {
   constructor(

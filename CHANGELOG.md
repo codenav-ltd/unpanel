@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Background monitoring now requests metrics even with every browser closed. Stale or missing readings cannot falsely resolve an incident, and maintenance mode suppresses notifications without erasing incident history.
+- Connecting the first eligible channel notifies existing active incidents. Rule edits, recovery, silences and channel disabling cancel obsolete queued messages; provider cooldowns survive restart.
+- Telegram channels can be edited or reconnected without breaking rule selections, and closing or leaving a setup guide releases its temporary session.
 
 ### Security
 

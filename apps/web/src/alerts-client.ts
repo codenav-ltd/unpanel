@@ -3,6 +3,15 @@
 
 import { readProblem, replyNotReceived } from "./http-error.ts";
 
+export class AlertRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 export async function alertRequest<T>(
   path = "",
   method = "GET",
@@ -28,7 +37,8 @@ export async function alertRequest<T>(
           ),
     );
   }
-  if (!response.ok) throw new Error(await readProblem(response, "update alerts"));
+  if (!response.ok)
+    throw new AlertRequestError(await readProblem(response, "update alerts"), response.status);
   return ((await response.json()) as { data: T }).data;
 }
 export const alertMetrics = [

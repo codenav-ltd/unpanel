@@ -37,6 +37,7 @@ const selectedRule = ref<AlertRule | null>(null);
 const emailOpen = ref(false);
 const selectedChannel = ref<NotificationChannel | null>(null);
 const telegramOpen = ref(false);
+const selectedTelegram = ref<NotificationChannel | null>(null);
 const removal = ref<{ path: string; name: string } | null>(null);
 const silence = ref<AlertIncident | null>(null);
 const silenceSeconds = ref(3600);
@@ -113,6 +114,10 @@ function editRule(rule: AlertRule | null): void {
 function editEmail(channel: NotificationChannel | null): void {
   selectedChannel.value = channel;
   emailOpen.value = true;
+}
+function editTelegram(channel: NotificationChannel | null): void {
+  selectedTelegram.value = channel;
+  telegramOpen.value = true;
 }
 async function remove(): Promise<void> {
   if (removal.value && (await act(removal.value.path, "DELETE", undefined, "Removed.")))
@@ -353,9 +358,7 @@ onUnmounted(() => {
                 Get messages in a private conversation or group. The guide finds your conversation
                 for you.
               </p>
-              <button class="primary" @click="telegramOpen = true">
-                Open Telegram setup guide
-              </button>
+              <button class="primary" @click="editTelegram(null)">Open Telegram setup guide</button>
             </article>
             <article class="alert-channel-option">
               <MailOutlined aria-hidden="true" />
@@ -424,10 +427,9 @@ onUnmounted(() => {
                   aria-hidden="true"
                 />{{ channel.enabled ? "Disable" : "Enable" }}</button
               ><button
-                v-if="channel.kind === 'email'"
                 class="quiet"
                 :disabled="Boolean(busy)"
-                @click="editEmail(channel)"
+                @click="channel.kind === 'email' ? editEmail(channel) : editTelegram(channel)"
               >
                 Edit</button
               ><button
@@ -503,7 +505,12 @@ onUnmounted(() => {
       @close="emailOpen = false"
       @saved="saved"
     />
-    <TelegramSetupDialog :open="telegramOpen" @close="telegramOpen = false" @saved="saved" />
+    <TelegramSetupDialog
+      :open="telegramOpen"
+      :channel="selectedTelegram"
+      @close="telegramOpen = false"
+      @saved="saved"
+    />
     <AppDialog
       :open="Boolean(removal)"
       title="Remove this item?"

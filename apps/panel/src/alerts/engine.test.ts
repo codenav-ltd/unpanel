@@ -200,6 +200,118 @@ it("applies offline startup grace and ignores pending nodes", () => {
   }
 });
 
+it("cancels queued incident notifications when their rule is changed or removed", async () => {
+  const f = fixture();
+  try {
+    f.engine.tick();
+    f.advance(60_000);
+    f.engine.tick();
+    const id = first(f.engine.rules()).id;
+    f.engine.save({ ...f.rule, threshold: 100 }, id);
+    await f.channels.flush();
+    expect(first(f.channels.logs()).state).toBe("cancelled");
+    expect(first(f.engine.incidents()).resolvedAt).not.toBeNull();
+    f.engine.save({ ...f.rule, durationSeconds: 0 }, id);
+    f.engine.tick();
+    f.engine.remove(id);
+    await f.channels.flush();
+    expect(f.channels.logs().every((log) => log.state === "cancelled")).toBe(true);
+  } finally {
+    f.db.close();
+  }
+});
+
+it("delivers a current incident after its first eligible channel is enabled", async () => {
+  const f = fixture();
+  try {
+    const id = first(f.channels.view()).id;
+    f.channels.enable(id, false);
+    f.engine.save({ ...f.rule, durationSeconds: 0, repeatMinutes: 0 }, first(f.engine.rules()).id);
+    f.engine.tick();
+    expect(f.channels.logs()).toHaveLength(0);
+    f.channels.enable(id, true);
+    f.advance(15_000);
+    f.engine.tick();
+    await f.channels.flush();
+    expect(first(f.channels.logs())).toMatchObject({
+      state: "sent",
+      title: "Unpanel · Critical: High CPU",
+    });
+    f.live.cpuRatio = 0.1;
+    f.engine.tick();
+    f.advance(60_000);
+    f.engine.tick();
+    await f.channels.flush();
+    expect(first(f.channels.logs())).toMatchObject({
+      state: "sent",
+      title: "Unpanel · Resolved: High CPU",
+    });
+  } finally {
+    f.db.close();
+  }
+});
+
+it("does not send an obsolete firing notification or a recovery alone when an unsent incident recovers", async () => {
+  const f = fixture();
+  try {
+    f.engine.tick();
+    f.advance(60_000);
+    f.engine.tick();
+    f.live.cpuRatio = 0.1;
+    f.engine.tick();
+    f.advance(60_000);
+    f.engine.tick();
+    await f.channels.flush();
+    expect(f.channels.logs()).toHaveLength(2);
+    expect(f.channels.logs().every((log) => log.state === "cancelled")).toBe(true);
+  } finally {
+    f.db.close();
+  }
+});
+
+it("cancels pending reminders on acknowledgement and pending notifications on silence", async () => {
+  const f = fixture();
+  try {
+    f.engine.tick();
+    f.advance(60_000);
+    f.engine.tick();
+    await f.channels.flush();
+    const id = first(f.engine.incidents()).id;
+    f.advance(300_000);
+    f.engine.tick();
+    f.engine.acknowledge(id);
+    await f.channels.flush();
+    expect(first(f.channels.logs()).state).toBe("cancelled");
+    f.engine.save({ ...f.rule, durationSeconds: 0 }, first(f.engine.rules()).id);
+    f.engine.tick();
+    f.engine.silence(first(f.engine.incidents()).id, 3600);
+    await f.channels.flush();
+    expect(first(f.channels.logs()).state).toBe("cancelled");
+  } finally {
+    f.db.close();
+  }
+});
+
+it("can notify after silence ends when the initial notification was cancelled before delivery", async () => {
+  const f = fixture();
+  try {
+    f.engine.save({ ...f.rule, durationSeconds: 0, repeatMinutes: 0 }, first(f.engine.rules()).id);
+    f.engine.tick();
+    const id = first(f.engine.incidents()).id;
+    f.engine.silence(id, 3600);
+    f.advance(3_600_000);
+    f.engine.tick();
+    await f.channels.flush();
+    expect(first(f.channels.logs()).state).toBe("sent");
+    const row = f.db
+      .prepare("SELECT message FROM notification_deliveries WHERE state = 'sent'")
+      .get() as { message: string };
+    expect(JSON.parse(row.message).source.event).toBe("firing");
+  } finally {
+    f.db.close();
+  }
+});
+
 function required<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("Missing fixture value");
   return value;

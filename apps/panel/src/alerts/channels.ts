@@ -43,7 +43,6 @@ export function createChannels(options: {
   const now = options.now ?? Date.now;
   const send = options.send ?? sendNotification;
   const active = new Map<string, Promise<void>>();
-  const cooldown = new Map<string, number>();
   let closed = false;
   let prunedAt = 0;
   db.exec(`
@@ -59,6 +58,15 @@ export function createChannels(options: {
     );
     CREATE INDEX IF NOT EXISTS deliveries_due ON notification_deliveries(state, next_at);
     CREATE INDEX IF NOT EXISTS deliveries_at ON notification_deliveries(at);
+    CREATE INDEX IF NOT EXISTS deliveries_incident ON notification_deliveries(json_extract(message, '$.source.incidentId'));
+    CREATE TABLE IF NOT EXISTS notification_cooldowns (
+      key TEXT PRIMARY KEY, until INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS notification_receipts (
+      incident_id TEXT NOT NULL, channel_id TEXT NOT NULL, rule_id TEXT NOT NULL,
+      sent_at INTEGER NOT NULL DEFAULT 0, ended_at INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (incident_id, channel_id)
+    );
   `);
   const rows = () =>
     db.prepare("SELECT * FROM notification_channels").all() as unknown as ChannelRow[];
@@ -114,12 +122,61 @@ export function createChannels(options: {
     if (rows().length >= 20)
       throw new AlertError("You can configure up to 20 notification channels.");
   }
-  function enqueue(row: ChannelRow, message: NotificationMessage): string {
-    const count = db
-      .prepare("SELECT COUNT(*) AS n FROM notification_deliveries WHERE state = 'queued'")
-      .get() as { n: number };
-    const full = count.n >= 1000;
+  function cancelQueued(where: string, values: string[], detail: string): number {
+    const result = db
+      .prepare(
+        `UPDATE notification_deliveries SET state = 'cancelled', detail = ? WHERE state = 'queued' AND ${where}`,
+      )
+      .run(detail, ...values);
+    return Number(result.changes);
+  }
+  function cancelChannel(id: string): void {
+    cancelQueued("channel_id = ?", [id], "Channel disabled before delivery.");
+  }
+  function coolDown(row: ChannelRow, until: number): void {
+    db.prepare(
+      `INSERT INTO notification_cooldowns VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET until = MAX(until, excluded.until)`,
+    ).run(rateKey(row), until);
+  }
+  function queueSize(): number {
+    return (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM notification_deliveries WHERE state = 'queued'")
+        .get() as { n: number }
+    ).n;
+  }
+  function enqueue(
+    row: ChannelRow,
+    message: NotificationMessage,
+    full = queueSize() >= 1000,
+  ): boolean {
+    if (full) {
+      // One summary per channel bounds overflow history even when thousands of
+      // still-firing incidents retry. Throttle writes while the queue stays full.
+      const id = `overflow:${row.id}`;
+      const previous = db.prepare("SELECT at FROM notification_deliveries WHERE id = ?").get(id) as
+        { at: number } | undefined;
+      if (!previous || previous.at <= now() - 60_000)
+        db.prepare(
+          `INSERT INTO notification_deliveries (id, channel_id, channel_name, title, message, state, at, next_at, detail)
+           VALUES (?, ?, ?, 'Unpanel · Notification queue full', '{}', 'failed', ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET at = excluded.at, channel_name = excluded.channel_name`,
+        ).run(
+          id,
+          row.id,
+          row.name,
+          now(),
+          now(),
+          "The notification queue is full. New incident notifications will be retried on the next check. Check channel connectivity before sending another test.",
+        );
+      return false;
+    }
     const id = randomUUID();
+    if (message.source && message.source.event !== "resolved")
+      db.prepare(
+        "INSERT OR IGNORE INTO notification_receipts (incident_id, channel_id, rule_id) VALUES (?, ?, ?)",
+      ).run(message.source.incidentId, row.id, message.source.ruleId);
     db.prepare(
       "INSERT INTO notification_deliveries (id, channel_id, channel_name, title, message, state, at, next_at, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
@@ -128,14 +185,12 @@ export function createChannels(options: {
       row.name,
       message.title,
       JSON.stringify({ ...message, key: id }),
-      full ? "failed" : "queued",
+      "queued",
       now(),
       now(),
-      full
-        ? "The notification queue is full. Check channel connectivity and try again."
-        : "Waiting to send.",
+      "Waiting to send.",
     );
-    return id;
+    return true;
   }
   async function deliver(row: ChannelRow, job: QueueRow): Promise<void> {
     const attempts = job.attempts + 1;
@@ -144,7 +199,12 @@ export function createChannels(options: {
       job.id,
     );
     try {
-      await send(row.kind, config(row), JSON.parse(job.message) as NotificationMessage);
+      const message = JSON.parse(job.message) as NotificationMessage;
+      await send(row.kind, config(row), message);
+      if (message.source && message.source.event !== "resolved")
+        db.prepare(
+          "UPDATE notification_receipts SET sent_at = ? WHERE incident_id = ? AND channel_id = ?",
+        ).run(now(), message.source.incidentId, row.id);
       db.prepare(
         "UPDATE notification_deliveries SET state = 'sent', detail = 'Accepted by the provider.' WHERE id = ?",
       ).run(job.id);
@@ -160,9 +220,12 @@ export function createChannels(options: {
         [5000, 30_000, 120_000][attempts - 1] ?? 120_000,
         Math.min(86_400, problem.retryAfter) * 1000,
       );
-      if (problem.retryAfter) cooldown.set(rateKey(row), now() + delay);
+      if (problem.retryAfter) coolDown(row, now() + delay);
+      // A disable, silence, or rule change can cancel work while the provider is
+      // responding. An accepted send may still arrive, but a failure must not
+      // resurrect the cancelled retry.
       db.prepare(
-        "UPDATE notification_deliveries SET state = ?, detail = ?, next_at = ? WHERE id = ?",
+        "UPDATE notification_deliveries SET state = ?, detail = ?, next_at = ? WHERE id = ? AND state = 'queued'",
       ).run(retry ? "queued" : "failed", problem.message, now() + delay, job.id);
     }
   }
@@ -230,15 +293,21 @@ export function createChannels(options: {
         },
         { email, secret },
       );
+      if (old && !body["enabled"]) cancelChannel(old.id);
     },
     saveTelegram(
       body: Record<string, unknown>,
       binding: { token: string; chatId: string; destination: string },
+      id?: string,
     ): void {
-      assertRoom();
+      const old = id ? get(id) : null;
+      if (old && old.kind !== "telegram")
+        throw new AlertError("Choose a Telegram channel to reconnect.");
+      if (!old) assertRoom();
       if (
         rows().some(
           (row) =>
+            row.id !== old?.id &&
             row.kind === "telegram" &&
             config(row).token === binding.token &&
             config(row).chatId === binding.chatId,
@@ -250,7 +319,7 @@ export function createChannels(options: {
         );
       save(
         {
-          id: randomUUID(),
+          id: old?.id ?? randomUUID(),
           name: textField(body["name"], "channel name", 80),
           kind: "telegram",
           enabled: booleanField(body["enabled"]) ? 1 : 0,
@@ -259,6 +328,21 @@ export function createChannels(options: {
         },
         { token: binding.token, chatId: binding.chatId },
       );
+      if (old && !body["enabled"]) cancelChannel(old.id);
+    },
+    updateTelegram(body: Record<string, unknown>, id: string): void {
+      const row = get(id);
+      if (row.kind !== "telegram") throw new AlertError("Choose a Telegram channel to edit.");
+      save(
+        {
+          ...row,
+          name: textField(body["name"], "channel name", 80),
+          enabled: booleanField(body["enabled"]) ? 1 : 0,
+          minimum: severity(body["minimumSeverity"]),
+        },
+        config(row),
+      );
+      if (!body["enabled"]) cancelChannel(id);
     },
     enable(id: string, value: unknown): void {
       get(id);
@@ -267,10 +351,7 @@ export function createChannels(options: {
         enabled ? 1 : 0,
         id,
       );
-      if (!enabled)
-        db.prepare(
-          "UPDATE notification_deliveries SET state = 'cancelled', detail = 'Channel disabled before delivery.' WHERE channel_id = ? AND state = 'queued' AND attempts = 0",
-        ).run(id);
+      if (!enabled) cancelChannel(id);
     },
     remove(id: string): void {
       get(id);
@@ -280,18 +361,59 @@ export function createChannels(options: {
           409,
         );
       db.prepare("DELETE FROM notification_channels WHERE id = ?").run(id);
+      db.prepare("DELETE FROM notification_receipts WHERE channel_id = ?").run(id);
       db.prepare(
         "UPDATE notification_deliveries SET state = 'cancelled', detail = 'Channel removed.' WHERE channel_id = ? AND state = 'queued'",
       ).run(id);
     },
-    notify(message: NotificationMessage, level: AlertSeverity, selected: string[]): void {
+    cancelRule(id: string): void {
+      cancelQueued(
+        "json_extract(message, '$.source.ruleId') = ?",
+        [id],
+        "Rule changed or removed before delivery.",
+      );
+      db.prepare(
+        "UPDATE notification_receipts SET ended_at = ? WHERE rule_id = ? AND ended_at = 0",
+      ).run(now(), id);
+    },
+    endIncident(id: string): void {
+      db.prepare(
+        "UPDATE notification_receipts SET ended_at = ? WHERE incident_id = ? AND ended_at = 0",
+      ).run(now(), id);
+    },
+    lastNotification(id: string): number {
+      const receipt = db
+        .prepare("SELECT MAX(sent_at) AS at FROM notification_receipts WHERE incident_id = ?")
+        .get(id) as { at: number | null };
+      const pending = db
+        .prepare(
+          "SELECT MAX(at) AS at FROM notification_deliveries WHERE json_extract(message, '$.source.incidentId') = ? AND json_extract(message, '$.source.event') IN ('firing', 'repeat') AND state IN ('queued', 'failed')",
+        )
+        .get(id) as { at: number | null };
+      return Math.max(receipt.at ?? 0, pending.at ?? 0);
+    },
+    cancelIncident(
+      id: string,
+      reason: string,
+      events?: ("firing" | "repeat" | "resolved")[],
+    ): number {
+      return cancelQueued(
+        `json_extract(message, '$.source.incidentId') = ?${events?.length ? ` AND json_extract(message, '$.source.event') IN (${events.map(() => "?").join(",")})` : ""}`,
+        [id, ...(events ?? [])],
+        reason,
+      );
+    },
+    notify(message: NotificationMessage, level: AlertSeverity, selected: string[]): number {
+      let queued = 0;
+      const size = queueSize();
       for (const row of rows())
         if (
           row.enabled &&
           (!selected.length || selected.includes(row.id)) &&
           (row.minimum === "warning" || level === "critical")
         )
-          enqueue(row, message);
+          queued += enqueue(row, message, size + queued >= 1000) ? 1 : 0;
+      return queued;
     },
     test(id: string): void {
       const row = get(id);
@@ -303,16 +425,24 @@ export function createChannels(options: {
         )
         .get(id, now() - 30_000);
       if (recent) throw new AlertError("Wait 30 seconds before sending another test.", 409);
-      enqueue(row, {
+      const queued = enqueue(row, {
         title: "Unpanel · Test notification",
         text: "Your notification channel is connected. Alerts sent to this channel will appear here.",
         key: "test",
       });
+      if (!queued)
+        throw new AlertError(
+          "The notification queue is full. Check channel connectivity and try again later.",
+          409,
+        );
     },
     async flush(): Promise<void> {
       if (closed) return;
       if (now() - prunedAt > 3_600_000) {
-        for (const [key, until] of cooldown) if (until < now()) cooldown.delete(key);
+        db.prepare("DELETE FROM notification_cooldowns WHERE until < ?").run(now());
+        db.prepare("DELETE FROM notification_receipts WHERE ended_at > 0 AND ended_at < ?").run(
+          now() - 30 * 86_400_000,
+        );
         db.prepare("DELETE FROM notification_deliveries WHERE at < ? AND state != 'queued'").run(
           now() - 30 * 86_400_000,
         );
@@ -321,20 +451,35 @@ export function createChannels(options: {
       const launched: Promise<void>[] = [];
       for (const row of rows()) {
         if (active.size >= 4) break;
-        if (active.has(row.id) || (cooldown.get(rateKey(row)) ?? 0) > now()) continue;
         if (!row.enabled) {
-          db.prepare(
-            "UPDATE notification_deliveries SET state = 'cancelled', detail = 'Channel disabled before retry.' WHERE channel_id = ? AND state = 'queued'",
-          ).run(row.id);
+          cancelChannel(row.id);
           continue;
         }
+        const cooldown = db
+          .prepare("SELECT until FROM notification_cooldowns WHERE key = ?")
+          .get(rateKey(row)) as { until: number } | undefined;
+        if (active.has(row.id) || (cooldown?.until ?? 0) > now()) continue;
         const job = db
           .prepare(
             "SELECT id, channel_id, message, attempts FROM notification_deliveries WHERE channel_id = ? AND state = 'queued' AND next_at <= ? ORDER BY at, rowid LIMIT 1",
           )
           .get(row.id, now()) as unknown as QueueRow | undefined;
         if (!job) continue;
-        cooldown.set(rateKey(row), now() + 3100);
+        const message = JSON.parse(job.message) as NotificationMessage;
+        if (
+          message.source?.event === "resolved" &&
+          !db
+            .prepare(
+              "SELECT 1 FROM notification_receipts WHERE channel_id = ? AND incident_id = ? AND sent_at > 0",
+            )
+            .get(row.id, message.source.incidentId)
+        ) {
+          db.prepare(
+            "UPDATE notification_deliveries SET state = 'cancelled', detail = 'No incident notification reached this channel before recovery.' WHERE id = ?",
+          ).run(job.id);
+          continue;
+        }
+        coolDown(row, now() + 3100);
         const work = deliver(row, job).finally(() => active.delete(row.id));
         active.set(row.id, work);
         launched.push(work);
