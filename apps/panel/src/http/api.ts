@@ -23,6 +23,9 @@ import { enrollmentScripts } from "../nodes/enroll-script.ts";
 import { NodesError, type NodeCatalog, type NodeRecord } from "../nodes/store.ts";
 import { SettingsError, type PanelOps, type Settings, type Theme } from "../settings/store.ts";
 import { UpdateError, type UpdateView } from "../updates/check.ts";
+import type { Certificates } from "../tls/store.ts";
+import { registerCertificateApi } from "../tls/api.ts";
+import { CertificateError } from "../tls/material.ts";
 
 const AUDIT_PAGE = 100;
 const HISTORY_WINDOWS = new Set([60, 1440, 10080]);
@@ -42,13 +45,25 @@ export function createApi(options: {
   panelPublicKeyPem: string;
   history: (nodeId: string, minutes: number) => HistorySeries;
   disconnect: (nodeId: string, code: number) => void;
-  secureCookie: boolean;
+  secureCookie: boolean | (() => boolean);
+  certificates?: Certificates;
   checkUpdate: () => Promise<UpdateView>;
   applyUpdate: () => Promise<{ accepted: true; version: string }>;
   applyAgentUpdate: (nodeId: string) => Promise<{ accepted: true; version: string }>;
   onSettings?: () => void;
 }): Hono {
   const app = new Hono();
+  const secureCookie = (): boolean =>
+    typeof options.secureCookie === "function" ? options.secureCookie() : options.secureCookie;
+  const sessionToken = (c: Context): string | null => readSessionToken(c, secureCookie());
+  function enrollmentTrust(publicUrl: string): { tlsCa?: string } {
+    const active = options.certificates?.view().certificates.find((cert) => cert.active);
+    if (publicUrl.startsWith("https:") && active?.selfSigned) {
+      const ca = options.certificates?.publicCertificate();
+      if (ca) return { tlsCa: ca };
+    }
+    return {};
+  }
   const settingsView = () => ({ ...options.settings.view(), security: options.security.view() });
 
   app.use("*", async (c, next) => {
@@ -86,7 +101,31 @@ export function createApi(options: {
     return c.json({ error: { code: "E_INTERNAL", message } }, 500);
   });
 
-  app.get("/api/v1/health", (c) => c.json({ ok: true, version: product.version }));
+  app.get("/api/v1/health", (c) => {
+    const certificates = options.certificates?.view();
+    const active = certificates?.certificates.find((cert) => cert.active);
+    return c.json({
+      ok: true,
+      version: product.version,
+      ...(certificates
+        ? {
+            tls: {
+              enabled: Boolean(active),
+              selfSigned: active?.selfSigned ?? false,
+              fingerprint: active?.fingerprint ?? null,
+              publicUrl: certificates.publicUrl,
+            },
+          }
+        : {}),
+    });
+  });
+  if (options.certificates)
+    registerCertificateApi(app, {
+      certificates: options.certificates,
+      audit: options.audit,
+      username: (c) => options.auth.sessionUser(sessionToken(c))?.username ?? null,
+      publicUrl: () => options.settings.view().publicUrl,
+    });
 
   app.get("/api/v1/auth/state", (c) => {
     const initialized = options.auth.initialized();
@@ -161,7 +200,7 @@ export function createApi(options: {
       ip: clientIp(c),
       params: { totp: body["totp"] !== false },
     });
-    c.header("set-cookie", sessionCookie(result.token, options.secureCookie));
+    c.header("set-cookie", sessionCookie(result.token, secureCookie()));
     return c.json({ status: "ok" });
   });
 
@@ -195,7 +234,7 @@ export function createApi(options: {
     }
     if (result.status === "ok") {
       options.audit.record({ ...base, result: "ok" });
-      c.header("set-cookie", sessionCookie(result.token, options.secureCookie));
+      c.header("set-cookie", sessionCookie(result.token, secureCookie()));
       return c.json({ status: "ok" });
     }
     options.audit.record({ ...base, result: "ok", target: "mfa_required" });
@@ -229,7 +268,7 @@ export function createApi(options: {
       actorId: options.auth.sessionUser(result.token)?.username ?? null,
       ip: clientIp(c),
     });
-    c.header("set-cookie", sessionCookie(result.token, options.secureCookie));
+    c.header("set-cookie", sessionCookie(result.token, secureCookie()));
     return c.json({ status: "ok" });
   });
 
@@ -246,7 +285,7 @@ export function createApi(options: {
         ip: clientIp(c),
       });
     }
-    c.header("set-cookie", clearSessionCookie(options.secureCookie));
+    c.header("set-cookie", clearSessionCookie(secureCookie()));
     return c.json({ status: "ok" });
   });
 
@@ -273,6 +312,8 @@ export function createApi(options: {
     const body = await readJson(c);
     if (!body) return invalid(c);
     try {
+      if (typeof body["publicUrl"] === "string" && body["publicUrl"].trim())
+        options.certificates?.validatePublicUrl(body["publicUrl"]);
       const publicUrl = panelAddress(options.settings, body, user.username);
       const created = options.catalog.create({
         name: field(body, "name"),
@@ -294,6 +335,7 @@ export function createApi(options: {
         token: created.token,
         agentId: created.node.id,
         wsUrl,
+        ...enrollmentTrust(publicUrl),
       });
       return c.json({
         data: {
@@ -308,7 +350,11 @@ export function createApi(options: {
         },
       });
     } catch (error) {
-      if (error instanceof NodesError || error instanceof SettingsError) {
+      if (
+        error instanceof NodesError ||
+        error instanceof SettingsError ||
+        error instanceof CertificateError
+      ) {
         return c.json({ error: { code: "E_INVALID_PARAMS", message: error.message } }, 400);
       }
       throw error;
@@ -519,6 +565,7 @@ export function createApi(options: {
         options.settings.setTheme(body["theme"] as Theme, user.username);
       }
       if (typeof body["publicUrl"] === "string") {
+        options.certificates?.validatePublicUrl(body["publicUrl"]);
         options.settings.setPublicUrl(body["publicUrl"], user.username);
       }
       if (isRecord(body["ops"])) {
@@ -529,7 +576,11 @@ export function createApi(options: {
         options.security.update(body["security"], user.username);
       }
     } catch (error) {
-      if (error instanceof SettingsError || error instanceof LoginSecurityError) {
+      if (
+        error instanceof SettingsError ||
+        error instanceof LoginSecurityError ||
+        error instanceof CertificateError
+      ) {
         return c.json({ error: { code: "E_INVALID_PARAMS", message: error.message } }, 400);
       }
       throw error;
@@ -774,6 +825,7 @@ export function createApi(options: {
           token: created.token,
           agentId: created.node.id,
           wsUrl,
+          ...enrollmentTrust(publicUrl),
         });
         return c.json({
           data: {
@@ -957,14 +1009,14 @@ function cookieName(secure: boolean): string {
   return secure ? product.cookies.host : product.cookies.loopback;
 }
 
-function sessionToken(c: Context): string | null {
+function readSessionToken(c: Context, secure: boolean): string | null {
   const header = c.req.header("cookie");
   if (!header) return null;
   for (const part of header.split(";")) {
     const eq = part.indexOf("=");
     if (eq < 0) continue;
     const name = part.slice(0, eq).trim();
-    if (name !== product.cookies.host && name !== product.cookies.loopback) continue;
+    if (name !== cookieName(secure)) continue;
     return part.slice(eq + 1).trim();
   }
   return null;

@@ -6,7 +6,7 @@
 #   curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 set -eu
 
-VERSION="0.1.0-alpha.18"
+VERSION="0.1.0-alpha.19"
 REF="v${VERSION}"
 RELEASE="https://github.com/codenav-ltd/unpanel/releases/download/${REF}"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"
@@ -137,7 +137,7 @@ if [ "$has_url" -eq 0 ]; then
   if [ -z "$ip" ]; then
     ip=${local_ip:-127.0.0.1}
   fi
-  set -- --public-url "http://${ip}:${port}" "$@"
+  set -- --public-url "https://${ip}:${port}" "$@"
 fi
 
 if [ -f "$ROOT/panel.cjs" ]; then

@@ -30,6 +30,7 @@ import NodeMenu from "../components/NodeMenu.vue";
 import NodePage from "../components/NodePage.vue";
 import PulseRail from "../components/PulseRail.vue";
 import SettingsPage, { type PanelOps } from "../components/SettingsPage.vue";
+import CertificatesPage from "../components/CertificatesPage.vue";
 import ThroughputCard from "../components/ThroughputCard.vue";
 import TurnstileWidget from "../components/TurnstileWidget.vue";
 import VitalTile from "../components/VitalTile.vue";
@@ -980,6 +981,7 @@ const nodeLabel = computed(
 );
 
 const pageTitle = computed(() => {
+  if (page.value === "certificates") return en.nav.certificates;
   if (page.value === "overview") return en.nav.overview;
   if (page.value === "settings") return en.nav.settings;
   const section = page.value === "host" ? en.nav.host : en.nav.dashboard;
@@ -1382,6 +1384,7 @@ onUnmounted(() => {
           @changed="refreshList"
           @removed="onRemoved"
         />
+        <CertificatesPage v-else-if="page === 'certificates'" @public-url="publicUrl = $event" />
         <SettingsPage
           v-else-if="page === 'settings'"
           :username="username"

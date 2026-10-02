@@ -54,7 +54,7 @@ Every tarball contains `LICENSE` (AGPL-3.0), `THIRD_PARTY_NOTICES` (generated fr
 
 1. Create a release branch `release/<major>.<minor>` for minor/major releases (patches are cherry-picked onto it).
 2. Run the [security checklist](./security-checklist.md) and the manual checklist in [design/10](../design/10-testing.md) §5.
-3. Update `CHANGELOG.md`: move "Unreleased" entries under the new version with the date; call out breaking changes, migrations, and security fixes.
+3. Update `CHANGELOG.md`: move "Unreleased" entries under the new version with the date. Packaging maps `Added`, `Changed`, `Fixed`, `Security`, `Critical`, `Deprecated`, and `Removed` headings to structured rows in `channels.json` and to the GitHub Release body. Use `Removed` only when existing behavior is no longer available; it marks the release for manual review and prevents unattended automatic installation.
 4. Bump versions (`pnpm -r version` via a script) and tag `v<version>` (signed tag).
 5. CI builds, signs, and drafts the GitHub Release with artifacts, `SHA256SUMS`, `SHA256SUMS.minisig`, installers.
 6. Verify the draft: download on a clean VM, verify checksums and signature, run the installer, upgrade from the previous stable.

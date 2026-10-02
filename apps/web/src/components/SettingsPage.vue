@@ -15,9 +15,11 @@ import { compareVersions, product } from "@unpanel/shared";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
+import type { ReleaseChange } from "../release-details.ts";
 import type { BanDurationMode, LoginSecuritySettings, RateLimitMode } from "../security.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 import { updateResultVersion, waitForPanelUpdate } from "../update-flow.ts";
+import ReleaseDetailsDialog from "./ReleaseDetailsDialog.vue";
 import SelectField from "./SelectField.vue";
 
 export interface PanelOps {
@@ -94,6 +96,9 @@ const updateState = ref<"checking" | "current" | "available" | "error" | "workin
 );
 const updateVersion = ref("");
 const updateNotes = ref("");
+const updateChanges = ref<ReleaseChange[]>([]);
+const updateReviewRequired = ref(false);
+const releaseDetailsOpen = ref(false);
 const updateError = ref("");
 const updateSuccessVersion = ref(updateResultVersion(globalThis.location.search, product.version));
 const agentBusy = ref("");
@@ -130,6 +135,10 @@ const unbanBusy = ref("");
 const remoteNodes = computed(() => props.nodes.filter((node) => node.id !== "local"));
 const panelBlocksAgentUpdates = computed(
   () => updateState.value !== "current" || Boolean(updateVersion.value),
+);
+const updateReleaseUrl = computed(
+  () =>
+    `${product.sourceUrl.replace(/\/$/, "")}/releases/tag/v${encodeURIComponent(updateVersion.value)}`,
 );
 let updateMonitorTarget = "";
 let settingsUnmounted = false;
@@ -526,6 +535,9 @@ async function checkUpdates(): Promise<void> {
   updateError.value = "";
   updateVersion.value = "";
   updateNotes.value = "";
+  updateChanges.value = [];
+  updateReviewRequired.value = false;
+  releaseDetailsOpen.value = false;
   try {
     const response = await fetch("/api/v1/updates");
     if (!response.ok) {
@@ -535,7 +547,12 @@ async function checkUpdates(): Promise<void> {
     }
     const body = (await response.json()) as {
       data?: {
-        update?: { version?: string; notes?: string } | null;
+        update?: {
+          version?: string;
+          notes?: string;
+          changelog?: ReleaseChange[];
+          reviewRequired?: boolean;
+        } | null;
         error?: string | null;
       };
     };
@@ -548,6 +565,8 @@ async function checkUpdates(): Promise<void> {
       updateState.value = "available";
       updateVersion.value = body.data.update.version;
       updateNotes.value = body.data.update.notes ?? "";
+      updateChanges.value = body.data.update.changelog ?? [];
+      updateReviewRequired.value = body.data.update.reviewRequired === true;
       emit("updateFound", updateVersion.value);
       return;
     }
@@ -557,6 +576,19 @@ async function checkUpdates(): Promise<void> {
     updateState.value = "error";
     updateError.value = couldNotReach("check for updates");
   }
+}
+
+function requestPanelUpdate(): void {
+  if (updateReviewRequired.value) {
+    releaseDetailsOpen.value = true;
+    return;
+  }
+  void applyUpdate();
+}
+
+function updateFromDetails(): void {
+  releaseDetailsOpen.value = false;
+  void applyUpdate();
 }
 
 async function applyUpdate(): Promise<void> {
@@ -1251,23 +1283,46 @@ onUnmounted(() => {
           <template v-else-if="updateState === 'working'">{{ en.shell.updateWorking }}</template>
           <template v-else>{{ updateError }}</template>
         </p>
-        <p v-if="updateNotes" class="release-notes">{{ updateNotes }}</p>
+        <p
+          v-if="updateState === 'available' && updateReviewRequired"
+          class="security-warning"
+          role="status"
+        >
+          <WarningOutlined aria-hidden="true" />
+          <span>{{ en.updates.automaticReviewPaused }}</span>
+        </p>
         <div class="actions">
+          <template v-if="updateState === 'available' || updateState === 'working'">
+            <button
+              v-if="updateState === 'available'"
+              type="button"
+              class="quiet"
+              @click="releaseDetailsOpen = true"
+            >
+              {{ en.updates.viewChanges }}
+            </button>
+            <button type="button" :disabled="updateState === 'working'" @click="requestPanelUpdate">
+              <span v-if="updateState === 'working'" class="spinner" aria-hidden="true" />
+              {{
+                updateState === "working"
+                  ? en.shell.updateWorking
+                  : updateReviewRequired
+                    ? en.updates.reviewUpdate
+                    : en.shell.updateAction
+              }}
+            </button>
+          </template>
           <button
-            v-if="updateState === 'available' || updateState === 'working'"
+            v-else-if="
+              updateState === 'checking' || updateState === 'current' || updateState === 'error'
+            "
             type="button"
-            :disabled="updateState === 'working'"
-            @click="applyUpdate"
-          >
-            <span v-if="updateState === 'working'" class="spinner" aria-hidden="true" />
-            {{ updateState === "working" ? en.shell.updateWorking : en.shell.updateAction }}
-          </button>
-          <button
-            v-else-if="updateState === 'current' || updateState === 'error'"
-            type="button"
+            :disabled="updateState === 'checking'"
+            :aria-busy="updateState === 'checking'"
             @click="checkUpdates"
           >
-            {{ en.shell.updateCheck }}
+            <span v-if="updateState === 'checking'" class="spinner" aria-hidden="true" />
+            {{ updateState === "checking" ? en.updates.checkingShort : en.shell.updateCheck }}
           </button>
         </div>
       </section>
@@ -1386,5 +1441,17 @@ onUnmounted(() => {
         </a>
       </section>
     </div>
+
+    <ReleaseDetailsDialog
+      :open="releaseDetailsOpen"
+      :current-version="product.version"
+      :target-version="updateVersion"
+      :changes="updateChanges"
+      :notes="updateNotes"
+      :review-required="updateReviewRequired"
+      :release-url="updateReleaseUrl"
+      @close="releaseDetailsOpen = false"
+      @update="updateFromDetails"
+    />
   </div>
 </template>

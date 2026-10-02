@@ -3,14 +3,18 @@
 
 import { createHash, type KeyObject } from "node:crypto";
 import net from "node:net";
+import { rootCertificates } from "node:tls";
 import { WebSocket } from "ws";
 import { product } from "@unpanel/shared";
 import { ControlUnsupported, controlPanel } from "./control.ts";
 import { sampleHost } from "./cpu.ts";
 import { SwapRefused, configureSwap } from "./swap.ts";
 import { performAgentUpgrade, performUpgrade } from "./upgrade.ts";
+import { createHttp01Responder } from "./cert.ts";
 import {
   agentUpgrade,
+  certHttp01Put,
+  certHttp01Remove,
   authMessage,
   closeCode,
   decodeTextFrame,
@@ -39,6 +43,8 @@ const agentMethods = new Set([
   panelRestart.name,
   panelStop.name,
   hostSwap.name,
+  certHttp01Put.name,
+  certHttp01Remove.name,
 ]);
 
 function swapCode(error: SwapRefused): ErrorCode {
@@ -54,12 +60,14 @@ export function connectAgent(options: {
   socketPath?: string;
   /** `ws://` or `wss://` URL of the panel's `/_agent/ws`. Used by remote nodes. */
   url?: string;
+  tlsCa?: string;
   agentKey: KeyObject;
   panelPublicKey: KeyObject;
   agentId?: string;
   hostInfo?: () => HostInfo;
 }): { stop: () => void } {
   const agentId = options.agentId ?? "local";
+  const challenges = createHttp01Responder();
   const hostInfo =
     options.hostInfo ??
     (() => {
@@ -72,9 +80,13 @@ export function connectAgent(options: {
 
   const connect = (): void => {
     if (stopped) return;
+    let panelVerified = false;
     nonceA = randomNonce();
     socket = options.url
-      ? new WebSocket(options.url, { perMessageDeflate: false })
+      ? new WebSocket(options.url, {
+          perMessageDeflate: false,
+          ...(options.tlsCa ? { ca: [...rootCertificates, options.tlsCa] } : {}),
+        })
       : new WebSocket("ws://127.0.0.1/_agent/ws", {
           perMessageDeflate: false,
           createConnection: () => net.connect(options.socketPath ?? ""),
@@ -110,12 +122,14 @@ export function connectAgent(options: {
           socket?.close(closeCode.authFailed);
           return;
         }
+        panelVerified = true;
         const host = hostInfo();
         socket?.send(
           encodeTextFrame({
             t: "auth",
             sigA: signMessage(authMessage(agentId, frame.nonceM, nonceA), options.agentKey),
             caps: [
+              { name: "cert", version: product.version },
               { name: "system", version: product.version },
               {
                 name: "control",
@@ -127,6 +141,10 @@ export function connectAgent(options: {
             host,
           }),
         );
+        return;
+      }
+      if (frame.t === "req" && !panelVerified) {
+        socket?.close(closeCode.authFailed);
         return;
       }
       if (frame.t === "req" && frame.m === systemInfo.name) {
@@ -242,6 +260,34 @@ export function connectAgent(options: {
           }),
         );
       }
+      if (
+        frame.t === "req" &&
+        (frame.m === certHttp01Put.name || frame.m === certHttp01Remove.name)
+      ) {
+        const work =
+          agentId !== "local"
+            ? Promise.reject(
+                new Error("Panel HTTP-01 validation is only supported by the local agent."),
+              )
+            : frame.m === certHttp01Put.name
+              ? challenges.put(frame.p)
+              : challenges.remove(frame.p);
+        void work
+          .then((r) => socket?.send(encodeTextFrame({ t: "res", id: frame.id, ok: true, r })))
+          .catch((error: unknown) =>
+            socket?.send(
+              encodeTextFrame({
+                t: "res",
+                id: frame.id,
+                ok: false,
+                e: {
+                  code: "E_EXTERNAL",
+                  msg: error instanceof Error ? error.message : "HTTP-01 validation failed.",
+                },
+              }),
+            ),
+          );
+      }
       if (frame.t === "req" && (frame.m === panelRestart.name || frame.m === panelStop.name)) {
         const action = frame.m === panelRestart.name ? "restart" : "stop";
         try {
@@ -277,6 +323,7 @@ export function connectAgent(options: {
   connect();
   return {
     stop() {
+      challenges.close();
       stopped = true;
       if (timer) clearTimeout(timer);
       socket?.close();

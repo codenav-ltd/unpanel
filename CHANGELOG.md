@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.19] - 2026-10-03
+
+### Added
+
+- Certificates can generate a self-signed certificate, import a PEM chain and matching key, or request a Let's Encrypt production or staging certificate through HTTP-01. The panel stores private keys encrypted and renews ACME certificates automatically with retry backoff.
+- Applying a certificate enables real HTTPS and WSS on the existing panel port, verifies the served certificate locally, and saves the domain or IP address. Self-signed node enrollment commands include the public certificate needed for TLS verification.
+- Available panel updates now have a structured release-details dialog with one row per new feature, improvement, bug fix, security item, critical item, deprecation, or breaking change.
+- Release packaging derives update details and the GitHub Release body from the matching version in `CHANGELOG.md`.
+
+### Changed
+
+- New direct-access installations start with self-signed HTTPS and print the certificate fingerprint. Existing installations keep their access mode until an administrator applies a certificate.
+- Releases that remove existing behavior require review in Settings and are not installed by unattended automatic updates.
+
+### Fixed
+
+- The update check button now remains visible and disabled with a spinner while the panel checks for a new release.
+
+### Security
+
+- Native HTTPS uses Secure host cookies, redirects plain HTTP reads, rejects plain HTTP writes, and requires a new HTTPS sign-in after activation. Certificate changes reject a mismatched hostname, key, validity period, or chain.
+- Agents reject RPC requests until the panel's handshake signature has been verified.
+
 ## [0.1.0-alpha.18] - 2026-10-02
 
 ### Changed

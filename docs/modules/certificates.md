@@ -2,6 +2,12 @@
 
 > Status: Draft · Panel component: `acme/` · Agent module: `cert` · External details: [kb/acme-letsencrypt.md](../kb/acme-letsencrypt.md)
 
+**Available from alpha.19:** the panel's Certificates page supports self-signed generation, PEM import, and Let's Encrypt production/staging issuance for one domain through HTTP-01 on the local root agent. Certificate material and account keys are encrypted in SQLite. Applying a certificate enables native HTTPS/WSS on the existing panel port after local fingerprint and health verification. ACME renewal uses the certificate's actual lifetime with retry backoff and preserves the active certificate on failure. New direct-access installs default to self-signed HTTPS. See [the access runbook](../kb/panel-https.md).
+
+The sections below describe the broader design. DNS-01, wildcards, other CAs, external monitoring, ARI, certificate deployment to remote services, and renewal hooks are not implemented yet. The current code is in `apps/panel/src/tls/` and `apps/agent/src/cert.ts`; HTTP-01 uses a temporary listener only and does not rewrite Nginx configuration.
+
+The ACME dependency is pinned to 5.4.0 with a one-line pnpm patch removing its unused, deprecated `forge` export. A matching scoped override removes `node-forge` from the dependency tree because all issuance and CSR operations use the client's native crypto API. This avoids introducing [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv), for which no patched forge version was available when verified on 2026-10-03. Keep the patch and override together when upgrading the client, and rerun issuance tests, bundle validation, and the production audit.
+
 ## 1. Core idea: issue centrally, deploy anywhere
 
 ```mermaid

@@ -19,6 +19,7 @@ export function enrollmentScripts(input: {
   token: string;
   agentId: string;
   wsUrl: string;
+  tlsCa?: string;
 }): EnrollmentScripts {
   const enrollArgs = [
     "enroll",
@@ -30,17 +31,24 @@ export function enrollmentScripts(input: {
     KEY,
     "--panel-pub",
     PUB,
+    ...(input.tlsCa ? ["--tls-ca", `${product.paths.agentEtc}/panel-tls.pem`] : []),
   ].join(" ");
   const start = [
     `UNPANEL_AGENT_URL=${quote(input.wsUrl)}`,
     `UNPANEL_AGENT_ID=${quote(input.agentId)}`,
     `UNPANEL_AGENT_KEY=${KEY}`,
     `UNPANEL_PANEL_PUB=${PUB}`,
+    ...(input.tlsCa ? [`UNPANEL_TLS_CA=${product.paths.agentEtc}/panel-tls.pem`] : []),
   ].join(" ");
   const installed = shellScript([
     "set -eu",
     "umask 077",
     `mkdir -p ${product.paths.agentLib} ${product.paths.agentEtc}`,
+    ...(input.tlsCa
+      ? [
+          `printf '%s' ${quote(Buffer.from(input.tlsCa).toString("base64"))} | base64 -d > ${product.paths.agentEtc}/panel-tls.pem`,
+        ]
+      : []),
     `if command -v ${product.agentBin} >/dev/null 2>&1; then`,
     `  ${product.agentBin} ${enrollArgs}`,
     `  ${start} exec ${product.agentBin}`,
@@ -58,7 +66,7 @@ export function enrollmentScripts(input: {
     'echo "This machine has no Unpanel agent. In the panel, choose Not installed and run that script." >&2',
     "exit 1",
   ]);
-  const fresh = `curl -fsSL ${product.siteUrl}/install-agent.sh | sudo bash -s -- --panel ${quote(input.panelUrl)} --token ${quote(input.token)} --agent-id ${quote(input.agentId)} --agent-url ${quote(input.wsUrl)}\n`;
+  const fresh = `curl -fsSL ${product.siteUrl}/install-agent.sh | sudo bash -s -- --panel ${quote(input.panelUrl)} --token ${quote(input.token)} --agent-id ${quote(input.agentId)} --agent-url ${quote(input.wsUrl)}${input.tlsCa ? ` --tls-ca-cert ${quote(Buffer.from(input.tlsCa).toString("base64"))}` : ""}\n`;
   return { installed, fresh };
 }
 

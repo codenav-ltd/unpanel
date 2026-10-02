@@ -28,14 +28,23 @@ async function installCommand(argv: string[]): Promise<void> {
     { root, nodePath: process.execPath, bundled: existsSync(join(root, "panel.cjs")) },
   );
   await installPanel(plan, systemHost, { restartAgent: !keepAgent });
-  if (!(await waitHealthy(plan.port))) {
+  const health = await waitHealthy(plan.port);
+  if (!health) {
     throw new Error(
       `The panel did not answer on port ${plan.port}. Logs: journalctl -u ${product.units.panel} -e`,
     );
   }
   const tokenFile = `${plan.lib}/setup-token`;
   const setupToken = existsSync(tokenFile) ? readFileSync(tokenFile, "utf8").trim() : null;
-  process.stdout.write(installSummary({ ...plan, setupToken }));
+  process.stdout.write(
+    installSummary({
+      ...plan,
+      setupToken,
+      ...(health.fingerprint ? { fingerprint: health.fingerprint } : {}),
+      ...(health.selfSigned !== undefined ? { selfSigned: health.selfSigned } : {}),
+      ...(health.publicUrl ? { publicUrl: health.publicUrl } : {}),
+    }),
+  );
 }
 
 function assertLinux(): void {
@@ -106,18 +115,36 @@ function run(file: string, args: string[], cwd: string): Promise<string> {
   });
 }
 
-async function waitHealthy(port: number): Promise<boolean> {
+async function waitHealthy(
+  port: number,
+): Promise<{ fingerprint?: string; publicUrl?: string; selfSigned?: boolean } | null> {
   const url = `http://127.0.0.1:${port}/api/v1/health`;
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
       const response = await fetch(url);
-      if (response.ok) return true;
+      if (response.ok) {
+        const body = (await response.json()) as {
+          tls?: {
+            enabled: boolean;
+            fingerprint: string | null;
+            publicUrl: string;
+            selfSigned?: boolean;
+          };
+        };
+        return body.tls?.enabled
+          ? {
+              ...(body.tls.fingerprint ? { fingerprint: body.tls.fingerprint } : {}),
+              publicUrl: body.tls.publicUrl,
+              selfSigned: body.tls.selfSigned ?? false,
+            }
+          : {};
+      }
     } catch {
       // The process is still opening its port.
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  return false;
+  return null;
 }
 
 // The command starts only after systemHost exists. An async function runs up to

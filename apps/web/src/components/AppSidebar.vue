@@ -30,7 +30,7 @@ import { product } from "@unpanel/shared";
 import { computed, onMounted, onUnmounted, ref, type Component } from "vue";
 import { en } from "../i18n/en.ts";
 
-export type ShellPage = "overview" | "dashboard" | "host" | "settings";
+export type ShellPage = "overview" | "dashboard" | "host" | "settings" | "certificates";
 
 export interface SideNode {
   id: string;
@@ -160,7 +160,7 @@ const items: Item[] = [
     id: "certificates",
     label: en.nav.certificates,
     group: "global",
-    enabled: false,
+    enabled: true,
     icon: SafetyCertificateOutlined,
   },
   {
@@ -237,12 +237,16 @@ function onMenu(event: MouseEvent, id: string): void {
 function onItem(item: Item): void {
   if (!item.enabled) {
     if (item.id === "alerts") laterNote.value = en.nav.laterAlerts;
-    else if (item.id === "certificates") laterNote.value = en.nav.laterCertificates;
     else laterNote.value = `${item.label}. ${en.nav.laterDetail}`;
     return;
   }
   laterNote.value = "";
-  if (item.id === "dashboard" || item.id === "host" || item.id === "settings") {
+  if (
+    item.id === "dashboard" ||
+    item.id === "host" ||
+    item.id === "settings" ||
+    item.id === "certificates"
+  ) {
     go(item.id);
   }
 }

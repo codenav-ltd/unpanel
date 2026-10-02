@@ -7,7 +7,7 @@
 #     --panel URL --token TOKEN --agent-id ID --agent-url WS
 set -eu
 
-VERSION="0.1.0-alpha.18"
+VERSION="0.1.0-alpha.19"
 REF="v${VERSION}"
 RELEASE="https://github.com/codenav-ltd/unpanel/releases/download/${REF}"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"
@@ -77,12 +77,14 @@ panel=
 token=
 agent_id=
 agent_url=
+tls_ca_cert=
 while [ $# -gt 0 ]; do
   case "$1" in
     --panel) panel=${2-} ;;
     --token) token=${2-} ;;
     --agent-id) agent_id=${2-} ;;
     --agent-url) agent_url=${2-} ;;
+    --tls-ca-cert) tls_ca_cert=${2-} ;;
     *)
       echo "Unknown argument: $1" >&2
       exit 1
@@ -122,11 +124,19 @@ NODE=$(stage_node "$NODE")
 
 mkdir -p "$LIB" "$ETC"
 chmod 700 "$LIB"
+umask 077
+if [ -n "$tls_ca_cert" ]; then
+  printf '%s' "$tls_ca_cert" | base64 -d > "$ETC/panel-tls.pem"
+  chmod 600 "$ETC/panel-tls.pem"
+  set -- --tls-ca "$ETC/panel-tls.pem"
+else
+  set --
+fi
 "$NODE" "$PREFIX/agent.cjs" enroll \
   --panel "$panel" \
   --token "$token" \
   --key "$LIB/agent.pem" \
-  --panel-pub "$ETC/panel.pub.pem"
+  --panel-pub "$ETC/panel.pub.pem" "$@"
 
 umask 077
 printf '%s\n' \
@@ -136,6 +146,9 @@ printf '%s\n' \
   "UNPANEL_PANEL_PUB=${ETC}/panel.pub.pem" \
   > "$ETC/agent.env"
 chmod 600 "$ETC/agent.env"
+if [ -n "$tls_ca_cert" ]; then
+  printf '%s\n' "UNPANEL_TLS_CA=${ETC}/panel-tls.pem" >> "$ETC/agent.env"
+fi
 
 cat > "$UNIT" <<EOF
 [Unit]

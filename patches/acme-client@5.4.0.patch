@@ -1,0 +1,7 @@
+diff --git a/src/index.js b/src/index.js
+index e463ac04b8f1ae58e02a967500125628b1027b6b..afef4b394d293a89f4a09b9cc128edbfa2594760 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -33,2 +33,1 @@ exports.directory = {
+ exports.crypto = require('./crypto');
+-exports.forge = require('./crypto/forge');

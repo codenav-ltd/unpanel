@@ -1,3 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# The patched client uses native crypto; remove its unused deprecated forge API.
+overrides:
+  "acme-client@5.4.0>node-forge": "-"

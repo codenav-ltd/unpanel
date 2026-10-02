@@ -128,6 +128,8 @@ export function panelEnvironment(plan: InstallPlan): string {
     UNPANEL_PUBLIC_URL: plan.publicUrl,
     UNPANEL_WEB_DIST: plan.webDist,
     UNPANEL_SECURE_COOKIE: plan.secure ? "1" : "0",
+    UNPANEL_TLS_DEFAULT:
+      plan.secure && Number(new URL(plan.publicUrl).port || 443) === plan.port ? "1" : "0",
   });
 }
 
@@ -231,6 +233,8 @@ export function installSummary(input: {
   listen: string;
   port: number;
   root: string;
+  fingerprint?: string;
+  selfSigned?: boolean;
 }): string {
   const open = input.setupToken ? `${input.publicUrl}/?token=${input.setupToken}` : input.publicUrl;
   const published = input.listen === "0.0.0.0" || input.listen === "::";
@@ -260,7 +264,19 @@ export function installSummary(input: {
       );
     }
     lines.push(
-      "   The page is HTTP. Use it on a network you trust.",
+      ...(input.publicUrl.startsWith("https:")
+        ? [
+            input.selfSigned
+              ? "   HTTPS is enabled with a self-signed certificate. Your browser will show a trust warning."
+              : input.fingerprint
+                ? "   HTTPS is enabled with your saved certificate."
+                : "   The public address uses HTTPS. Confirm that your reverse proxy terminates TLS.",
+            ...(input.fingerprint
+              ? [`   Compare the certificate SHA-256 fingerprint: ${input.fingerprint}`]
+              : []),
+            "   Open Certificates after setup to request a trusted certificate for your domain.",
+          ]
+        : ["   The page is HTTP. Use it on a network you trust."]),
       "",
       `${step + 1}. Sign in later at the same address, without the token.`,
     );

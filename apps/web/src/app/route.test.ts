@@ -13,6 +13,7 @@ describe("shell routes", () => {
       { page: "settings" as const, nodeId: "local", settings: "security" as const, unknown: null },
       { page: "settings" as const, nodeId: "local", settings: "updates" as const, unknown: null },
       { page: "settings" as const, nodeId: "local", settings: "about" as const, unknown: null },
+      { page: "certificates" as const, nodeId: "local", settings: "panel" as const, unknown: null },
     ];
     for (const location of locations) {
       expect(parsePath(formatPath(location))).toEqual(location);
@@ -20,9 +21,9 @@ describe("shell routes", () => {
   });
 
   it("opens the overview for an unknown path", () => {
-    expect(parsePath("/certificates")).toMatchObject({
+    expect(parsePath("/unknown-page")).toMatchObject({
       page: "overview",
-      unknown: "/certificates",
+      unknown: "/unknown-page",
     });
   });
 });

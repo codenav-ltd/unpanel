@@ -5,6 +5,8 @@ import type { KeyObject } from "node:crypto";
 import { WebSocket } from "ws";
 import {
   agentUpgrade,
+  certHttp01Put,
+  certHttp01Remove,
   authMessage,
   clockSkewed,
   closeCode,
@@ -160,6 +162,7 @@ function agentRefusal(error: { code: ErrorCode; msg: string } | undefined): HubC
 
 type Pending =
   | { kind: "info" }
+  | { kind: "challenge"; resolve: () => void; reject: (error: HubCallError) => void }
   | { kind: "cpu" }
   | {
       kind: "control";
@@ -228,6 +231,9 @@ export function createHub(options: {
   live: () => NodeLive[];
   control: (nodeId: string, action: "restart" | "stop") => Promise<ServiceControlResult>;
   configureSwap: (nodeId: string, sizeGib: 1 | 2 | 4 | 8) => Promise<SwapResult>;
+  http01: (
+    params: { domain: string; token: string; keyAuthorization: string } | { token: string },
+  ) => Promise<void>;
   upgrade: (
     nodeId: string,
     release: { version: string; url: string; sha256: string },
@@ -335,7 +341,14 @@ export function createHub(options: {
 
   function dropPending(link: Link): void {
     for (const wait of link.pending.values()) {
-      if (wait.kind === "swap") {
+      if (wait.kind === "challenge") {
+        wait.reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The local agent disconnected during domain validation. Its temporary HTTP-01 listener may remain until it expires. Check Logs.",
+          ),
+        );
+      } else if (wait.kind === "swap") {
         wait.reject(
           new HubCallError(
             "E_NODE_OFFLINE",
@@ -414,6 +427,58 @@ export function createHub(options: {
           new HubCallError(
             "E_NODE_OFFLINE",
             "The node went offline before the service command was sent. Start its agent and try again.",
+          ),
+        );
+      }
+    });
+  }
+
+  function http01(
+    params: { domain: string; token: string; keyAuthorization: string } | { token: string },
+  ): Promise<void> {
+    const method = "domain" in params ? certHttp01Put : certHttp01Remove;
+    const link = links.get("local");
+    if (!link?.socket || link.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(
+        new HubCallError(
+          "E_NODE_OFFLINE",
+          "The local agent is offline. Start it before issuing a domain certificate.",
+        ),
+      );
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (id !== null) link.pending.delete(id);
+        reject(
+          new HubCallError(
+            "E_TIMEOUT",
+            "The local agent did not answer the HTTP-01 request. A temporary port 80 listener may still be active; it expires after ten minutes. Check Logs.",
+          ),
+        );
+      }, method.timeoutMs);
+      const id = request(
+        link,
+        method.name,
+        method.timeoutMs,
+        {
+          kind: "challenge",
+          resolve: () => {
+            clearTimeout(timer);
+            resolve();
+          },
+          reject: (error) => {
+            clearTimeout(timer);
+            reject(error);
+          },
+        },
+        params,
+      );
+      if (id === null) {
+        clearTimeout(timer);
+        reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The local agent disconnected before domain validation was sent.",
           ),
         );
       }
@@ -700,7 +765,13 @@ export function createHub(options: {
           error instanceof Error
             ? error.message
             : "The panel failed while reading the agent's reply.";
-        if (wait.kind === "control" || wait.kind === "upgrade" || wait.kind === "swap") {
+        if (
+          wait.kind === "control" ||
+          wait.kind === "upgrade" ||
+          wait.kind === "swap" ||
+          wait.kind === "challenge" ||
+          wait.kind === "agent-upgrade"
+        ) {
           wait.reject(new HubCallError("E_INTERNAL", `${message} Open Logs.`));
         }
       }
@@ -778,6 +849,23 @@ export function createHub(options: {
           return;
         }
         wait.resolve(parsed.data);
+        return;
+      }
+      if (wait.kind === "challenge") {
+        if (!frame.ok) {
+          wait.reject(agentRefusal(frame.e));
+          return;
+        }
+        if (!certHttp01Put.result.safeParse(frame.r).success) {
+          wait.reject(
+            new HubCallError(
+              "E_INTERNAL",
+              "The agent returned an invalid HTTP-01 result. Check Logs.",
+            ),
+          );
+          return;
+        }
+        wait.resolve();
         return;
       }
       if (wait.kind === "swap") {
@@ -876,6 +964,7 @@ export function createHub(options: {
     },
     control,
     configureSwap,
+    http01,
     upgrade,
     upgradeAgent,
     disconnect(nodeId, code) {

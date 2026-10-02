@@ -38,5 +38,6 @@ This directory records **behavior details of external systems, formulas, limits,
 | [conventions.md](./conventions.md) | Code and collaboration conventions |
 | [security-checklist.md](./security-checklist.md) | Pre-release security checklist |
 | [release-process.md](./release-process.md) | Versioning, builds, signing, publishing |
+| [panel-https.md](./panel-https.md) | Panel HTTPS, domain issuance, trust, renewal, and access migration |
 | [troubleshooting.md](./troubleshooting.md) | Troubleshooting index |
 | [runbooks.md](./runbooks.md) | Operational runbooks |

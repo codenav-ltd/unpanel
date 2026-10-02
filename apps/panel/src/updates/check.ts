@@ -9,11 +9,28 @@ export interface ReleaseAsset {
   sha256: string;
 }
 
+export type ReleaseChangeKind =
+  | "feature"
+  | "improvement"
+  | "fix"
+  | "security"
+  | "critical"
+  | "deprecation"
+  | "breaking"
+  | "other";
+
+export interface ReleaseChange {
+  kind: ReleaseChangeKind;
+  title: string;
+}
+
 export interface ReleaseFile {
   version: string;
   url: string;
   sha256: string;
   notes: string;
+  changelog?: ReleaseChange[];
+  reviewRequired?: boolean;
   /** Packages other than the x64 url. Absent on manifests written before arm64 builds. */
   assets?: Record<string, ReleaseAsset>;
 }
@@ -25,7 +42,12 @@ export interface ChannelsFile {
 
 export interface UpdateView {
   current: string;
-  update: { version: string; notes: string } | null;
+  update: {
+    version: string;
+    notes: string;
+    changelog: ReleaseChange[];
+    reviewRequired: boolean;
+  } | null;
   error: string | null;
 }
 
@@ -132,7 +154,12 @@ export async function findUpdate(options: {
       const packed = packageForArch(release, options.arch ?? process.arch);
       return {
         current: options.current,
-        update: { version: packed.version, notes: packed.notes },
+        update: {
+          version: packed.version,
+          notes: packed.notes,
+          changelog: packed.changelog ?? [],
+          reviewRequired: packed.reviewRequired === true,
+        },
         error: null,
         release: packed,
       };
@@ -228,15 +255,47 @@ function parseRelease(value: unknown): ReleaseFile | null {
   if (!SHA256.test(sha256)) throw new Error("Update manifest sha256 is invalid.");
   if (!isReleaseTag(`v${version}`)) throw new Error("Update manifest version is invalid.");
   assertReleaseUrl(url);
+  const changelog = parseChangelog(record["changelog"]);
   const release: ReleaseFile = {
     version,
     url,
     sha256,
     notes: typeof notes === "string" ? notes : "",
+    changelog,
+    reviewRequired:
+      record["reviewRequired"] === true || changelog.some((change) => change.kind === "breaking"),
   };
   const assets = parseAssets(record["assets"]);
   if (assets) release.assets = assets;
   return release;
+}
+
+function parseChangelog(value: unknown): ReleaseChange[] {
+  if (!Array.isArray(value)) return [];
+  const changes: ReleaseChange[] = [];
+  for (const item of value.slice(0, 100)) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const title = typeof row["title"] === "string" ? row["title"].trim() : "";
+    if (!title || title.length > 500) continue;
+    changes.push({ kind: releaseChangeKind(row["kind"]), title });
+  }
+  return changes;
+}
+
+function releaseChangeKind(value: unknown): ReleaseChangeKind {
+  switch (value) {
+    case "feature":
+    case "improvement":
+    case "fix":
+    case "security":
+    case "critical":
+    case "deprecation":
+    case "breaking":
+      return value;
+    default:
+      return "other";
+  }
 }
 
 function parseAssets(value: unknown): Record<string, ReleaseAsset> | undefined {

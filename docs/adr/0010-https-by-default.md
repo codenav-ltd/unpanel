@@ -4,6 +4,8 @@
 - Date: 2026-10-01
 - Related: [design/04](../design/04-auth.md) §6, [design/09](../design/09-deployment.md)
 
+**Implementation status (alpha.19, 2026-10-03):** fresh direct-access installs now generate a self-signed certificate at startup and print its fingerprint. The Certificates page can apply a domain certificate issued through Let's Encrypt HTTP-01 or imported as PEM. Existing installs keep their current access mode until activation, and plain HTTP health checks remain available for update compatibility. Passkeys, a setup-time domain wizard, and the `tls.mode` configuration below remain design goals. See [the current runbook](../kb/panel-https.md).
+
 ## Context
 
 - A freshly installed panel is usually reachable only at `IP:port`, without a domain, so no publicly trusted certificate is available.

@@ -74,6 +74,32 @@ describe("selectUpdate", () => {
     expect(packageForArch(beta, "arm64").sha256).toBe(other);
   });
 
+  it("keeps structured release details and safely labels future categories", () => {
+    const parsed = parseChannels({
+      stable: null,
+      beta: {
+        version: "0.1.0-alpha.9",
+        url: "https://github.com/codenav-ltd/unpanel/releases/download/v0.1.0-alpha.9/unpanel.tar.gz",
+        sha256: sha,
+        notes: "",
+        reviewRequired: false,
+        changelog: [
+          { kind: "feature", title: "Show release details." },
+          { kind: "future-category", title: "Remain readable on an older panel." },
+          { kind: "breaking", title: "Remove existing behavior." },
+          { kind: "fix", title: "" },
+        ],
+      },
+    });
+
+    expect(parsed.beta?.changelog).toEqual([
+      { kind: "feature", title: "Show release details." },
+      { kind: "other", title: "Remain readable on an older panel." },
+      { kind: "breaking", title: "Remove existing behavior." },
+    ]);
+    expect(parsed.beta?.reviewRequired).toBe(true);
+  });
+
   it("rejects a manifest that does not point at an allowed host", () => {
     expect(() =>
       parseChannels({
@@ -162,7 +188,12 @@ describe("findUpdate", () => {
       fetchImpl,
     });
     expect(status.error).toBeNull();
-    expect(status.update).toEqual({ version: "0.1.0-alpha.8", notes: "fix" });
+    expect(status.update).toEqual({
+      version: "0.1.0-alpha.8",
+      notes: "fix",
+      changelog: [],
+      reviewRequired: false,
+    });
     expect(status.release?.sha256).toBe(sha);
   });
 

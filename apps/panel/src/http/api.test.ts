@@ -12,6 +12,7 @@ import { createLoginSecurity, type LoginSecurity } from "../auth/security.ts";
 import { HubCallError, type LocalSnapshot, type NodeLive } from "../hub.ts";
 import { createNodes, type NodeCatalog } from "../nodes/store.ts";
 import { createSettings, type Settings } from "../settings/store.ts";
+import type { UpdateView } from "../updates/check.ts";
 
 const snapshot: LocalSnapshot = {
   online: false,
@@ -69,11 +70,7 @@ function appWith(
       disk: (number | null)[];
     };
     disconnect?: (nodeId: string, code: number) => void;
-    checkUpdate?: () => Promise<{
-      current: string;
-      update: { version: string; notes: string } | null;
-      error: string | null;
-    }>;
+    checkUpdate?: () => Promise<UpdateView>;
     applyUpdate?: () => Promise<{ accepted: true; version: string }>;
     applyAgentUpdate?: (nodeId: string) => Promise<{ accepted: true; version: string }>;
   } = {},
@@ -271,7 +268,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const app = appWith(audit, "tok", {
       applyAgentUpdate: async (nodeId) => ({
         accepted: true,
-        version: nodeId === "nd_1" ? "0.1.0-alpha.18" : "unexpected",
+        version: nodeId === "nd_1" ? "0.1.0-alpha.19" : "unexpected",
       }),
     });
 
@@ -282,7 +279,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const body = (await response.json()) as { data: { version: string } };
 
     expect(response.status).toBe(200);
-    expect(body.data.version).toBe("0.1.0-alpha.18");
+    expect(body.data.version).toBe("0.1.0-alpha.19");
     expect(audit.list(1)[0]).toMatchObject({ action: "agent.update", nodeId: "nd_1" });
   });
 

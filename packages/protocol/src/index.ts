@@ -46,3 +46,4 @@ export { hostSwap, swapResultSchema, type SwapResult } from "./methods/swap.ts";
 export { hostInfoSchema, systemInfo, type HostInfo } from "./methods/system.ts";
 export { metricsCpu } from "./methods/metrics.ts";
 export { PROTOCOL_VERSION } from "./version.ts";
+export { certHttp01Put, certHttp01Remove } from "./methods/cert.ts";

@@ -20,6 +20,9 @@ import { createSettings, seedPublicUrl } from "./settings/store.ts";
 import { findUpdate, releaseForVersion, releaseToApply, UpdateError } from "./updates/check.ts";
 import { createApi } from "./http/api.ts";
 import { handleHttp } from "./http/node.ts";
+import { createCertificates } from "./tls/store.ts";
+import { createAcmeIssuer } from "./tls/acme.ts";
+import { createPanelListener } from "./tls/listener.ts";
 
 export async function startPanel(options: {
   panelKey: KeyObject;
@@ -31,7 +34,13 @@ export async function startPanel(options: {
   secureCookie?: boolean;
   webRoot?: string;
   publicUrl?: string;
-}): Promise<{ port: number; setupToken: string | null; close: () => Promise<void> }> {
+  tlsDefault?: boolean;
+}): Promise<{
+  port: number;
+  setupToken: string | null;
+  publicUrl: string;
+  close: () => Promise<void>;
+}> {
   const data = openPanelData(options.dataDir);
   const security = createLoginSecurity({ db: data.db, masterKey: data.masterKey });
   const auth = await createAuth({
@@ -79,7 +88,30 @@ export async function startPanel(options: {
       });
     },
   });
-  const secureCookie = options.secureCookie ?? false;
+  const host = options.host ?? "127.0.0.1";
+  const port = options.port ?? 28517;
+  let actualPort = port;
+  const certificates = createCertificates({
+    db: data.db,
+    masterKey: data.masterKey,
+    settings,
+    port: () => actualPort,
+    apply: (material) => listener.apply(material, host),
+    issue: createAcmeIssuer({
+      put: (params) => hub.http01(params),
+      remove: (token) => hub.http01({ token }),
+    }),
+    record: (action, result, detail) => {
+      audit.record({ action, result, params: { detail } });
+      if (action === "certificate.activate" && result === "ok") {
+        // Already-open ws:// sessions must also migrate to verified WSS. The
+        // local agent uses the separate IPC server and stays connected.
+        for (const client of sockets[0]?.clients ?? []) client.terminate();
+      }
+    },
+  });
+  const secureCookie = (): boolean =>
+    certificates.view().activeId !== null || (options.secureCookie ?? false);
   let armUpdateWatch = (): void => undefined;
   const app = createApi({
     auth,
@@ -97,6 +129,7 @@ export async function startPanel(options: {
     panelPublicKeyPem: publicPem(options.panelKey),
     history: (nodeId, minutes) => history.series(nodeId, Date.now(), minutes),
     secureCookie,
+    certificates,
     checkUpdate: async () => {
       const status = await findUpdate({
         current: product.version,
@@ -152,11 +185,38 @@ export async function startPanel(options: {
   });
   const onRequest = handleHttp(app, options.webRoot);
 
-  const api = createServer(onRequest);
-  const sockets = [attachWebSocket(api, hub)];
-  const host = options.host ?? "127.0.0.1";
-  const port = options.port ?? 28517;
-  await listen(api, port, host);
+  const listener = createPanelListener({
+    request: onRequest,
+    redirectOrigin: () => (certificates.view().activeId ? settings.view().publicUrl : null),
+    material: certificates.activeMaterial(),
+  });
+  const sockets = [attachWebSocket(listener.http, hub), attachWebSocket(listener.https, hub)];
+  await new Promise<void>((resolve, reject) => {
+    listener.server.once("error", reject);
+    listener.server.listen(port, host, () => {
+      listener.server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = listener.server.address();
+  actualPort = typeof address === "object" && address ? address.port : port;
+  if (options.tlsDefault && !certificates.view().activeId) {
+    try {
+      const base = new URL(settings.view().publicUrl || `https://127.0.0.1:${actualPort}`);
+      base.protocol = "https:";
+      const generated = await certificates.generate(base.hostname);
+      const certificate = generated.certificates[0];
+      if (!certificate) throw new Error("The default HTTPS certificate could not be generated.");
+      await certificates.activate(certificate.id, base.origin, "install");
+    } catch (error) {
+      hub.close();
+      for (const socket of sockets) socket.close();
+      await listener.close();
+      auth.close();
+      data.db.close();
+      throw error;
+    }
+  }
 
   let ipc: Server | undefined;
   if (options.socketPath) {
@@ -172,8 +232,9 @@ export async function startPanel(options: {
     await listen(ipc, options.socketPath);
   }
 
-  const address = api.address();
-  const actualPort = typeof address === "object" && address ? address.port : port;
+  const renewalTimer = setInterval(() => certificates.checkRenewals(), 60 * 60_000);
+  renewalTimer.unref();
+  certificates.checkRenewals();
 
   let updateTimer: ReturnType<typeof setInterval> | undefined;
   armUpdateWatch = (): void => {
@@ -198,6 +259,9 @@ export async function startPanel(options: {
         manifestUrl: product.updatesUrl,
         sourceUrl: product.sourceUrl,
       });
+      // A release that removes existing behavior stays visible in Settings but
+      // is never installed unattended. The user must review it and start it.
+      if (release.reviewRequired) return;
       await hub.upgrade("local", {
         version: release.version,
         url: release.url,
@@ -212,11 +276,13 @@ export async function startPanel(options: {
   return {
     port: actualPort,
     setupToken: data.readSetupToken(),
+    publicUrl: settings.view().publicUrl,
     async close() {
       if (updateTimer) clearInterval(updateTimer);
+      clearInterval(renewalTimer);
       hub.close();
       for (const socket of sockets) socket.close();
-      await closeServer(api);
+      await listener.close();
       if (ipc) await closeServer(ipc);
       auth.close();
     },
@@ -280,14 +346,15 @@ export function bootFromEnv(): void {
     host,
     port,
     secureCookie: process.env["UNPANEL_SECURE_COOKIE"] === "1",
+    tlsDefault: process.env["UNPANEL_TLS_DEFAULT"] === "1",
     ...(process.env["UNPANEL_SOCKET"] ? { socketPath: process.env["UNPANEL_SOCKET"] } : {}),
     ...(webRoot ? { webRoot } : {}),
     ...(publicUrl ? { publicUrl } : {}),
   })
-    .then(({ port: actual, setupToken }) => {
+    .then(({ port: actual, setupToken, publicUrl: actualUrl }) => {
       process.stdout.write(`${product.name} panel listening on ${host}:${actual}\n`);
       if (setupToken) {
-        const base = process.env["UNPANEL_PUBLIC_URL"] ?? `http://127.0.0.1:${actual}`;
+        const base = actualUrl || `http://127.0.0.1:${actual}`;
         process.stdout.write(`Setup: ${base}/?token=${setupToken}\n`);
       }
     })

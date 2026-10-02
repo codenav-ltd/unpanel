@@ -17,6 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { releaseMetadata } from "./release-notes.mjs";
 
 // The bundle is built on linux-x64. The arm64 package is the same bundle with
 // the glibc arm64 argon2 binary from the lockfile swapped in.
@@ -77,11 +78,14 @@ try {
 const x64Hash = sha256(readFileSync(x64Archive));
 const armHash = sha256(readFileSync(join(releaseDir, armAsset)));
 const base = `https://github.com/codenav-ltd/unpanel/releases/download/v${version}`;
+const releaseNotes = releaseMetadata(readFileSync(join(root, "CHANGELOG.md"), "utf8"), version);
 const file = {
   version,
   url: `${base}/${x64Asset}`,
   sha256: x64Hash,
-  notes: "",
+  notes: releaseNotes.notes,
+  changelog: releaseNotes.changes,
+  reviewRequired: releaseNotes.reviewRequired,
   assets: {
     "linux-arm64": { url: `${base}/${armAsset}`, sha256: armHash },
   },
@@ -92,6 +96,7 @@ const channelsJson = `${JSON.stringify(
   2,
 )}\n`;
 writeFileSync(join(releaseDir, "channels.json"), channelsJson);
+writeFileSync(join(root, "build", "RELEASE_NOTES.md"), releaseNotes.markdown);
 const channelsHash = sha256(channelsJson);
 writeFileSync(
   join(releaseDir, "SHA256SUMS"),

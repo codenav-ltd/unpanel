@@ -35,6 +35,16 @@ describe("install arguments", () => {
     expect(plan.listen).toBe("127.0.0.1");
     expect(plan.port).toBe(443);
     expect(panelEnvironment(plan)).toContain("UNPANEL_SECURE_COOKIE=1");
+    expect(panelEnvironment(plan)).toContain("UNPANEL_TLS_DEFAULT=1");
+  });
+
+  it("keeps a loopback backend in HTTP when a reverse proxy serves HTTPS on another port", () => {
+    const plan = parseInstallArgs(
+      ["--public-url", "https://panel.example.com", "--listen", "127.0.0.1"],
+      defaults,
+    );
+    expect(panelEnvironment(plan)).toContain("UNPANEL_SECURE_COOKIE=1");
+    expect(panelEnvironment(plan)).toContain("UNPANEL_TLS_DEFAULT=0");
   });
 
   it("rejects a hostname and a node binary in a home directory", () => {
@@ -83,6 +93,20 @@ describe("systemd units", () => {
 });
 
 describe("install summary", () => {
+  it("prints the self-signed fingerprint without mislabeling an existing CA certificate", () => {
+    const input = {
+      publicUrl: "https://panel.example.com:28517",
+      setupToken: "test-setup-token",
+      listen: "0.0.0.0",
+      port: 28517,
+      root: "/opt/unpanel",
+      fingerprint: "AA:BB:CC",
+    };
+    expect(installSummary({ ...input, selfSigned: true })).toContain("self-signed certificate");
+    expect(installSummary({ ...input, selfSigned: true })).toContain(input.fingerprint);
+    expect(installSummary({ ...input, selfSigned: false })).toContain("saved certificate");
+    expect(installSummary({ ...input, selfSigned: false })).not.toContain("trust warning");
+  });
   it("prints the setup link once and the update command", () => {
     const text = installSummary({
       publicUrl: "http://203.0.113.10:28517",

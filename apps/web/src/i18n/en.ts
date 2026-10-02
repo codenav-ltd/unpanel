@@ -3,6 +3,93 @@
 
 /** Source locale. Other locales translate these keys. */
 export const en = {
+  certificates: {
+    title: "Certificates",
+    subtitle: "Secure this panel with HTTPS, then connect a domain when you are ready.",
+    panelAccess: "Panel access",
+    httpsOn: "HTTPS enabled",
+    httpsOff: "HTTPS not enabled",
+    unknown: "Panel access could not be loaded",
+    accessHint:
+      "HTTPS uses the panel's current listen port. Set DNS A and AAAA records to this server before using a domain.",
+    openPanel: "Open HTTPS panel",
+    newTitle: "Add a certificate",
+    letsEncrypt: "Let's Encrypt",
+    selfSigned: "Self-signed",
+    imported: "Import PEM",
+    domain: "Domain",
+    host: "Hostname or IP address",
+    email: "Contact email",
+    environment: "Certificate authority",
+    production: "Let's Encrypt production",
+    staging: "Let's Encrypt staging (untrusted test certificate)",
+    http01Hint:
+      "Point this domain to the panel server and allow inbound TCP port 80 for issuance and renewals. The local agent opens port 80 temporarily. If Nginx or another service already uses it, import an existing certificate instead. Wildcards are not supported by this method.",
+    terms: "I agree to the Let's Encrypt subscriber agreement.",
+    agreement: "Read the agreement",
+    selfSignedHint:
+      "Encrypts traffic to a domain or IP address. Browsers show a trust warning. Compare the SHA-256 fingerprint before trusting this certificate. For a domain without warnings, use Let's Encrypt or import a trusted certificate.",
+    importHint:
+      "Paste a PEM full chain and its matching unencrypted private key. The server certificate must be first. Private keys are encrypted at rest and never returned to this page. Use HTTPS or a private tunnel when importing.",
+    chain: "Certificate chain (PEM)",
+    key: "Private key (PEM)",
+    request: "Request certificate",
+    generate: "Generate certificate",
+    importAction: "Import certificate",
+    working: "Working…",
+    loading: "Loading certificates…",
+    reload: "Refresh",
+    retry: "Try again",
+    saved: "Certificate saved. Review it below and apply it to enable HTTPS.",
+    renewalQueued: "Renewal started. You can follow its progress here.",
+    listTitle: "Your certificates",
+    emptyTitle: "Start with a certificate",
+    emptyHint:
+      "Request one for your domain, create a self-signed certificate for your IP, or import an existing certificate above.",
+    active: "In use",
+    ready: "Ready to apply",
+    expired: "Expired",
+    expires: "Expires",
+    issuer: "Issuer",
+    fingerprint: "SHA-256 fingerprint",
+    names: "Covered names",
+    details: "Certificate details",
+    renew: "Renew now",
+    autoRenew: "Automatic renewal",
+    renewalHint:
+      "Renewal starts when one third of this certificate's lifetime remains. Failures appear here and in Logs.",
+    renewalOff:
+      "Automatic renewal is off. Renew this certificate manually before it expires to keep HTTPS available.",
+    enableRenewal: "Enable renewal",
+    disableRenewal: "Disable renewal",
+    disableRenewalTitle: "Turn off automatic renewal?",
+    apply: "Use for panel HTTPS",
+    applyTitle: "Enable panel HTTPS",
+    address: "HTTPS panel address",
+    applyHint:
+      "The panel checks the hostname and private key, then verifies the certificate on its HTTPS listener before saving the address. If that check fails, it restores the previous listener.",
+    migrateHint:
+      "After applying, open the HTTPS address and sign in again. HTTP pages redirect to HTTPS. Re-enroll remote agents with the new panel address; their saved connection URL does not change automatically.",
+    stagingWarning:
+      "This is a staging certificate. Browsers and agents will not trust it automatically. Use it only to test issuance.",
+    cancel: "Cancel",
+    confirm: "Enable HTTPS",
+    applying: "Verifying HTTPS…",
+    applied:
+      "HTTPS is enabled and its certificate was verified locally. Open the address below and sign in.",
+    remove: "Remove",
+    removeTitle: "Remove this certificate?",
+    removeHint:
+      "This permanently removes the saved certificate and its encrypted private key. The active certificate cannot be removed.",
+    removed: "Unused certificate removed.",
+    renewalSaved: "Automatic renewal updated.",
+    nextRetry: "Next renewal retry",
+    renewalOn: "On",
+    renewalDisabled: "Off",
+    failedAction: "complete certificate work",
+    missingReply:
+      "Check Certificates and Logs before retrying. If you enabled HTTPS, open the HTTPS address to verify it.",
+  },
   shell: {
     connecting: "Connecting to the local node…",
     offline: "The local node is offline.",
@@ -221,7 +308,7 @@ export const en = {
       "Off by default. When on, this machine downloads a newer release and restarts the panel. Remote agents are reviewed separately in Updates. If the new panel does not answer, the previous directory is put back.",
     httpsTitle: "HTTPS",
     httpsHint:
-      "Automatic certificates are not issued in this version, including for a bare IP. Nothing on this page changes the listen port or requests a certificate. Use the address above as the panel is actually reached, including http:// when that is what it serves.",
+      "Open Certificates to request a domain certificate, import a PEM certificate, or enable self-signed HTTPS for an IP address. Saving the address here alone does not enable HTTPS.",
     loginProtection: "Failed sign-in",
     loginProtectionHint:
       "Five wrong passwords for one username are slowed down. Ten failures from the same address block that address for 15 minutes. Other addresses can still sign in. The whole panel is never locked. Cloudflare Turnstile is not connected.",
@@ -273,6 +360,37 @@ export const en = {
     installed: "Installed",
     target: "Available",
     noNewRelease: "No newer release",
+    viewChanges: "View changes",
+    reviewUpdate: "Review update",
+    releaseDetailsTitle: "What changes in this release",
+    releaseDetailsKicker: "Release overview",
+    releaseDetailsIntro:
+      "Review the changes that affect this panel before it downloads the package and restarts.",
+    releaseRouteLabel: "Installed and available versions",
+    releaseChanges: "Changes",
+    changeCount: "{count} item(s)",
+    reviewRequiredTitle: "Review required before updating",
+    reviewRequiredHint:
+      "This release removes existing behavior. Automatic install is paused; start the update here after reviewing the breaking change below.",
+    criticalReleaseTitle: "Critical release",
+    criticalReleaseHint:
+      "This release contains a critical change. Read the marked item before choosing when to restart the panel.",
+    automaticReviewPaused:
+      "Automatic install is paused for this release because it contains a breaking change. Review the details and start it manually.",
+    noReleaseDetails: "No structured details were published",
+    noReleaseDetailsHint:
+      "This is an older release format. Open the release page for the original notes before updating.",
+    openReleasePage: "Open the full release page",
+    notNow: "Not now",
+    updateNow: "Update now",
+    changeFeature: "New feature",
+    changeImprovement: "Improvement",
+    changeFix: "Bug fix",
+    changeSecurity: "Security",
+    changeCritical: "Critical",
+    changeDeprecation: "Deprecated",
+    changeBreaking: "Breaking change",
+    changeOther: "Release note",
     nodesTitle: "Remote agents",
     nodesHint:
       "Update nodes one at a time. Each agent verifies the release, restarts, and reconnects without changing its enrollment key.",
@@ -440,8 +558,6 @@ export const en = {
     laterDetail: "This screen is not in this version. Nothing was opened and nothing was changed.",
     laterAlerts:
       "Mail and Telegram alerts are not in this version. Nothing is sent, and no address was saved.",
-    laterCertificates:
-      "Certificate issuance is not in this version. No certificate was requested and the listen address was not changed.",
     openMenu: "Open menu",
     closeMenu: "Close menu",
   },

@@ -60,7 +60,8 @@ async function dispatch(
   body: Buffer,
 ): Promise<void> {
   const host = request.headers.host ?? "127.0.0.1";
-  const url = new URL(request.url ?? "/", `http://${host}`);
+  const encrypted = "encrypted" in request.socket && request.socket.encrypted;
+  const url = new URL(request.url ?? "/", `${encrypted ? "https" : "http"}://${host}`);
   const headers = new Headers();
   for (const [key, value] of Object.entries(request.headers)) {
     if (value === undefined) continue;

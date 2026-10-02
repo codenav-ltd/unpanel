@@ -30,6 +30,9 @@ if (process.argv[2] === "enroll") {
   connectAgent({
     ...(socketPath ? { socketPath } : {}),
     ...(url ? { url } : {}),
+    ...(process.env["UNPANEL_TLS_CA"]
+      ? { tlsCa: readFileSync(process.env["UNPANEL_TLS_CA"], "utf8") }
+      : {}),
     agentKey: privateKeyFromPem(readFileSync(agentKeyFile, "utf8")),
     panelPublicKey: publicKeyFromPem(readFileSync(panelPubFile, "utf8")),
     ...(process.env["UNPANEL_AGENT_ID"] ? { agentId: process.env["UNPANEL_AGENT_ID"] } : {}),
@@ -52,7 +55,13 @@ async function runEnroll(): Promise<void> {
   const privateKey = loadOrCreateKey(keyPath);
   const exported = createPublicKey(privateKey).export({ type: "spki", format: "pem" });
   const pubPem = typeof exported === "string" ? exported : exported.toString();
-  const enrolled = await enrollAgent({ panelUrl: panel, token, publicKeyPem: pubPem });
+  const caPath = flag("--tls-ca");
+  const enrolled = await enrollAgent({
+    panelUrl: panel,
+    token,
+    publicKeyPem: pubPem,
+    ...(caPath ? { tlsCa: readFileSync(caPath, "utf8") } : {}),
+  });
   writeFileSync(panelPubPath, enrolled.panelPublicKey);
   process.stdout.write(`${enrolled.agentId}\n`);
   if (enrolled.wsUrl) {
