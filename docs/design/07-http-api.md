@@ -11,12 +11,20 @@ All routes below are prefixed with `/api/v1/alerts`, require an owner or adminis
 - `GET` at the base path: rules, incidents, redacted channels and the latest delivery records.
 - `POST /rules`, `PUT /rules/:id`, `DELETE /rules/:id`: configure or remove rules.
 - `POST /incidents/:id/acknowledge`, `POST /incidents/:id/silence`: acknowledgement or a bounded silence in seconds; zero resumes notifications.
-- `POST /channels/email`, `PUT /channels/:id/email`: create/edit SMTP, Resend or Postmark settings. An empty secret preserves the saved credential only for the same provider.
+- `POST /channels/email`, `PUT /channels/:id/email`: select a shared `emailMethodId`, recipients and channel settings. Credentials are managed once under Settings → Email. Legacy inline SMTP/Resend/Postmark payloads remain compatible, with shared-use safeguards.
 - `PUT /channels/:id/telegram`: edit a Telegram channel's name, enabled state and severity filter.
 - `PATCH /channels/:id`, `DELETE /channels/:id`, `POST /channels/:id/test`: enable/disable, remove or enqueue a rate-limited delivery test. Explicit rule references must be changed before removing their channel.
 - `POST /telegram/setup`: start owner-bound discovery from a bot token. `POST /telegram/:id/poll` and `/restart` discover or reset conversation candidates. `POST /telegram/:id/confirm` saves an explicitly selected candidate; optional `channelId` reconnects an existing channel. `DELETE /telegram/:id` cancels the temporary session.
 
 Payload and response types are in `packages/shared/src/alerts.ts`. Setup sessions expire after ten minutes and are never persisted. All alert settings mutations and setup lifecycle actions are audited; routine polling is omitted from success logs.
+
+## Current security update API
+
+All paths below have the `/api/v1` prefix. `GET /updates` requires a session and returns `{ data: { current, update, error, security } }`. Security includes only affected, published advisories, the effective policy, last check time, automatic-install eligibility time and any hold reason. Network failures retain known warnings and pause unattended installation. Checks are coalesced and cached for 60 seconds.
+
+`GET /updates/policy` requires an owner. `POST /updates/policy` also requires recent account reauthentication and accepts `{ criticalAction: "notify" | "install_after_deadline", graceHours: 6 | 24 | 72, notifyChannels: boolean }`. Saving is audited. `POST /updates?version=<reviewed-version>` requires an owner or administrator; a changed offered version returns a conflict. Releases requiring manual review reject an absent version confirmation. Node scopes do not grant panel-update authority.
+
+See [security updates](../kb/security-updates.md) for the policy, notification and registry contract.
 
 ## 1. Conventions
 

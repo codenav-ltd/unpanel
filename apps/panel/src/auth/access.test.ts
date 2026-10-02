@@ -15,6 +15,7 @@ import { createNodes } from "../nodes/store.ts";
 import { createSettings } from "../settings/store.ts";
 import { createAudit } from "../audit/log.ts";
 import { createApi } from "../http/api.ts";
+import { createUpdateSecurity } from "../updates/security.ts";
 import type { LocalSnapshot } from "../hub.ts";
 
 async function fixture() {
@@ -79,6 +80,16 @@ async function fixture() {
     sample: null,
   };
   const api = createApi({
+    updateSecurity: createUpdateSecurity({
+      db,
+      current: "0.1.0-alpha.25",
+      sourceUrl: "https://github.com/codenav-ltd/unpanel",
+      check: async () => ({ current: "0.1.0-alpha.25", update: null, error: null, release: null }),
+      apply: async () => ({ accepted: true, version: "x" }),
+      maintenance: () => false,
+      notify: () => 0,
+      record: () => {},
+    }),
     auth,
     access,
     factors,
@@ -263,6 +274,7 @@ describe("multi-user permission boundaries", () => {
         ["POST", "/backup/panel"],
         ["PATCH", "/settings"],
         ["POST", "/updates"],
+        ["POST", "/updates/policy"],
         ["GET", "/audit"],
         ["POST", "/audit/note"],
         ["GET", "/email-methods"],
@@ -329,6 +341,15 @@ describe("multi-user permission boundaries", () => {
       expect((await f.request(admin, "/email-methods")).status).toBe(200);
       expect((await f.request(admin, "/backup/panel")).status).toBe(403);
       expect((await f.request(admin, "/users")).status).toBe(403);
+      expect(
+        (
+          await f.request(admin, "/updates/policy", "POST", {
+            criticalAction: "install_after_deadline",
+            graceHours: 6,
+            notifyChannels: true,
+          })
+        ).status,
+      ).toBe(403);
       expect(
         (await f.request(admin, "/settings", "PATCH", { theme: "light", security: {} })).status,
       ).toBe(403);
@@ -418,6 +439,15 @@ describe("multi-user permission boundaries", () => {
       expect(f.auth.sessionUser(token)).toBeNull();
       expect(f.email.list()[0]?.references).toBe(0);
       f.db.prepare("UPDATE sessions SET elevated_until=0 WHERE id=?").run(f.session);
+      expect(
+        (
+          await f.request(f.ownerToken, "/updates/policy", "POST", {
+            criticalAction: "install_after_deadline",
+            graceHours: 6,
+            notifyChannels: true,
+          })
+        ).status,
+      ).toBe(403);
       await expect(f.create("blocked")).rejects.toThrow("Confirm your identity");
     } finally {
       f.db.close();

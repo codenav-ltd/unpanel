@@ -22,6 +22,7 @@ import {
   controlsNodes,
   type UserAccess,
   type FactorView,
+  type SecurityUpdateStatus,
 } from "@unpanel/shared";
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import AddNodeDialog from "../components/AddNodeDialog.vue";
@@ -58,6 +59,9 @@ import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 import { defaultLoginSecurity, type LoginSecuritySettings } from "../security.ts";
 const AlertsPage = defineAsyncComponent(() => import("../components/AlertsPage.vue"));
+const SecurityUpdateNotice = defineAsyncComponent(
+  () => import("../components/SecurityUpdateNotice.vue"),
+);
 
 interface LocalInfo {
   hostname: string;
@@ -185,6 +189,7 @@ const routeNotice = ref(opened.unknown ? en.shell.unknownPage : "");
 const ops = ref<PanelOps>({ pollSec: 2, historyDays: 7, updateHours: 6, autoUpdate: false });
 const pollMs = ref(liveSampleMs);
 const updateOffer = ref("");
+const updateSecurity = ref<SecurityUpdateStatus | null>(null);
 const theme = ref<ThemeName>("dark");
 const publicUrl = ref("");
 const security = ref<LoginSecuritySettings>(defaultLoginSecurity());
@@ -519,9 +524,10 @@ async function checkOffer(): Promise<void> {
     const response = await fetch("/api/v1/updates");
     if (!response.ok) return;
     const body = (await response.json()) as {
-      data?: { update?: { version?: string } | null };
+      data?: { update?: { version?: string } | null; security?: SecurityUpdateStatus };
     };
     updateOffer.value = body.data?.update?.version ?? "";
+    updateSecurity.value = body.data?.security ?? null;
   } catch {
     // About explains a failed check. The banner keeps the last known release.
   }
@@ -565,6 +571,7 @@ function stopWatching(): void {
   if (updateTimer) clearInterval(updateTimer);
   updateTimer = undefined;
   updateOffer.value = "";
+  updateSecurity.value = null;
 }
 
 async function refreshList(): Promise<void> {
@@ -1400,6 +1407,14 @@ onUnmounted(() => {
       <p v-if="access.role === 'viewer'" class="access-notice">
         {{ access.locked ? "Read-only demo" : "Read-only access" }}
       </p>
+      <SecurityUpdateNotice
+        v-if="updateSecurity?.advisories.length"
+        :status="updateSecurity"
+        :can-install="canManage"
+        :account-id="accountId"
+        :prompt="!(page === 'settings' && settingsSection === 'updates')"
+        @review="openUpdate"
+      />
       <div class="app-content">
         <p v-if="actionBusy" class="hint" role="status">
           <span class="spinner" aria-hidden="true" /> {{ en.shell.saving }}
@@ -1596,6 +1611,7 @@ onUnmounted(() => {
           @ops="applyOps"
           @security="security = $event"
           @update-found="updateOffer = $event"
+          @security-updated="checkOffer"
           @refresh-nodes="refreshList"
           @open-node="openNodeHost"
         />

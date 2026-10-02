@@ -2,6 +2,8 @@
 
 > Related: [design/09](../design/09-deployment.md) (artifacts and upgrades), [security-checklist.md](./security-checklist.md).
 
+This page describes the current pre-alpha workflow. Signing, bundled Node runtimes and the broader platform/upgrade matrix are future release-readiness work, not properties of today's packages.
+
 ## 1. Versioning
 
 - [Semantic Versioning](https://semver.org/). Panel and agent share one version number and are released together.
@@ -15,10 +17,10 @@
 
 | Channel | Contents | Who gets it |
 |---|---|---|
-| `stable` | Final releases | Default for online upgrades |
-| `beta` | `-beta` / `-rc` pre-releases | Opt-in in Settings → Updates |
+| `stable` | Final releases | Stable installs; pre-release installs also accept a newer stable |
+| `beta` | Pre-releases, including `-alpha` | Existing pre-release installs |
 
-The update check reads a signed manifest (`channels.json` + `channels.json.minisig`) listing the latest version per channel and the minimum version that can upgrade directly.
+The update check reads `channels.json` from the site and GitHub, chooses a newer compatible channel release and selects the running architecture's package. Metadata includes SHA-256 hashes, structured change notes, manual-review requirements and affected-version security advisories. There is no signature file or enforced minimum direct-upgrade version yet. Older manifests without advisory metadata remain readable.
 
 ### Project endpoints
 
@@ -27,10 +29,14 @@ The update check reads a signed manifest (`channels.json` + `channels.json.minis
 | `https://unpanel.codenav.dev/install.sh` | Panel installer. It downloads the linux-x64 or linux-arm64 package for the pinned version and checks `SHA256SUMS`. |
 | `https://unpanel.codenav.dev/install-agent.sh` | Agent installer for a machine that does not run the panel. Same package, agent only. |
 | `https://unpanel.codenav.dev/channels.json` | Update manifest for Settings → Updates. CI also uploads this file to the GitHub release. Minisign is not produced yet. |
-| `https://github.com/codenav-ltd/unpanel/releases` | Release artifacts, `SHA256SUMS`, `SHA256SUMS.minisig` |
+| `https://github.com/codenav-ltd/unpanel/releases` | Release artifacts, `SHA256SUMS`, `channels.json` |
 
 - **Moving domains.** Installed panels keep the manifest URL they shipped with. If the domain changes, keep the old one serving or redirecting `channels.json` for at least one major version. The release that switches the default URL must ship while the old URL still works.
-- **Trust.** The manifest's minisign signature, not TLS, is the trust anchor. A compromised web host can withhold updates but cannot push a malicious one to existing installs.
+- **Trust.** HTTPS protects transport and SHA-256 detects mismatched package bytes. Cryptographic publisher authentication is not implemented. Treat a compromised publishing account or manifest host as an update-trust compromise. Unattended updates require an asset in this project's versioned GitHub release; signing remains planned below.
+
+### Security advisories
+
+Maintain `releases/security-advisories.json` as a cumulative registry of actual advisories. Packaging validates it and places it in `channels.json`. Severity, affected ranges, fixed version, mitigation and deadlines control warnings separately from changelog categories. High/critical notices reuse configured Alert channels; critical dialogs repeat hourly. Owners can opt into critical updates after a grace period, with persisted retry limits and maintenance/manual-review holds. See [the complete policy and publisher workflow](./security-updates.md). Leave the registry empty when no real advisory is being published.
 
 ### Automated website deployment
 
@@ -55,34 +61,33 @@ The website must serve ordinary static files without rewriting their contents. K
 
 | Artifact | Architectures | Build environment |
 |---|---|---|
-| `unpanel-<ver>-linux-<arch>.tar.xz` | x64, arm64 | Debian 11 (glibc 2.31) containers in CI; arm64 built natively on arm64 runners |
-| `unpanel-agent-<ver>-linux-<arch>.tar.xz` | x64, arm64 | Same |
+| `unpanel-<ver>-linux-<arch>.tar.gz` | x64, arm64 | `ubuntu-latest` x64 runner; arm64 uses the same JS bundle and matching native Argon2 dependency |
+| `SHA256SUMS`, `channels.json` | Shared | Produced from the exact packages |
 
-Each build: install with the frozen lockfile → typecheck → test → bundle → fetch the pinned Node runtime (verifying its official `SHASUMS256.txt` signature) → strip → compile native modules → smoke test (`node main.js --version`, open the DB, load native modules) → pack.
+Both panel and agent are in each package. Node.js 24 must already be installed; it is not bundled. `.github/workflows/ci.yml` runs lint (including SPDX/license/format checks), typechecks, tests and website-deployment script checks. `.github/workflows/release.yml` separately installs with the frozen lockfile, builds the web UI, bundles, packs and publishes. Only tag the exact commit after its CI succeeds: the release workflow does not rerun the full CI job.
 
-Every tarball contains `LICENSE` (AGPL-3.0), `THIRD_PARTY_NOTICES` (generated from the production dependency tree, including the bundled Node.js runtime's license), and a `SOURCE` file naming the exact git tag. The build embeds the tag URL as the default `about.source_url` ([ADR-0011](../adr/0011-agpl-license.md)). The CI license check fails the build if a disallowed license appears ([conventions.md](./conventions.md) §10).
+Packages contain the built panel/agent/management scripts, frontend, native password-hashing dependency, installers/update helpers, `LICENSE`, `VERSION` and `SOURCE` naming the exact tag. Packaging verifies the native dependency and architecture metadata. The CI license check rejects disallowed licenses. A bundled-runtime license inventory, native arm64 execution tests and the complete Linux VM installation/upgrade matrix remain release-readiness work.
 
-## 4. Signing
+## 4. Signing (planned)
 
-- Release key: Ed25519, used with [minisign](https://jedisct1.github.io/minisign/). The public key is embedded in the panel and agent (for online upgrade verification) and published in `SECURITY.md` and the README.
-- The private key lives offline or in the CI secret store with required reviewers on the release environment; never on developer machines.
-- Signed files: `SHA256SUMS` (covering every artifact and installer), `channels.json`.
-- Key rotation: a new key is announced in a release signed by the old key, and both keys are trusted for one minor release.
+- Planned release key: Ed25519 with minisign; a future implementation must embed and publish the verification key before enforcing signed upgrades. No release verification key is currently shipped.
+- Planned private-key storage: offline or protected CI secrets with release review.
+- Planned signed files: `SHA256SUMS` and `channels.json`.
+- Planned rotation: announce the new key in a release signed by the old key and keep an overlap period.
 
 ## 5. Steps
 
-1. Create a release branch `release/<major>.<minor>` for minor/major releases (patches are cherry-picked onto it).
-2. Run the [security checklist](./security-checklist.md) and the manual checklist in [design/10](../design/10-testing.md) §5.
-3. Update `CHANGELOG.md`: move "Unreleased" entries under the new version with the date. Packaging maps `Added`, `Changed`, `Fixed`, `Security`, `Critical`, `Deprecated`, and `Removed` headings to structured rows in `channels.json` and to the GitHub Release body. Use `Removed` only when existing behavior is no longer available; it marks the release for manual review and prevents unattended automatic installation.
-4. Bump versions (`pnpm -r version` via a script) and tag `v<version>` (signed tag).
-5. CI builds, signs, and drafts the GitHub Release with artifacts, `SHA256SUMS`, `SHA256SUMS.minisig`, installers.
-6. Verify the draft: download on a clean VM, verify checksums and signature, run the installer, upgrade from the previous stable.
-7. Publish the release, then update `channels.json` (stable or beta).
-8. Announce (release notes link). For security releases, publish the advisory at the same time.
+1. Finish the requested changes and appropriate automated/browser validation. Review the diff, excluding credentials, local data and internal handover logs. Record platform or external-service checks that were not run.
+2. Update `CHANGELOG.md` under the version/date. Packaging maps `Added`, `Changed`, `Fixed`, `Security`, `Critical`, `Deprecated`, and `Removed` to release rows. `Removed` marks manual review and blocks unattended installation. Use a real advisory registry entry separately for a vulnerability.
+3. Bump `packages/shared/src/product.ts`, both installer pins, the protocol test-vector version, API version assertion, README status and deployment-document status. Update relevant feature/runbook docs.
+4. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, the web production build and `node scripts/bundle.mjs`. Registry schema tests run with the suite. Packaging runs on Linux x64 in CI.
+5. Commit and push `main`. Wait for **CI on that exact SHA** to pass. Then create and push `v<version>` pointing to that SHA. Tag creation publishes a prerelease automatically; it is not a draft or a deployment to users' panels.
+6. Wait for Release packaging and its reusable website deployment to succeed. Verify the release version, four assets, package/manifest SHA-256 values, `channels.json` version/registry and public installer pins. Do not claim the website is deployed merely because GitHub assets exist.
+7. Report the release link and actual validation. For a security fix, coordinate public disclosure under `SECURITY.md` and verify affected-version notices. Test clean installation and upgrades on the supported Linux VM matrix before claiming that matrix is validated.
 
-## 6. Compatibility matrix
+## 6. Compatibility matrix (v1 target)
 
-Maintained in the README and release notes:
+The broader v1 target below is not the currently validated platform matrix. Current pre-alpha agent compatibility and rollback behavior are documented in [design/09](../design/09-deployment.md).
 
 | Panel | Agents supported | Upgrade from |
 |---|---|---|
@@ -92,6 +97,6 @@ Rule: panel N supports agents on the current and previous protocol major. Upgrad
 
 ## 7. Hotfixes
 
-- Branch from the release branch, fix, add a test, release as a patch.
-- Forward-port the fix to `main` in the same day.
+- Fix on a branch, add a relevant regression test, and follow the checked-commit release procedure above.
+- If maintaining an older release line, forward-port the fix to `main` as part of that work.
 - Security fixes follow `SECURITY.md` (private fix, coordinated disclosure).

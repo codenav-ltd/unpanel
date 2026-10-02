@@ -1,0 +1,151 @@
+<!--
+SPDX-License-Identifier: AGPL-3.0-or-later
+Copyright (C) 2026 CodeNav Ltd and contributors
+-->
+<script setup lang="ts">
+import { onMounted, ref } from "vue";
+import { defaultSecurityUpdatePolicy, type SecurityUpdatePolicy } from "@unpanel/shared";
+import { accountRequest } from "../account-client.ts";
+import SelectField from "./SelectField.vue";
+import AppDialog from "./AppDialog.vue";
+import ReauthenticateDialog from "./ReauthenticateDialog.vue";
+const emit = defineEmits<{ changed: [] }>();
+const form = ref<SecurityUpdatePolicy>(defaultSecurityUpdatePolicy()),
+  loading = ref(true),
+  loaded = ref(false),
+  busy = ref(false),
+  error = ref(""),
+  note = ref(""),
+  confirm = ref(false),
+  reauth = ref(false);
+async function load(): Promise<void> {
+  loading.value = true;
+  try {
+    form.value = await accountRequest<SecurityUpdatePolicy>("/updates/policy");
+    loaded.value = true;
+    error.value = "";
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Could not load update policy.";
+  } finally {
+    loading.value = false;
+  }
+}
+async function save(): Promise<void> {
+  reauth.value = false;
+  busy.value = true;
+  error.value = "";
+  try {
+    form.value = await accountRequest<SecurityUpdatePolicy>("/updates/policy", "POST", form.value);
+    note.value = "Security update policy saved.";
+    emit("changed");
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Could not save update policy.";
+  } finally {
+    busy.value = false;
+  }
+}
+onMounted(() => void load());
+</script>
+<template>
+  <section class="wide">
+    <h2>Security update policy</h2>
+    <p class="hint">
+      Security advisories are matched to the installed version. Critical advisories keep a red
+      notice visible and repeat an on-screen reminder after one hour.
+    </p>
+    <p v-if="loading" role="status" class="hint">
+      <span class="spinner" aria-hidden="true" />Loading policy…
+    </p>
+    <form v-else-if="loaded" @submit.prevent="confirm = true">
+      <fieldset :disabled="busy">
+        <SelectField
+          v-model="form.criticalAction"
+          label="Critical vulnerabilities"
+          :options="[
+            { value: 'notify', label: 'Notify me · I install the update' },
+            {
+              value: 'install_after_deadline',
+              label: 'Install automatically after the grace period',
+            },
+          ]"
+        /><SelectField
+          v-if="form.criticalAction === 'install_after_deadline'"
+          v-model="form.graceHours"
+          label="Minimum grace period"
+          :options="[
+            { value: 6, label: '6 hours' },
+            { value: 24, label: '24 hours' },
+            { value: 72, label: '72 hours' },
+          ]"
+        /><label class="account-check"
+          ><input v-model="form.notifyChannels" type="checkbox" />Send high and critical advisories
+          to enabled Alert channels</label
+        >
+        <p class="hint">
+          Channels keep their existing severity filters. Unresolved advisories repeat at most once
+          per day. Configure destinations under Alerts.
+        </p>
+        <p v-if="form.criticalAction === 'install_after_deadline'" class="form-warn">
+          This authorizes unattended panel updates and restarts for critical advisories, even with
+          ordinary automatic updates disabled. Checks run at least hourly. A newly enabled or
+          changed grace period starts now; a later publisher deadline is respected.
+        </p>
+        <details class="hint">
+          <summary>Safety limits and update checks</summary>
+          <p>
+            Breaking changes still need manual review. Maintenance, unavailable packages, failed
+            metadata checks and repeated failures pause automatic installation. This policy never
+            locks you out of the panel or automatically updates remote agents.
+          </p>
+          <p>
+            Ordinary automatic updates are configured under Panel and can install any eligible
+            release sooner. With notify-only policy, background security checks follow the
+            configured update-check interval.
+          </p>
+        </details>
+        <button type="submit" :disabled="busy">
+          <span v-if="busy" class="spinner" aria-hidden="true" />Review policy
+        </button>
+      </fieldset>
+    </form>
+    <p v-if="error" class="form-error" role="alert">
+      {{ error }} <button :disabled="busy" @click="load">Reload policy</button>
+    </p>
+    <p v-if="note" class="form-warn" role="status">{{ note }}</p>
+  </section>
+  <AppDialog :open="confirm" title="Confirm security update policy" narrow @close="confirm = false"
+    ><p v-if="form.criticalAction === 'install_after_deadline'">
+      Allow unattended installation of compatible critical security fixes after at least
+      {{ form.graceHours }} hours. The panel can restart without an open browser. Manual-review and
+      maintenance holds remain in effect.
+    </p>
+    <p v-else>
+      Use security notices and administrator-initiated installation. Ordinary automatic update
+      settings remain independent.
+    </p>
+    <p>
+      High and critical advisory notifications:
+      {{ form.notifyChannels ? "enabled Alert channels" : "off" }}.
+    </p>
+    <template #footer
+      ><button class="quiet" @click="confirm = false">Cancel</button
+      ><button
+        @click="
+          confirm = false;
+          reauth = true;
+        "
+      >
+        Verify identity and save
+      </button></template
+    ></AppDialog
+  >
+  <ReauthenticateDialog :open="reauth" @close="reauth = false" @verified="save" />
+</template>
+<style scoped>
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+</style>

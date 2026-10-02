@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
-import { assertReleaseUrl } from "@unpanel/shared";
+import {
+  assertReleaseUrl,
+  parseSecurityAdvisories,
+  mergeSecurityAdvisories,
+  affectedBy,
+  compareVersions,
+  type SecurityAdvisory,
+  type SecurityUpdateStatus,
+} from "@unpanel/shared";
 import { newerRelease } from "../install/release.ts";
 
 export interface ReleaseAsset {
@@ -25,6 +33,7 @@ export interface ReleaseChange {
 }
 
 export interface ReleaseFile {
+  advisories?: SecurityAdvisory[];
   version: string;
   url: string;
   sha256: string;
@@ -41,6 +50,8 @@ export interface ChannelsFile {
 }
 
 export interface UpdateView {
+  advisories?: SecurityAdvisory[];
+  security?: SecurityUpdateStatus;
   current: string;
   update: {
     version: string;
@@ -148,12 +159,25 @@ export async function findUpdate(options: {
     const release = selectUpdate(options.current, github);
     if (release) found.push(release);
   }
-  const release = pickNewest(options.current, found);
+  let release = pickNewest(options.current, found);
+  const advisories = mergeSecurityAdvisories(
+    ...found.map((item) =>
+      (item.advisories ?? []).filter((advisory) => affectedBy(options.current, advisory)),
+    ),
+  );
+  if (release)
+    release = {
+      ...release,
+      advisories: advisories.filter(
+        (item) => (compareVersions(item.fixedVersion, release?.version ?? "") ?? 1) <= 0,
+      ),
+    };
   if (release) {
     try {
       const packed = packageForArch(release, options.arch ?? process.arch);
       return {
         current: options.current,
+        ...(advisories.length ? { advisories } : {}),
         update: {
           version: packed.version,
           notes: packed.notes,
@@ -166,6 +190,7 @@ export async function findUpdate(options: {
     } catch (error) {
       return {
         current: options.current,
+        ...(advisories.length ? { advisories } : {}),
         update: null,
         error: error instanceof Error ? error.message : "Could not check for updates.",
         release: null,
@@ -266,6 +291,10 @@ function parseRelease(value: unknown): ReleaseFile | null {
       record["reviewRequired"] === true || changelog.some((change) => change.kind === "breaking"),
   };
   const assets = parseAssets(record["assets"]);
+  if (record["advisories"] !== undefined)
+    release.advisories = parseSecurityAdvisories(record["advisories"]);
+  if (release.advisories?.some((item) => (compareVersions(item.fixedVersion, version) ?? 1) > 0))
+    throw new Error("Security advisory fix is newer than its release.");
   if (assets) release.assets = assets;
   return release;
 }
@@ -384,5 +413,21 @@ async function getJson(
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`Update manifest returned ${response.status}.`);
-  return response.json() as Promise<unknown>;
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Update metadata is empty.");
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      size += next.value.byteLength;
+      if (size > 2 * 1024 * 1024) throw new Error("Update metadata exceeds its size limit.");
+      parts.push(next.value);
+    }
+    return JSON.parse(Buffer.concat(parts).toString("utf8")) as unknown;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
 }

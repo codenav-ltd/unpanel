@@ -28,6 +28,7 @@ import type { SettingsSection } from "../app/route.ts";
 const AccountSecurity = defineAsyncComponent(() => import("./AccountSecurity.vue"));
 const EmailSettings = defineAsyncComponent(() => import("./EmailSettings.vue"));
 const UserSettings = defineAsyncComponent(() => import("./UserSettings.vue"));
+const SecurityUpdatePolicy = defineAsyncComponent(() => import("./SecurityUpdatePolicy.vue"));
 
 export interface PanelOps {
   pollSec: 2 | 5 | 10 | 30;
@@ -73,6 +74,7 @@ const emit = defineEmits<{
   security: [LoginSecuritySettings];
   updateFound: [version: string];
   refreshNodes: [];
+  securityUpdated: [];
   openNode: [id: string];
 }>();
 
@@ -700,7 +702,9 @@ async function applyUpdate(): Promise<void> {
   updateError.value = "";
   setUpdateMarker("updating", target);
   try {
-    const response = await fetch("/api/v1/updates", { method: "POST" });
+    const response = await fetch("/api/v1/updates?version=" + encodeURIComponent(target), {
+      method: "POST",
+    });
     if (!response.ok) {
       updateState.value = "error";
       updateError.value = await readProblem(response, "install the update");
@@ -1457,6 +1461,7 @@ onUnmounted(() => {
           </div>
         </div>
       </section>
+      <SecurityUpdatePolicy v-if="access.role === 'owner'" @changed="emit('securityUpdated')" />
     </div>
 
     <div v-else class="page-stack">

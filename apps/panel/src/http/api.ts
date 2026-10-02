@@ -35,6 +35,8 @@ import type { EmailMethods } from "../email/store.ts";
 import { registerAccountApi } from "../auth/account-api.ts";
 import type { Access } from "../auth/access.ts";
 import { registerUsersApi } from "../auth/users-api.ts";
+import type { UpdateSecurity } from "../updates/security.ts";
+import { digest } from "../auth/factors.ts";
 
 const AUDIT_PAGE = 100;
 const HISTORY_WINDOWS = new Set([60, 1440, 10080]);
@@ -42,6 +44,7 @@ const HISTORY_WINDOWS = new Set([60, 1440, 10080]);
 export function createApi(options: {
   auth: Auth;
   access?: Access;
+  updateSecurity?: UpdateSecurity;
   audit: Audit;
   snapshot: (nodeId: string) => LocalSnapshot;
   live: () => NodeLive[];
@@ -61,7 +64,7 @@ export function createApi(options: {
   factors?: Factors;
   email?: EmailMethods;
   checkUpdate: () => Promise<UpdateView>;
-  applyUpdate: () => Promise<{ accepted: true; version: string }>;
+  applyUpdate: (expectedVersion?: string) => Promise<{ accepted: true; version: string }>;
   applyAgentUpdate: (nodeId: string) => Promise<{ accepted: true; version: string }>;
   onSettings?: () => void;
 }): Hono {
@@ -588,12 +591,45 @@ export function createApi(options: {
     return c.json({ data: await options.checkUpdate() });
   });
 
+  if (options.updateSecurity && options.access) {
+    const updates = options.updateSecurity,
+      access = options.access;
+    app.get("/api/v1/updates/policy", (c) => {
+      const user = options.auth.sessionUser(sessionToken(c));
+      if (!user || access.get(user.id).role !== "owner")
+        throw new AccountError("Only an owner can manage update policy.", 403);
+      return c.json({ data: updates.policy() });
+    });
+    app.post("/api/v1/updates/policy", async (c) => {
+      const token = sessionToken(c),
+        user = options.auth.sessionUser(token);
+      if (!user || !token) return unauthenticated(c);
+      const body = await readJson(c);
+      if (!body) return invalid(c);
+      access.owner(user.id, digest(token));
+      const policy = updates.savePolicy(body);
+      options.audit.record({
+        action: "update.policy",
+        result: "ok",
+        actorKind: "user",
+        actorId: user.username,
+        params: {
+          criticalAction: policy.criticalAction,
+          graceHours: policy.graceHours,
+          notifyChannels: policy.notifyChannels,
+        },
+      });
+      options.onSettings?.();
+      return c.json({ data: policy });
+    });
+  }
+
   app.post("/api/v1/updates", async (c) => {
     const user = options.auth.sessionUser(sessionToken(c));
     if (!user) return unauthenticated(c);
     const startedAt = Date.now();
     try {
-      const result = await options.applyUpdate();
+      const result = await options.applyUpdate(c.req.query("version"));
       options.audit.record({
         action: "panel.update",
         result: "ok",

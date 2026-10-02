@@ -2,6 +2,19 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 export { liveSampleMs } from "./cadence.ts";
+export {
+  affectedBy,
+  parseSecurityAdvisories,
+  mergeSecurityAdvisories,
+  severityRank,
+  defaultSecurityUpdatePolicy,
+} from "./update-security.ts";
+export type {
+  SecurityAdvisory,
+  AdvisorySeverity,
+  SecurityUpdatePolicy,
+  SecurityUpdateStatus,
+} from "./update-security.ts";
 export { managesPanel, seesNode, controlsNodes } from "./access.ts";
 export type { UserRole, UserAccess, ManagedUser } from "./access.ts";
 export { product } from "./product.ts";

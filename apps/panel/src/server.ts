@@ -17,7 +17,8 @@ import { createHub, HubCallError } from "./hub.ts";
 import { createHistory } from "./metrics/history.ts";
 import { createNodes } from "./nodes/store.ts";
 import { createSettings, seedPublicUrl } from "./settings/store.ts";
-import { findUpdate, releaseForVersion, releaseToApply, UpdateError } from "./updates/check.ts";
+import { findUpdate, releaseForVersion, UpdateError } from "./updates/check.ts";
+import { createUpdateSecurity } from "./updates/security.ts";
 import { createApi, sessionTokenFromCookie } from "./http/api.ts";
 import { handleHttp } from "./http/node.ts";
 import { createCertificates } from "./tls/store.ts";
@@ -141,7 +142,39 @@ export async function startPanel(options: {
     publicUrl: () => settings.view().publicUrl,
   });
   let armUpdateWatch = (): void => undefined;
+  const updates = createUpdateSecurity({
+    db: data.db,
+    current: product.version,
+    sourceUrl: product.sourceUrl,
+    check: () =>
+      findUpdate({
+        current: product.version,
+        manifestUrl: product.updatesUrl,
+        sourceUrl: product.sourceUrl,
+      }),
+    apply: async (release) => {
+      const result = await hub.upgrade("local", {
+        version: release.version,
+        url: release.url,
+        sha256: release.sha256,
+      });
+      return { accepted: true, version: result.version };
+    },
+    maintenance: () => nodes.get("local")?.maintenance === true,
+    notify: (advisory, installAt) =>
+      alerts.channels.notify(
+        {
+          title: `Unpanel · ${advisory.severity} security update`,
+          text: `${advisory.id}: ${advisory.title}\nInstalled: ${product.version}\nFixed in: ${advisory.fixedVersion}${advisory.mitigation ? "\n" + advisory.mitigation : ""}${advisory.url ? "\n" + advisory.url : ""}${installAt ? "\nAutomatic installation is eligible after " + new Date(installAt).toISOString() + "; manual-review and maintenance holds still apply." : "\nOpen Settings → Updates to review and install the fix."}`,
+          key: `security:${product.version}:${advisory.id}:${Math.floor(Date.now() / 86400000)}`,
+        },
+        advisory.severity === "critical" ? "critical" : "warning",
+        [],
+      ),
+    record: (action, result, detail) => audit.record({ action, result, params: { detail } }),
+  });
   const app = createApi({
+    updateSecurity: updates,
     access,
     factors,
     email,
@@ -162,27 +195,8 @@ export async function startPanel(options: {
     secureCookie,
     certificates,
     alerts,
-    checkUpdate: async () => {
-      const status = await findUpdate({
-        current: product.version,
-        manifestUrl: product.updatesUrl,
-        sourceUrl: product.sourceUrl,
-      });
-      return { current: status.current, update: status.update, error: status.error };
-    },
-    applyUpdate: async () => {
-      const release = await releaseToApply({
-        current: product.version,
-        manifestUrl: product.updatesUrl,
-        sourceUrl: product.sourceUrl,
-      });
-      const result = await hub.upgrade("local", {
-        version: release.version,
-        url: release.url,
-        sha256: release.sha256,
-      });
-      return { accepted: true as const, version: result.version };
-    },
+    checkUpdate: () => updates.check(),
+    applyUpdate: (version) => updates.install(version),
     applyAgentUpdate: async (nodeId) => {
       if (nodeId === "local") {
         throw new UpdateError("E_CONFLICT", "The local agent is updated together with the panel.");
@@ -304,7 +318,11 @@ export async function startPanel(options: {
   armUpdateWatch = (): void => {
     if (updateTimer) clearInterval(updateTimer);
     updateTimer = undefined;
-    const hours = settings.view().ops.updateHours;
+    const configured = settings.view().ops.updateHours;
+    const hours =
+      updates.policy().criticalAction === "install_after_deadline"
+        ? Math.min(configured || 1, 1)
+        : configured;
     if (hours <= 0) return;
     updateTimer = setInterval(
       () => {
@@ -315,33 +333,34 @@ export async function startPanel(options: {
     updateTimer.unref();
   };
   const runAutoUpdate = async (): Promise<void> => {
-    const ops = settings.view().ops;
-    if (!ops.autoUpdate) return;
+    if (!auth.initialized()) return;
     try {
-      const release = await releaseToApply({
-        current: product.version,
-        manifestUrl: product.updatesUrl,
-        sourceUrl: product.sourceUrl,
-      });
-      // A release that removes existing behavior stays visible in Settings but
-      // is never installed unattended. The user must review it and start it.
-      if (release.reviewRequired) return;
-      await hub.upgrade("local", {
-        version: release.version,
-        url: release.url,
-        sha256: release.sha256,
-      });
+      await updates.automatic(settings.view().ops.autoUpdate);
     } catch {
-      // The next interval tries again. About still explains a check that fails.
+      audit.record({
+        action: "update.check",
+        result: "error",
+        params: { detail: "The background update check failed. Open Settings → Updates." },
+      });
     }
   };
   armUpdateWatch();
+  const startupUpdate = setTimeout(() => {
+    if (
+      settings.view().ops.updateHours > 0 ||
+      updates.policy().criticalAction === "install_after_deadline"
+    )
+      void runAutoUpdate();
+  }, 5000);
+  startupUpdate.unref();
 
   return {
     port: actualPort,
     setupToken: data.readSetupToken(),
     publicUrl: settings.view().publicUrl,
     async close() {
+      updates.close();
+      clearTimeout(startupUpdate);
       if (updateTimer) clearInterval(updateTimer);
       clearInterval(renewalTimer);
       clearInterval(alertTimer);

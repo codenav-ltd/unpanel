@@ -38,6 +38,36 @@ function channels(beta: string | null, stable: string | null = null): ChannelsFi
 }
 
 describe("selectUpdate", () => {
+  it("keeps advisories visible without an architecture package and rejects a future fix declaration", async () => {
+    const advisory = {
+      id: "TEST-001",
+      title: "Fixture",
+      severity: "critical",
+      affected: [{ from: "0.1.0-alpha.1", below: "0.1.0-alpha.26" }],
+      fixedVersion: "0.1.0-alpha.26",
+      publishedAt: "2026-01-01T00:00:00Z",
+    };
+    const manifest = channels("0.1.0-alpha.26");
+    if (!manifest.beta) throw Error("fixture");
+    const value = { ...manifest, beta: { ...manifest.beta, advisories: [advisory] } };
+    const result = await findUpdate({
+      current: "0.1.0-alpha.25",
+      arch: "arm64",
+      manifestUrl: "https://unpanel.codenav.dev/channels.json",
+      sourceUrl: "https://github.com/codenav-ltd/unpanel",
+      fetchImpl: async (input) =>
+        String(input).includes("api.github.com") ? Response.json([]) : Response.json(value),
+    });
+    expect(result.advisories).toHaveLength(1);
+    expect(result.update).toBeNull();
+    expect(result.error).toContain("linux-arm64");
+    expect(() =>
+      parseChannels({
+        ...value,
+        beta: { ...value.beta, advisories: [{ ...advisory, fixedVersion: "0.1.0-alpha.27" }] },
+      }),
+    ).toThrow("newer than its release");
+  });
   it("offers a newer beta and a newer stable to a pre-release", () => {
     expect(selectUpdate("0.1.0-alpha.6", channels("0.1.0-alpha.7"))?.version).toBe("0.1.0-alpha.7");
     expect(selectUpdate("0.1.0-alpha.7", channels("0.1.0-alpha.8", "1.0.0"))?.version).toBe(
@@ -149,6 +179,28 @@ describe("GitHub release lookup", () => {
 });
 
 describe("findUpdate", () => {
+  it("cancels oversized metadata streams before parsing or offering an update", async () => {
+    let cancelled = 0;
+    const result = await findUpdate({
+      current: "0.1.0-alpha.25",
+      manifestUrl: "https://unpanel.codenav.dev/channels.json",
+      sourceUrl: "https://github.com/codenav-ltd/unpanel",
+      fetchImpl: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array(2 * 1024 * 1024 + 1));
+            },
+            cancel() {
+              cancelled++;
+            },
+          }),
+        ),
+    });
+    expect(result.error).toBe("Could not check for updates.");
+    expect(result.release).toBeNull();
+    expect(cancelled).toBe(2);
+  });
   it("uses GitHub when the site manifest is missing", async () => {
     const manifest = {
       stable: null,

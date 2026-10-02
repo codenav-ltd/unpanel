@@ -38,6 +38,7 @@ This directory records **behavior details of external systems, formulas, limits,
 | [conventions.md](./conventions.md) | Code and collaboration conventions |
 | [security-checklist.md](./security-checklist.md) | Pre-release security checklist |
 | [release-process.md](./release-process.md) | Versioning, builds, signing, publishing |
+| [security-updates.md](./security-updates.md) | Advisory severity, affected versions, critical-update policy, reminders and publisher workflow |
 | [panel-https.md](./panel-https.md) | Panel HTTPS, domain issuance, trust, renewal, and access migration |
 | [account-security.md](./account-security.md) | Managed 2FA methods, policy, shared email delivery, recovery and downgrade compatibility |
 | [users-and-permissions.md](./users-and-permissions.md) | Team mode, roles, node scopes, locked live-demo accounts and access revocation |

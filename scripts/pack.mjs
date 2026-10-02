@@ -18,6 +18,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { releaseMetadata } from "./release-notes.mjs";
+import { parseSecurityAdvisories } from "../packages/shared/src/update-security.ts";
+import { compareVersions } from "../packages/shared/src/version.ts";
 
 // The bundle is built on linux-x64. The arm64 package is the same bundle with
 // the glibc arm64 argon2 binary from the lockfile swapped in.
@@ -79,6 +81,11 @@ const x64Hash = sha256(readFileSync(x64Archive));
 const armHash = sha256(readFileSync(join(releaseDir, armAsset)));
 const base = `https://github.com/codenav-ltd/unpanel/releases/download/v${version}`;
 const releaseNotes = releaseMetadata(readFileSync(join(root, "CHANGELOG.md"), "utf8"), version);
+const advisories = parseSecurityAdvisories(
+  JSON.parse(readFileSync(join(root, "releases", "security-advisories.json"), "utf8")),
+);
+if (advisories.some((advisory) => compareVersions(advisory.fixedVersion, version) > 0))
+  throw new Error("Security registry references a fix newer than this release.");
 const file = {
   version,
   url: `${base}/${x64Asset}`,
@@ -86,6 +93,7 @@ const file = {
   notes: releaseNotes.notes,
   changelog: releaseNotes.changes,
   reviewRequired: releaseNotes.reviewRequired,
+  advisories,
   assets: {
     "linux-arm64": { url: `${base}/${armAsset}`, sha256: armHash },
   },

@@ -11,7 +11,7 @@ Open **Settings → Users**, verify your identity, and enable **Team mode**. New
 - **Operator** sees assigned nodes and can rename them, change tags or maintenance, restart/stop services, configure swap and update their remote agents. They cannot enroll, disable or delete nodes, change panel settings, inspect global audit logs, or export backups.
 - **Viewer** reads assigned node status, host details and monitoring history. Infrastructure writes are denied. A normal Viewer can manage their own password and two-factor policy.
 
-Owners and administrators cover the whole panel. Operators and viewers can cover **all nodes, including future nodes**, or an explicit set of node IDs. An empty selection grants no node access. Lists are filtered; direct requests for an unassigned node are also rejected. Custom roles, tag-based scopes, multiple role bindings and API tokens remain planned.
+Owners and administrators cover the whole panel. Operators and viewers can cover **all nodes, including future nodes**, or an explicit set of node IDs. An empty selection grants no node access. Lists are filtered; direct requests for an unassigned node are also rejected. From alpha.26, the security-update policy is also owner-only and requires reauthentication; administrators retain manual panel-update access. Custom roles, tag-based scopes, multiple role bindings and API tokens remain planned.
 
 ## Create a live-demo account
 

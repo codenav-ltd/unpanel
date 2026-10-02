@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.26] - 2026-10-03
+
+### Added
+
+- Version-scoped security advisories support four severity levels, affected ranges, fixed versions, mitigation guidance and publisher deadlines. Critical advisories show a persistent red notice and an hourly reminder dialog; high and critical advisories can reuse enabled Telegram and email Alert channels.
+- Owners can authorize critical fixes after a 6, 24 or 72-hour grace period through a reviewed, reauthenticated policy. Maintenance, incompatible packages, manual-review releases, failed metadata checks and bounded retry limits prevent unattended installation; notify-only remains the default.
+
+### Changed
+
+- Update checks share a bounded cache, preserve known security warnings during outages and persist notification and retry limits across restarts. Manual installation confirms the reviewed target version. Security notices and policy controls load on demand.
+- Release documentation now distinguishes shipped HTTPS/checksum verification from planned cryptographic release signing, and documents the cumulative advisory registry without declaring synthetic vulnerabilities.
+
 ## [0.1.0-alpha.25] - 2026-10-03
 
 ### Added
