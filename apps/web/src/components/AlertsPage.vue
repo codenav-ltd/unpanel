@@ -363,7 +363,10 @@ onUnmounted(() => {
             <article class="alert-channel-option">
               <MailOutlined aria-hidden="true" />
               <h3>Email</h3>
-              <p>Use any SMTP server, or connect Resend or Postmark with an API token.</p>
+              <p>
+                Select a saved email method and add recipients. Manage providers once in Settings →
+                Email.
+              </p>
               <button class="quiet" @click="editEmail(null)">Connect email</button>
             </article>
           </div>
@@ -377,7 +380,7 @@ onUnmounted(() => {
                 <span class="alert-badge">{{ channel.enabled ? "Enabled" : "Disabled" }}</span>
               </h3>
               <p>
-                {{ channel.kind === "telegram" ? "Telegram" : channel.email?.provider }} ·
+                {{ channel.kind === "telegram" ? "Telegram" : channel.emailMethodName }} ·
                 {{ channel.destination }}
               </p>
               <small>{{

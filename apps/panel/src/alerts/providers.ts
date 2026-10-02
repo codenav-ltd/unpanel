@@ -9,6 +9,8 @@ export interface ChannelConfig {
   chatId?: string;
   email?: EmailSettings;
   secret?: string;
+  emailMethodId?: string;
+  recipients?: string[];
 }
 export interface NotificationMessage {
   title: string;

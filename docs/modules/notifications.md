@@ -4,6 +4,10 @@
 
 ## Channels and routing
 
+From alpha.24: Settings → Email owns named provider and sender configurations. Email alert channels select a delivery method and recipients, with no repeated credentials. Existing channel credentials migrate transactionally to named email methods, retaining channel IDs, routing and queued deliveries. Changing a provider in Settings affects all linked consumers. Referenced methods cannot be disabled or deleted; remove or change the linked channels/factors first. The old email-channel API remains compatible for private, unshared methods; updating shared provider credentials requires the central settings API.
+
+Basic rule editing asks what to watch, its threshold and delay, and where to send notifications. Node targeting, severity, recovery messages and repeat reminders are advanced options with useful defaults. Empty selections are explicit **All active nodes** / **All enabled channels** choices, not an implicit unchecked-list convention.
+
 Telegram **and email are first-priority channels**. Users may connect several destinations and enable any combination. Each rule chooses explicit channels or all enabled channels; each channel accepts warning and critical notifications, or critical only. Editing a rule's destination never changes another rule's routing.
 
 The provider boundary accepts a small plain-text notification with a title, body and delivery key. SMTP uses Nodemailer; HTTP providers and Telegram use native fetch. No bot framework or provider SDK stays resident. New drivers belong behind this boundary, not inside the evaluator. Browser/API payloads use shared TypeScript contracts.
@@ -27,7 +31,7 @@ Notifications use plain text, with link previews disabled, so node names cannot 
 
 Choose a delivery method, sender and up to 10 recipients:
 
-- **SMTP** works with any provider that accepts username/password authentication over verified TLS. Choose a custom hostname/port or a Gmail/Resend SMTP preset. TLS usually uses port 465; STARTTLS usually uses 587. STARTTLS is required, with no fallback to plaintext. Gmail generally needs an [app password](https://support.google.com/accounts/answer/185833).
+- **SMTP** works with any provider that accepts username/password authentication over verified TLS. Enter the hostname and port provided by your mail service. TLS usually uses port 465; STARTTLS usually uses 587. STARTTLS is required, with no fallback to plaintext. Gmail generally needs an [app password](https://support.google.com/accounts/answer/185833).
 - **Resend API** uses a send-capable API key and a verified sender domain. Each delivery uses a stable idempotency key. See [Send Email](https://resend.com/docs/api-reference/emails/send-email).
 - **Postmark API** uses a Server API token, verified sender, and the `outbound` transactional message stream. See [Email API](https://postmarkapp.com/developer/api/email-api).
 

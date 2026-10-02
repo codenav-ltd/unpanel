@@ -6,11 +6,13 @@ import type { AlertsView } from "@unpanel/shared";
 import { createChannels } from "./channels.ts";
 import { createAlertEngine } from "./engine.ts";
 import { createTelegramSetup } from "./telegram.ts";
+import type { EmailMethods } from "../email/store.ts";
 
 export function createAlerts(
   options: Omit<Parameters<typeof createAlertEngine>[0], "channels"> & {
     db: DatabaseSync;
     masterKey: Buffer;
+    email?: EmailMethods;
   },
 ) {
   const channels = createChannels(options);

@@ -128,7 +128,8 @@ onMounted(load);
     </p>
     <p v-if="note" class="hint" role="status">{{ note }}</p>
     <p v-if="!loading && !methods.length" class="security-empty">
-      No email delivery methods yet. Connect SMTP, Resend or Postmark to send verification codes.
+      No email delivery methods yet. Connect SMTP, Resend or Postmark to send verification codes and
+      alerts.
     </p>
     <ul class="account-method-list">
       <li v-for="method in methods" :key="method.id">

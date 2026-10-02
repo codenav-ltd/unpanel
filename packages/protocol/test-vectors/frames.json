@@ -6,12 +6,12 @@
       "frame": { "t": "ping", "ts": 1 }
     },
     {
-      "encoded": "{\"t\":\"hello\",\"agentId\":\"nd_1\",\"proto\":\"1.1\",\"agentVer\":\"0.1.0-alpha.23\",\"nonceA\":\"nonce\",\"ts\":1}",
+      "encoded": "{\"t\":\"hello\",\"agentId\":\"nd_1\",\"proto\":\"1.1\",\"agentVer\":\"0.1.0-alpha.24\",\"nonceA\":\"nonce\",\"ts\":1}",
       "frame": {
         "t": "hello",
         "agentId": "nd_1",
         "proto": "1.1",
-        "agentVer": "0.1.0-alpha.23",
+        "agentVer": "0.1.0-alpha.24",
         "nonceA": "nonce",
         "ts": 1
       }

@@ -128,6 +128,7 @@ export async function startPanel(options: {
   const secureCookie = (): boolean =>
     certificates.view().activeId !== null || (options.secureCookie ?? false);
   const alerts = createAlerts({
+    email,
     db: data.db,
     masterKey: data.masterKey,
     nodes: () => nodes.list(),

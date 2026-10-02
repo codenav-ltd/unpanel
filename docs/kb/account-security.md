@@ -10,7 +10,7 @@ Passkeys use the hostname and origin from the saved panel public URL. HTTPS with
 
 Email OTP uses a shared named delivery method, selected from Settings → Email, plus the account's verified recipient address. SMTP, Resend and Postmark use the existing delivery implementation; provider secrets remain encrypted and are never returned by an API. A six-digit email code expires after five minutes, is single-use and has five attempts; resend is limited per account and recipient. Delivery failure does not enroll a method. Email is a fallback whose security depends on the mailbox; passkeys or an authenticator app are preferable for administrators.
 
-Shared email methods hold sender/provider credentials once. Consumers hold only a method ID and their recipient address. A method in use cannot be deleted or disabled without resolving its references. Alert channels will migrate to this model in the subsequent release; existing notifications must retain delivery across that migration.
+Shared email methods hold sender/provider credentials once. Consumers hold only a method ID and their recipient address. A method in use cannot be deleted or disabled without resolving its references. From alpha.24, Alert channels also use shared methods; existing channels migrate automatically while retaining their IDs, routing, enabled state and pending deliveries. Changing a method in Settings → Email applies to every linked Alert or email OTP method. Alert-specific destinations and severity filters remain on their channels.
 
 ## Recovery and compatibility
 

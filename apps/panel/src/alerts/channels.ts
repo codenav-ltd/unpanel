@@ -17,6 +17,7 @@ import {
   type NotificationMessage,
 } from "./providers.ts";
 import { AlertError, booleanField, integer, severity, textField } from "./validation.ts";
+import { createEmailMethods, type EmailMethods } from "../email/store.ts";
 
 interface ChannelRow {
   id: string;
@@ -38,6 +39,7 @@ export function createChannels(options: {
   masterKey: Buffer;
   now?: () => number;
   send?: typeof sendNotification;
+  email?: EmailMethods;
 }) {
   const { db, masterKey } = options;
   const now = options.now ?? Date.now;
@@ -68,6 +70,7 @@ export function createChannels(options: {
       PRIMARY KEY (incident_id, channel_id)
     );
   `);
+  const mail = options.email ?? createEmailMethods({ db, masterKey });
   const rows = () =>
     db.prepare("SELECT * FROM notification_channels").all() as unknown as ChannelRow[];
   function get(id: string): ChannelRow {
@@ -89,8 +92,10 @@ export function createChannels(options: {
       : row.id;
   }
   function view(): NotificationChannel[] {
+    const methods = new Map(mail.list().map((method) => [method.id, method]));
     return rows().map((row) => {
       const settings = config(row);
+      const method = settings.emailMethodId ? methods.get(settings.emailMethodId) : undefined;
       return {
         id: row.id,
         name: row.name,
@@ -98,8 +103,16 @@ export function createChannels(options: {
         enabled: row.enabled === 1,
         minimumSeverity: row.minimum,
         destination: row.destination,
-        email: settings.email ?? null,
-        hasSecret: Boolean(settings.secret || settings.token),
+        email: method
+          ? { ...method.settings, to: settings.recipients ?? [] }
+          : (settings.email ?? null),
+        hasSecret: method ? method.hasSecret : Boolean(settings.secret || settings.token),
+        ...(settings.emailMethodId
+          ? {
+              emailMethodId: settings.emailMethodId,
+              emailMethodName: method?.name ?? "Missing email method",
+            }
+          : {}),
       };
     });
   }
@@ -121,6 +134,28 @@ export function createChannels(options: {
   function assertRoom(): void {
     if (rows().length >= 20)
       throw new AlertError("You can configure up to 20 notification channels.");
+  }
+  // Keep identities and queued deliveries intact while moving each credential
+  // into the shared store. Stable IDs make repeated startup safe.
+  const legacyEmails = rows().filter((row) => row.kind === "email" && !config(row).emailMethodId);
+  if (legacyEmails.length) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const row of legacyEmails) {
+        const value = config(row);
+        if (!value.email || !value.secret)
+          throw new AlertError(
+            "An existing email channel is incomplete. Restore its settings before upgrading.",
+          );
+        const id = mail.migrate(`alert:${row.id}`, row.name, value.email, value.secret);
+        mail.bind(`alert:${row.id}`, id);
+        save(row, { emailMethodId: id, recipients: value.email.to });
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   }
   function cancelQueued(where: string, values: string[], detail: string): number {
     const result = db
@@ -200,7 +235,12 @@ export function createChannels(options: {
     );
     try {
       const message = JSON.parse(job.message) as NotificationMessage;
-      await send(row.kind, config(row), message);
+      const value = config(row);
+      await send(
+        row.kind,
+        value.emailMethodId ? mail.resolve(value.emailMethodId, value.recipients ?? []) : value,
+        message,
+      );
       if (message.source && message.source.event !== "resolved")
         db.prepare(
           "UPDATE notification_receipts SET sent_at = ? WHERE incident_id = ? AND channel_id = ?",
@@ -244,6 +284,36 @@ export function createChannels(options: {
         throw new AlertError("Use the Telegram setup guide to change this channel.");
       if (!old) assertRoom();
       const name = textField(body["name"], "channel name", 80);
+      if (typeof body["emailMethodId"] === "string") {
+        if (!Array.isArray(body["to"]) || !body["to"].length || body["to"].length > 10)
+          throw new AlertError("Add between 1 and 10 recipients.");
+        const recipients = body["to"].map((value) => textField(value, "recipient email", 254));
+        const resolved = mail.resolve(body["emailMethodId"], recipients),
+          id = old?.id ?? randomUUID();
+        const enabled = booleanField(body["enabled"]),
+          minimum = severity(body["minimumSeverity"]);
+        db.exec("BEGIN IMMEDIATE");
+        try {
+          mail.bind(`alert:${id}`, body["emailMethodId"]);
+          save(
+            {
+              id,
+              name,
+              kind: "email",
+              enabled: enabled ? 1 : 0,
+              minimum,
+              destination: resolved.email.to.join(", "),
+            },
+            { emailMethodId: body["emailMethodId"], recipients: resolved.email.to },
+          );
+          db.exec("COMMIT");
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
+        }
+        if (!enabled) cancelChannel(id);
+        return;
+      }
       const provider = body["provider"];
       if (provider !== "smtp" && provider !== "resend" && provider !== "postmark")
         throw new AlertError("Choose an email delivery provider.");
@@ -257,7 +327,17 @@ export function createChannels(options: {
       if (!Array.isArray(body["to"]) || !body["to"].length || body["to"].length > 10)
         throw new AlertError("Add between 1 and 10 recipients.");
       const to = [...new Set(body["to"].map(mailbox))];
-      const previous = old ? config(old) : null;
+      const stored = old ? config(old) : null;
+      const previous = stored?.emailMethodId
+        ? mail.resolve(stored.emailMethodId, stored.recipients ?? [])
+        : stored;
+      if (
+        stored?.emailMethodId &&
+        (mail.list().find((method) => method.id === stored.emailMethodId)?.references ?? 0) > 1
+      )
+        throw new AlertError(
+          "This email method is shared. Update its provider in Settings → Email.",
+        );
       const secret =
         body["secret"] === "" && previous?.email?.provider === provider
           ? previous.secret
@@ -282,17 +362,30 @@ export function createChannels(options: {
         email.security = body["security"];
         email.username = textField(body["username"], "SMTP username", 320);
       }
-      save(
-        {
-          id: old?.id ?? randomUUID(),
-          name,
-          kind: "email",
-          enabled: booleanField(body["enabled"]) ? 1 : 0,
-          minimum: severity(body["minimumSeverity"]),
-          destination: to.join(", "),
-        },
-        { email, secret },
-      );
+      const channelId = old?.id ?? randomUUID();
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const methodId = mail.save(
+          { ...email, secret, name, enabled: true },
+          stored?.emailMethodId,
+        );
+        mail.bind(`alert:${channelId}`, methodId);
+        save(
+          {
+            id: channelId,
+            name,
+            kind: "email",
+            enabled: booleanField(body["enabled"]) ? 1 : 0,
+            minimum: severity(body["minimumSeverity"]),
+            destination: to.join(", "),
+          },
+          { emailMethodId: methodId, recipients: to },
+        );
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
       if (old && !body["enabled"]) cancelChannel(old.id);
     },
     saveTelegram(
@@ -361,6 +454,7 @@ export function createChannels(options: {
           409,
         );
       db.prepare("DELETE FROM notification_channels WHERE id = ?").run(id);
+      mail.unbind(`alert:${id}`);
       db.prepare("DELETE FROM notification_receipts WHERE channel_id = ?").run(id);
       db.prepare(
         "UPDATE notification_deliveries SET state = 'cancelled', detail = 'Channel removed.' WHERE channel_id = ? AND state = 'queued'",

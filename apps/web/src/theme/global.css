@@ -1769,6 +1769,7 @@ button.strip-eye svg {
 }
 
 input,
+.field textarea,
 textarea.command {
   width: 100%;
   background: var(--raised);
@@ -1783,14 +1784,21 @@ textarea.command {
 }
 
 input:hover,
+.field textarea:hover,
 textarea.command:hover {
   border-color: color-mix(in srgb, var(--line) 70%, var(--text-3));
 }
 
 input:focus-visible,
+.field textarea:focus-visible,
 textarea.command:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 5rem;
 }
 
 .choice-field {

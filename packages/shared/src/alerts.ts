@@ -48,6 +48,8 @@ export interface NotificationChannel {
   destination: string;
   email: EmailSettings | null;
   hasSecret: boolean;
+  emailMethodId?: string;
+  emailMethodName?: string;
 }
 export interface DeliveryLog {
   id: string;

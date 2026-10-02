@@ -22,7 +22,7 @@ export function emailAddress(value: unknown): string {
   if (
     typeof value !== "string" ||
     value.length > 254 ||
-    !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value.trim())
+    !/^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(value.trim())
   )
     throw new AccountError("Enter a valid email address.");
   return value.trim();
@@ -69,6 +69,24 @@ export function createEmailMethods(options: {
   }
   return {
     list,
+    migrate(id: string, name: string, email: EmailSettings, secret: string): string {
+      // Stable IDs and the caller's transaction make interrupted upgrades safe.
+      db.prepare("INSERT OR IGNORE INTO email_methods VALUES (?,?,1,?)").run(
+        id,
+        name,
+        encryptSecret(
+          Buffer.from(JSON.stringify({ email: { ...email, to: [] }, secret })),
+          masterKey,
+        ),
+      );
+      return id;
+    },
+    resolve(id: string, to: string[]): EmailConfig {
+      const row = get(id);
+      if (!row.enabled) throw new AccountError("This email delivery method is disabled.", 409);
+      const value = config(row);
+      return { ...value, email: { ...value.email, to: to.map(emailAddress) } };
+    },
     available(id: string): boolean {
       return Boolean(
         db.prepare("SELECT 1 FROM email_methods WHERE id = ? AND enabled = 1").get(id),
@@ -166,14 +184,7 @@ export function createEmailMethods(options: {
       db.prepare("DELETE FROM email_methods WHERE id = ?").run(id);
     },
     async send(id: string, to: string[], message: NotificationMessage): Promise<void> {
-      const row = get(id);
-      if (!row.enabled) throw new AccountError("This email delivery method is disabled.", 409);
-      const value = config(row);
-      await send(
-        "email",
-        { ...value, email: { ...value.email, to: to.map(emailAddress) } },
-        message,
-      );
+      await send("email", this.resolve(id, to), message);
     },
   };
 }

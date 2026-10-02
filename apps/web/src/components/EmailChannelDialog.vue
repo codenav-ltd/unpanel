@@ -3,73 +3,73 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import type { AlertsView, EmailProvider, NotificationChannel } from "@unpanel/shared";
+import { computed, ref, watch } from "vue";
+import type { AlertsView, EmailMethodView, NotificationChannel } from "@unpanel/shared";
 import { alertRequest, alertSeverities } from "../alerts-client.ts";
+import { accountRequest } from "../account-client.ts";
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
-const props = defineProps<{ open: boolean; channel: NotificationChannel | null }>();
-const emit = defineEmits<{ close: []; saved: [AlertsView] }>();
+const props = defineProps<{ open: boolean; channel: NotificationChannel | null }>(),
+  emit = defineEmits<{ close: []; saved: [AlertsView] }>();
 const blank = () => ({
-  name: "Email",
-  provider: "smtp" as EmailProvider,
-  from: "",
+  name: "Email alerts",
+  emailMethodId: "",
   to: "",
-  host: "",
-  port: 465,
-  security: "tls" as "tls" | "starttls",
-  username: "",
-  secret: "",
   enabled: true,
-  minimumSeverity: "warning" as "warning" | "critical",
+  minimumSeverity: "warning",
 });
-const form = ref(blank());
-const preset = ref("custom");
-const busy = ref(false);
-const error = ref("");
+const form = ref(blank()),
+  methods = ref<EmailMethodView[]>([]),
+  loading = ref(false),
+  busy = ref(false),
+  error = ref("");
+let generation = 0;
+const choices = computed(() =>
+  methods.value.filter((m) => m.enabled).map((m) => ({ value: m.id, label: m.name })),
+);
+async function load(): Promise<void> {
+  const current = ++generation;
+  loading.value = true;
+  error.value = "";
+  try {
+    const result = await accountRequest<EmailMethodView[]>("/email-methods");
+    if (current !== generation) return;
+    methods.value = result;
+    if (!form.value.emailMethodId) form.value.emailMethodId = choices.value[0]?.value ?? "";
+  } catch (failure) {
+    if (current === generation)
+      error.value = failure instanceof Error ? failure.message : "Could not load email methods.";
+  } finally {
+    if (current === generation) loading.value = false;
+  }
+}
 watch(
   () => props.open,
   (open) => {
-    if (!open) {
-      form.value.secret = "";
-      return;
-    }
-    form.value = blank();
-    preset.value = "custom";
-    error.value = "";
+    generation++;
+    if (!open) return;
     const channel = props.channel;
-    if (channel?.email)
-      form.value = {
-        ...form.value,
-        ...channel.email,
-        name: channel.name,
-        to: channel.email.to.join(", "),
-        enabled: channel.enabled,
-        minimumSeverity: channel.minimumSeverity,
-      };
+    form.value = channel
+      ? {
+          name: channel.name,
+          emailMethodId: channel.emailMethodId ?? "",
+          to: channel.email?.to.join(", ") ?? "",
+          enabled: channel.enabled,
+          minimumSeverity: channel.minimumSeverity,
+        }
+      : blank();
+    void load();
   },
 );
-watch(preset, (value) => {
-  if (value === "gmail") {
-    form.value.host = "smtp.gmail.com";
-    form.value.port = 465;
-    form.value.security = "tls";
-  }
-  if (value === "resend") {
-    form.value.host = "smtp.resend.com";
-    form.value.port = 465;
-    form.value.security = "tls";
-    form.value.username = "resend";
-  }
-});
 async function save(): Promise<void> {
+  if (busy.value || loading.value) return;
   busy.value = true;
   error.value = "";
   try {
     emit(
       "saved",
       await alertRequest<AlertsView>(
-        props.channel ? `/channels/${props.channel.id}/email` : "/channels/email",
+        props.channel ? "/channels/" + props.channel.id + "/email" : "/channels/email",
         props.channel ? "PUT" : "POST",
         {
           ...form.value,
@@ -80,9 +80,9 @@ async function save(): Promise<void> {
         },
       ),
     );
-    form.value.secret = "";
   } catch (failure) {
-    error.value = failure instanceof Error ? failure.message : "Could not save this email channel.";
+    error.value =
+      failure instanceof Error ? failure.message : "Could not save the email destination.";
   } finally {
     busy.value = false;
   }
@@ -95,137 +95,62 @@ async function save(): Promise<void> {
     @close="!busy && emit('close')"
   >
     <form id="email-channel-form" @submit.prevent="save">
-      <fieldset :disabled="busy">
-        <p class="hint">
-          Use your existing mail server or an email delivery service. Credentials stay encrypted on
-          your panel.
+      <fieldset :disabled="busy || loading">
+        <p class="hint">Choose a saved delivery method and who should receive alerts.</p>
+        <p v-if="loading" role="status" class="hint">
+          <span class="spinner" aria-hidden="true" />Loading email methods…
         </p>
+        <SelectField
+          v-model="form.emailMethodId"
+          label="Email delivery method"
+          :options="choices"
+        />
+        <p class="hint">
+          <a href="/settings/email">{{
+            choices.length
+              ? "Manage email methods →"
+              : "Set up an email method in Settings → Email →"
+          }}</a>
+        </p>
+        <label class="field"
+          ><span>Recipients</span
+          ><textarea
+            v-model="form.to"
+            rows="2"
+            required
+            maxlength="2550"
+            placeholder="operator@example.com"
+          />
+        </label>
+        <p class="hint">Up to ten addresses, separated by commas or new lines.</p>
         <label class="field"
           ><span>Channel name</span
           ><input v-model="form.name" required maxlength="80" placeholder="Operations email"
         /></label>
-        <SelectField
-          v-model="form.provider"
-          label="Delivery method"
-          :options="[
-            { value: 'smtp', label: 'SMTP · any mail server' },
-            { value: 'resend', label: 'Resend · API' },
-            { value: 'postmark', label: 'Postmark · API' },
-          ]"
-          :disabled="busy"
-        />
-        <template v-if="form.provider === 'smtp'">
+        <details class="alert-advanced">
+          <summary>Notification filter</summary>
           <SelectField
-            v-model="preset"
-            label="SMTP provider"
-            :options="[
-              { value: 'custom', label: 'Custom / another provider' },
-              { value: 'gmail', label: 'Gmail' },
-              { value: 'resend', label: 'Resend SMTP' },
-            ]"
-            :disabled="busy"
+            v-model="form.minimumSeverity"
+            label="Notify for"
+            :options="alertSeverities"
           />
-          <p v-if="preset === 'gmail'" class="hint">
-            Use your full Gmail address and an
-            <a
-              href="https://support.google.com/accounts/answer/185833"
-              target="_blank"
-              rel="noopener noreferrer"
-              >app password</a
-            >. Your regular account password may not work.
-          </p>
-          <div class="alert-form-grid">
-            <label class="field"
-              ><span>SMTP hostname</span
-              ><input
-                v-model="form.host"
-                required
-                placeholder="smtp.example.com"
-                maxlength="253" /></label
-            ><label class="field"
-              ><span>Port</span
-              ><input v-model.number="form.port" type="number" min="1" max="65535" required
-            /></label>
-          </div>
-          <SelectField
-            v-model="form.security"
-            label="Connection security"
-            :options="[
-              { value: 'tls', label: 'TLS · usually port 465' },
-              { value: 'starttls', label: 'STARTTLS · usually port 587' },
-            ]"
-            :disabled="busy"
-          />
-          <label class="field"
-            ><span>SMTP username</span
-            ><input v-model="form.username" required autocomplete="off" maxlength="320"
-          /></label>
-        </template>
-        <p v-else class="hint">
-          Verify your sender domain with
-          <a
-            :href="
-              form.provider === 'resend'
-                ? 'https://resend.com/domains'
-                : 'https://account.postmarkapp.com/signature_domains'
-            "
-            target="_blank"
-            rel="noopener noreferrer"
-            >{{ form.provider === "resend" ? "Resend" : "Postmark" }}</a
-          >
-          first.
-          {{
-            form.provider === "postmark"
-              ? "Use a Server API token with the outbound message stream."
-              : "Use an API key with permission to send email."
-          }}
-        </p>
-        <label class="field"
-          ><span>{{ form.provider === "smtp" ? "Password / app password" : "API token" }}</span
-          ><input
-            v-model="form.secret"
-            type="password"
-            autocomplete="new-password"
-            maxlength="4096"
-            :required="!channel || channel.email?.provider !== form.provider"
-            :placeholder="
-              channel?.email?.provider === form.provider
-                ? 'Leave blank to keep the saved credential'
-                : ''
-            "
-        /></label>
-        <label class="field"
-          ><span>Sender email</span
-          ><input
-            v-model="form.from"
-            type="email"
-            required
-            maxlength="254"
-            placeholder="alerts@example.com"
-        /></label>
-        <label class="field"
-          ><span>Recipients</span
-          ><input
-            v-model="form.to"
-            required
-            maxlength="2600"
-            placeholder="you@example.com, team@example.com"
-        /></label>
-        <p class="hint">Separate up to 10 email addresses with commas.</p>
-        <SelectField
-          v-model="form.minimumSeverity"
-          label="Notify me about"
-          :options="alertSeverities"
-          :disabled="busy"
-        />
+        </details>
         <label class="alert-check"
           ><input v-model="form.enabled" type="checkbox" />Enable this channel</label
         >
-        <p class="hint">
-          After saving, send a test from the channel card and check its delivery result.
-        </p>
       </fieldset>
-      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+      <p v-if="error" class="form-error" role="alert">
+        {{ error }}
+        <button
+          v-if="!methods.length"
+          type="button"
+          class="quiet"
+          :disabled="busy || loading"
+          @click="load"
+        >
+          Retry
+        </button>
+      </p>
     </form>
     <template #footer
       ><button class="quiet" :disabled="busy" @click="emit('close')">Cancel</button
@@ -233,8 +158,7 @@ async function save(): Promise<void> {
         class="primary"
         form="email-channel-form"
         type="submit"
-        :disabled="busy"
-        :aria-busy="busy"
+        :disabled="busy || loading || !form.emailMethodId"
       >
         <span v-if="busy" class="button-spinner" aria-hidden="true" />Save email channel
       </button></template

@@ -8,6 +8,8 @@ Alerts has four sections: Incidents, Rules, Notification channels, and Delivery 
 
 A rule has a condition, threshold, hold duration, severity, node selection, channel selection, recovery notification switch, and reminder interval. Empty node selection means all active nodes, including future additions. Empty channel selection means every enabled channel. Each channel's severity filter also applies. Rules and channels can be independently enabled or disabled.
 
+From alpha.24, the editor shows the condition, threshold, duration presets and notification destination first. Names and thresholds start from sensible defaults when creating a rule. Advanced options contain node scope, severity, recovery and reminders. The UI explicitly offers **All active nodes** and **All enabled channels**; choosing specific nodes or channels requires at least one selection. Existing rules retain their advanced settings when edited.
+
 Supported conditions are CPU, memory, system disk and swap usage, node offline, and **the active panel certificate**. Disk is the existing agent's system disk aggregate, not every mounted filesystem. Swap without configured capacity and missing readings are unknown, not zero. Certificate expiry watches the panel listener, not certificates on arbitrary remote services.
 
 Default enabled rules:

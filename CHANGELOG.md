@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.24] - 2026-10-03
+
+### Changed
+
+- Email alert destinations now select a named delivery method from Settings → Email. SMTP/API credentials are configured once and can be reused by Alerts and email OTP. Existing alert credentials migrate automatically without changing channel IDs, routing or queued deliveries.
+- Shared email methods show their linked-use count and cannot be disabled or removed while still referenced. Provider changes are resolved when a notification is delivered, so credentials do not need copying into every consumer.
+- Alert rules start with useful names, thresholds and duration presets. The default editor focuses on conditions and destinations; node targeting, severity, recovery and reminders are under Advanced options. Choosing specific nodes or channels requires an explicit nonempty selection.
+
 ## [0.1.0-alpha.23] - 2026-10-03
 
 ### Added

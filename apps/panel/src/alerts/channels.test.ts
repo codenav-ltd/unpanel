@@ -6,6 +6,8 @@ import { expect, it, vi } from "vitest";
 import { openDatabase } from "../db/open.ts";
 import { createChannels } from "./channels.ts";
 import { DeliveryError } from "./providers.ts";
+import { createEmailMethods } from "../email/store.ts";
+import { encryptSecret, decryptSecret } from "../auth/secret.ts";
 
 const email = {
   name: "Operations",
@@ -16,6 +18,103 @@ const email = {
   enabled: true,
   minimumSeverity: "warning",
 };
+it("migrates legacy credentials once, preserves queued work and resolves shared provider changes at delivery", async () => {
+  const db = openDatabase(":memory:"),
+    masterKey = randomBytes(32),
+    send = vi.fn(async () => undefined);
+  try {
+    await createChannels({ db, masterKey, send }).close();
+    const settings = {
+      provider: "resend",
+      from: email.from,
+      to: email.to,
+      host: "",
+      port: 465,
+      security: "tls",
+      username: "",
+    };
+    db.prepare(
+      "INSERT INTO notification_channels VALUES ('legacy','Original email','email',1,'warning',?,?)",
+    ).run(
+      email.to.join(", "),
+      encryptSecret(
+        Buffer.from(JSON.stringify({ email: settings, secret: email.secret })),
+        masterKey,
+      ),
+    );
+    let channels = createChannels({ db, masterKey, send });
+    const migrated = first(channels.view());
+    expect(migrated).toMatchObject({
+      id: "legacy",
+      name: "Original email",
+      emailMethodId: "alert:legacy",
+      destination: email.to.join(", "),
+    });
+    const stored = db
+      .prepare("SELECT config FROM notification_channels WHERE id='legacy'")
+      .get() as { config: string };
+    const migratedConfig = Buffer.from(decryptSecret(stored.config, masterKey)).toString();
+    expect(migratedConfig).not.toContain(email.secret);
+    expect(migratedConfig).not.toContain('"secret"');
+    const methods = createEmailMethods({ db, masterKey });
+    expect(methods.list()).toHaveLength(1);
+    expect(methods.list()[0]?.references).toBe(1);
+    channels.test("legacy");
+    await channels.close();
+    channels = createChannels({ db, masterKey, send });
+    expect(methods.list()).toHaveLength(1);
+    methods.save(
+      { ...email, name: "Shared operations", secret: "rotated-fixture-secret" },
+      "alert:legacy",
+    );
+    await channels.flush();
+    expect(channels.logs()[0]?.state).toBe("sent");
+    expect(send).toHaveBeenCalledWith(
+      "email",
+      expect.objectContaining({
+        secret: "rotated-fixture-secret",
+        email: expect.objectContaining({ to: email.to }),
+      }),
+      expect.anything(),
+    );
+    channels.saveEmail({
+      name: "Second destination",
+      emailMethodId: "alert:legacy",
+      to: ["second@example.com"],
+      enabled: true,
+      minimumSeverity: "warning",
+    });
+    expect(methods.list()[0]?.references).toBe(2);
+    expect(() => methods.remove("alert:legacy")).toThrow("in use");
+    expect(() => channels.saveEmail({ ...email, secret: "" }, "legacy")).toThrow("shared");
+    for (const channel of channels.view()) channels.remove(channel.id);
+    expect(methods.list()[0]?.references).toBe(0);
+    methods.remove("alert:legacy");
+    expect(methods.list()).toHaveLength(0);
+  } finally {
+    db.close();
+  }
+});
+it("rejects invalid shared-method selection without leaving a channel or provider reference", () => {
+  const db = openDatabase(":memory:"),
+    masterKey = randomBytes(32);
+  try {
+    const channels = createChannels({ db, masterKey });
+    expect(() =>
+      channels.saveEmail({
+        name: "Missing",
+        emailMethodId: "unknown",
+        to: ["one@example.com"],
+        enabled: true,
+        minimumSeverity: "warning",
+      }),
+    ).toThrow();
+    expect(channels.view()).toHaveLength(0);
+    expect(db.prepare("SELECT * FROM email_method_refs").all()).toHaveLength(0);
+  } finally {
+    db.close();
+  }
+});
 it("encrypts credentials, keeps them on edit, requires new credentials for a provider change, and redacts views", () => {
   const db = openDatabase(":memory:");
   const key = randomBytes(32);

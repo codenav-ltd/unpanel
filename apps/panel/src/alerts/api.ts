@@ -6,6 +6,7 @@ import type { Audit } from "../audit/log.ts";
 import type { Alerts } from "./service.ts";
 import { AlertError } from "./validation.ts";
 import { DeliveryError } from "./providers.ts";
+import { AccountError } from "../auth/account-error.ts";
 
 export function registerAlertApi(
   app: Hono,
@@ -61,7 +62,9 @@ export function registerAlertApi(
       return c.json({ data: data ?? alerts.view() });
     } catch (error) {
       const message =
-        error instanceof AlertError || error instanceof DeliveryError
+        error instanceof AlertError ||
+        error instanceof DeliveryError ||
+        error instanceof AccountError
           ? error.message
           : "The alert operation could not be completed. Reload Alerts to check its current state before retrying.";
       options.audit.record({
@@ -72,11 +75,13 @@ export function registerAlertApi(
         params: { detail: message },
       });
       const status =
-        error instanceof AlertError && error.status === 404
-          ? 404
-          : error instanceof AlertError && error.status === 409
-            ? 409
-            : 400;
+        error instanceof AccountError
+          ? error.status
+          : error instanceof AlertError && error.status === 404
+            ? 404
+            : error instanceof AlertError && error.status === 409
+              ? 409
+              : 400;
       return c.json({ error: { code: "E_INVALID_PARAMS", message } }, status);
     }
   }
