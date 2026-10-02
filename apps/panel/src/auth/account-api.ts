@@ -92,6 +92,12 @@ export function registerAccountApi(
   const string = (body: Record<string, unknown>, key: string) =>
     typeof body[key] === "string" ? body[key] : "";
   route("GET", "/api/v1/me/security", (user, session) => factors.view(user.id, session));
+  route("GET", "/api/v1/me/email-methods", () =>
+    email
+      .list()
+      .filter((method) => method.enabled)
+      .map(({ id, name, enabled }) => ({ id, name, enabled })),
+  );
   route("POST", "/api/v1/me/security/reauth", (user, session, body) =>
     factors.beginReauth(user.id, session, string(body, "password")),
   );

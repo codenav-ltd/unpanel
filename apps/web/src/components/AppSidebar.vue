@@ -48,6 +48,7 @@ const props = withDefaults(
     nodeId?: string;
     updateVersion?: string;
     automaticUpdate?: boolean;
+    canManage: boolean;
   }>(),
   { nodes: () => [], nodeId: "", updateVersion: "", automaticUpdate: false },
 );
@@ -210,7 +211,12 @@ watch(drawer, (open) => {
 const laterNote = ref("");
 const nodesOpen = ref(true);
 const nodeItems = computed(() => items.filter((item) => item.group === "node"));
-const globalItems = computed(() => items.filter((item) => item.group === "global"));
+const globalItems = computed(() =>
+  items.filter(
+    (item) =>
+      item.group === "global" && (props.canManage || !["alerts", "certificates"].includes(item.id)),
+  ),
+);
 
 function onKey(event: Event): void {
   if ("key" in event && event.key === "Escape") drawer.value = false;
@@ -333,7 +339,13 @@ function onItem(item: Item): void {
               <span class="node-row-name">{{ nodeName(node) }}</span>
             </button>
           </div>
-          <button class="nav-item node-add" type="button" aria-haspopup="dialog" @click="add">
+          <button
+            v-if="canManage"
+            class="nav-item node-add"
+            type="button"
+            aria-haspopup="dialog"
+            @click="add"
+          >
             <PlusOutlined aria-hidden="true" />
             <span>{{ en.shell.addNode }}</span>
           </button>

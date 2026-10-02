@@ -40,5 +40,6 @@ This directory records **behavior details of external systems, formulas, limits,
 | [release-process.md](./release-process.md) | Versioning, builds, signing, publishing |
 | [panel-https.md](./panel-https.md) | Panel HTTPS, domain issuance, trust, renewal, and access migration |
 | [account-security.md](./account-security.md) | Managed 2FA methods, policy, shared email delivery, recovery and downgrade compatibility |
+| [users-and-permissions.md](./users-and-permissions.md) | Team mode, roles, node scopes, locked live-demo accounts and access revocation |
 | [troubleshooting.md](./troubleshooting.md) | Troubleshooting index |
 | [runbooks.md](./runbooks.md) | Operational runbooks |

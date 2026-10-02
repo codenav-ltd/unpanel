@@ -2,6 +2,8 @@
 
 > Available from 0.1.0-alpha.23.
 
+From alpha.25 each non-demo account manages its own factors and policy. Shared provider administration is available to owners/administrators; other accounts select enabled method names without receiving provider configuration. Global sign-in restrictions and Turnstile are owner-only. Locked live-demo accounts cannot modify account security. See [users and permissions](./users-and-permissions.md).
+
 Settings → Security manages the current account's second-factor policy and named authentication methods. Supported methods are TOTP authenticator apps, passkeys, and email verification codes. Adding a method requires proving possession before it becomes usable. Methods can be renamed or removed; replacing a credential uses the same verification flow as adding one. Required two-factor sign-in cannot be enabled without an allowed, verified method, or left without one by deleting or disabling methods. Recovery codes are single-use, can be regenerated, and are shown only once.
 
 An account can require a second factor on every password sign-in and choose which enrolled method types may satisfy that policy. Disabling the requirement is an explicit password-only policy, not deletion of credentials. Existing TOTP accounts keep their protection on upgrade. Methods and policy changes require recent reauthentication and end other sessions and pending sign-ins. With an existing required factor, reauthentication includes that factor. Setup and login challenges expire, are bound to their account and purpose, and have bounded attempts. Passkey verification requires user verification, a matching challenge, origin and RP ID. Passwordless sign-in and API tokens remain future work.

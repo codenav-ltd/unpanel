@@ -12,7 +12,7 @@ import {
   type ServiceControlResult,
   type SwapResult,
 } from "@unpanel/protocol";
-import { product } from "@unpanel/shared";
+import { product, managesPanel, seesNode } from "@unpanel/shared";
 import { backupFilename } from "../backup/panel.ts";
 import type { Audit, AuditInput } from "../audit/log.ts";
 import type { Auth, AuthFailure } from "../auth/service.ts";
@@ -33,12 +33,15 @@ import { AccountError } from "../auth/account-error.ts";
 import type { Factors } from "../auth/factors.ts";
 import type { EmailMethods } from "../email/store.ts";
 import { registerAccountApi } from "../auth/account-api.ts";
+import type { Access } from "../auth/access.ts";
+import { registerUsersApi } from "../auth/users-api.ts";
 
 const AUDIT_PAGE = 100;
 const HISTORY_WINDOWS = new Set([60, 1440, 10080]);
 
 export function createApi(options: {
   auth: Auth;
+  access?: Access;
   audit: Audit;
   snapshot: (nodeId: string) => LocalSnapshot;
   live: () => NodeLive[];
@@ -80,6 +83,46 @@ export function createApi(options: {
     await next();
     c.res.headers.set("cache-control", "no-store");
   });
+
+  if (options.access) {
+    const access = options.access;
+    app.use("/api/v1/*", async (c, next) => {
+      const path = c.req.path;
+      if (
+        path === "/api/v1/health" ||
+        path.startsWith("/api/v1/auth/") ||
+        path.startsWith("/api/v1/setup/")
+      )
+        return next();
+      const user = options.auth.sessionUser(sessionToken(c));
+      if (!user) return unauthenticated(c);
+      const origin = c.req.header("origin");
+      if (
+        (!["GET", "HEAD"].includes(c.req.method) &&
+          origin &&
+          origin !== new URL(c.req.url).origin &&
+          origin !== options.settings.view().publicUrl) ||
+        !access.permits(user.id, c.req.method, path)
+      ) {
+        return c.json(
+          {
+            error: {
+              code: "E_FORBIDDEN",
+              message: "Your account does not have permission for this action.",
+            },
+          },
+          403,
+        );
+      }
+      await next();
+    });
+    registerUsersApi(app, {
+      access,
+      auth: options.auth,
+      audit: options.audit,
+      token: sessionToken,
+    });
+  }
 
   app.onError((error, c) => {
     c.header("cache-control", "no-store");
@@ -369,16 +412,22 @@ export function createApi(options: {
   app.get("/api/v1/me", (c) => {
     const user = options.auth.sessionUser(sessionToken(c));
     if (!user) return unauthenticated(c);
-    return c.json({ username: user.username });
+    return c.json({
+      id: user.id,
+      username: user.username,
+      ...(options.access ? { access: options.access.get(user.id) } : {}),
+    });
   });
 
   app.get("/api/v1/nodes", (c) => {
     const user = options.auth.sessionUser(sessionToken(c));
     if (!user) return unauthenticated(c);
     const live = new Map(options.live().map((item) => [item.id, item]));
+    const access = options.access?.get(user.id);
     return c.json({
       data: options.catalog
         .list()
+        .filter((node) => !access || seesNode(access, node.id))
         .map((node) => ({ ...node, ...(live.get(node.id) ?? offlineLive(node.id)) })),
     });
   });
@@ -629,7 +678,13 @@ export function createApi(options: {
   app.get("/api/v1/settings", (c) => {
     const user = options.auth.sessionUser(sessionToken(c));
     if (!user) return unauthenticated(c);
-    return c.json({ data: settingsView() });
+    const settings = settingsView();
+    return c.json({
+      data:
+        options.access && !managesPanel(options.access.get(user.id))
+          ? { theme: settings.theme, publicUrl: settings.publicUrl, ops: settings.ops }
+          : settings,
+    });
   });
 
   app.patch("/api/v1/settings", async (c) => {
@@ -637,6 +692,8 @@ export function createApi(options: {
     if (!user) return unauthenticated(c);
     const body = await readJson(c);
     if (!body) return invalid(c);
+    if (options.access && "security" in body && options.access.get(user.id).role !== "owner")
+      throw new AccountError("Only an owner can change panel sign-in security.", 403);
     try {
       if (typeof body["theme"] === "string") {
         options.settings.setTheme(body["theme"] as Theme, user.username);

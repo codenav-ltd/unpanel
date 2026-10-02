@@ -4,18 +4,13 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import type {
-  AccountSecurityView,
-  EmailMethodView,
-  FactorKind,
-  FactorPolicy,
-  FactorView,
-} from "@unpanel/shared";
+import type { AccountSecurityView, FactorKind, FactorPolicy, FactorView } from "@unpanel/shared";
 import type { PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/browser";
 import { accountRequest } from "../account-client.ts";
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
+defineProps<{ canManageEmail: boolean }>();
 const data = ref<AccountSecurityView | null>(null),
   loading = ref(true),
   busy = ref(false),
@@ -39,7 +34,7 @@ const kind = ref<FactorKind>("totp"),
   name = ref("Authenticator app"),
   address = ref(""),
   deliveryId = ref(""),
-  emailMethods = ref<EmailMethodView[]>([]);
+  emailMethods = ref<{ id: string; name: string; enabled: boolean }[]>([]);
 const ticket = ref(""),
   secret = ref(""),
   uri = ref(""),
@@ -86,7 +81,8 @@ async function run(work: () => Promise<void>): Promise<void> {
 }
 async function startEnrollment(): Promise<void> {
   await run(async () => {
-    emailMethods.value = await accountRequest<EmailMethodView[]>("/email-methods");
+    emailMethods.value =
+      await accountRequest<{ id: string; name: string; enabled: boolean }[]>("/me/email-methods");
     deliveryId.value = emailChoices.value[0]?.value ?? "";
     kind.value = "totp";
     name.value = "Authenticator app";
@@ -343,7 +339,13 @@ onMounted(load);
               :options="emailChoices"
             />
             <p v-if="!emailChoices.length" class="hint">
-              Create a named method in <a href="/settings/email">Settings → Email</a> first.
+              <template v-if="canManageEmail"
+                >Create a named method in
+                <a href="/settings/email">Settings → Email</a> first.</template
+              >
+              <template v-else
+                >Ask an administrator to add an email delivery method first.</template
+              >
             </p>
             <label class="field"
               ><span>Verification email address</span

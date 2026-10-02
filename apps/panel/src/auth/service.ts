@@ -10,6 +10,7 @@ import { matchTotp, totpSecret, totpSecretText, totpUri } from "./totp.ts";
 import type { FactorView } from "@unpanel/shared";
 import type { Factors } from "./factors.ts";
 import { AccountError } from "./account-error.ts";
+import type { Access } from "./access.ts";
 import {
   TurnstileUnavailableError,
   verifyTurnstileToken,
@@ -111,6 +112,7 @@ export async function createAuth(options: {
   clearSetupToken: () => void;
   security: LoginSecurity;
   factors?: Factors;
+  access?: Access;
   verifyTurnstile?: TurnstileVerifier;
   now?: () => number;
 }): Promise<Auth> {
@@ -157,7 +159,7 @@ export async function createAuth(options: {
     const id = sha256(ticket);
     const pending = one<{ user_id: string; attempts: number; expires_at: number }>(
       options.db,
-      "SELECT p.user_id,p.attempts,p.expires_at FROM pending_logins p JOIN users u ON u.id=p.user_id WHERE p.id=? AND u.status='active'",
+      "SELECT p.user_id,p.attempts,p.expires_at FROM pending_logins p JOIN users u ON u.id=p.user_id WHERE p.id=? AND u.status IN ('active','member')",
       id,
     );
     if (!pending || pending.expires_at <= seconds() || pending.attempts >= MAX_ATTEMPTS) {
@@ -286,6 +288,7 @@ export async function createAuth(options: {
           now,
           now,
         );
+        options.access?.setupOwner(userId);
         if (input.totp) {
           const insertCode = db.prepare(
             "INSERT INTO recovery_codes (id, user_id, code_hash, created_at) VALUES (?, ?, ?, ?)",
@@ -384,9 +387,17 @@ export async function createAuth(options: {
       const unchanged =
         row &&
         options.db
-          .prepare("SELECT 1 FROM users WHERE id = ? AND password_hash = ? AND status = 'active'")
+          .prepare(
+            "SELECT 1 FROM users WHERE id = ? AND password_hash = ? AND status IN ('active','member')",
+          )
           .get(row.id, hash);
-      if (!row || !row.password_hash || row.status !== "active" || !valid || !unchanged) {
+      if (
+        !row ||
+        !row.password_hash ||
+        !["active", "member"].includes(row.status) ||
+        !valid ||
+        !unchanged
+      ) {
         const failure = options.security.noteFailure(input.ip, input.username);
         if (failure.block) {
           return {
@@ -482,7 +493,7 @@ export async function createAuth(options: {
           };
         const consumed = options.db
           .prepare(
-            "DELETE FROM pending_logins WHERE id=? AND expires_at>? AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')",
+            "DELETE FROM pending_logins WHERE id=? AND expires_at>? AND EXISTS(SELECT 1 FROM users WHERE id=? AND status IN ('active','member'))",
           )
           .run(pending.id, seconds(), pending.user_id);
         if (!consumed.changes)
@@ -564,7 +575,7 @@ export async function createAuth(options: {
       options.db.prepare("UPDATE pending_logins SET attempts = ? WHERE id = ?").run(attempts, id);
       const user = one<{ totp_secret_enc: string | null; totp_last_step: number | null }>(
         options.db,
-        "SELECT totp_secret_enc, totp_last_step FROM users WHERE id = ? AND status = 'active'",
+        "SELECT totp_secret_enc, totp_last_step FROM users WHERE id = ? AND status IN ('active','member')",
         pending.user_id,
       );
       const secret = user?.totp_secret_enc
@@ -611,6 +622,22 @@ export async function createAuth(options: {
       const problem = passwordProblem(input.next, row.username);
       if (problem) return { ok: false, status: 400, code: "E_INVALID_PARAMS", message: problem };
       const nextHash = await hashPassword(input.next);
+      if (
+        options.access &&
+        (options.access.get(input.userId).locked ||
+          !options.db
+            .prepare(
+              "SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND u.status IN ('active','member') AND s.idle_expires_at>? AND s.absolute_expires_at>?",
+            )
+            .get(sha256(input.currentToken ?? ""), input.userId, seconds(), seconds()))
+      ) {
+        return {
+          ok: false,
+          status: 403,
+          code: "E_FORBIDDEN",
+          message: "Your access changed. Sign in again before changing your password.",
+        };
+      }
       options.db.exec("BEGIN IMMEDIATE");
       try {
         // A concurrent password change must not be overwritten after the async hash.
@@ -654,7 +681,7 @@ export async function createAuth(options: {
         options.db,
         `SELECT s.user_id, u.username, s.last_seen_at, s.idle_expires_at, s.absolute_expires_at
          FROM sessions s JOIN users u ON u.id = s.user_id
-         WHERE s.id = ? AND u.status = 'active'`,
+         WHERE s.id = ? AND u.status IN ('active','member')`,
         id,
       );
       if (!row) return null;

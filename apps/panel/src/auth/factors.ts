@@ -222,7 +222,7 @@ export function createFactors(options: {
     return Boolean(
       db
         .prepare(
-          "SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND u.status='active' AND s.idle_expires_at>? AND s.absolute_expires_at>?",
+          "SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND u.status IN ('active','member') AND s.idle_expires_at>? AND s.absolute_expires_at>?",
         )
         .get(session, userId, seconds(), seconds()),
     );
@@ -449,7 +449,7 @@ export function createFactors(options: {
     ): Promise<{ verified: boolean; ticket?: string; methods?: FactorView[] }> {
       limit(`reauth:${userId}`, 5, 300_000);
       const row = db
-        .prepare("SELECT password_hash FROM users WHERE id=? AND status='active'")
+        .prepare("SELECT password_hash FROM users WHERE id=? AND status IN ('active','member')")
         .get(userId) as { password_hash: string } | undefined;
       if (
         !row ||

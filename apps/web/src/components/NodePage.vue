@@ -13,6 +13,8 @@ import SelectField from "./SelectField.vue";
 import EnrollGuide from "./EnrollGuide.vue";
 
 const props = defineProps<{
+  canOperate: boolean;
+  canManage: boolean;
   nodeId: string;
   hostname: string;
   os: string;
@@ -214,7 +216,7 @@ async function remove(): Promise<void> {
 
 <template>
   <div class="page-stack">
-    <section class="wide">
+    <section v-if="canOperate" class="wide">
       <span class="vital-kicker">{{ en.shell.hostIdentity }}</span>
       <label class="field">
         <span>{{ en.shell.displayName }}</span>
@@ -314,7 +316,7 @@ async function remove(): Promise<void> {
           {{ en.shell.swapHave.replace("{size}", formatBytes(swapTotal ?? 0)) }}
         </p>
       </template>
-      <form v-else @submit.prevent="createSwap">
+      <form v-else-if="canOperate" @submit.prevent="createSwap">
         <p class="hint">{{ en.shell.swapOffer }}</p>
         <SelectField
           v-model="swapGib"
@@ -331,7 +333,7 @@ async function remove(): Promise<void> {
         </div>
       </form>
     </section>
-    <section class="wide">
+    <section v-if="canManage" class="wide">
       <span class="vital-kicker">{{ en.shell.nodeAccess }}</span>
       <p class="hint">{{ local ? en.shell.localNodeHint : en.shell.remoteNodeHint }}</p>
       <p v-if="accessError" class="form-error" role="alert">{{ accessError }}</p>

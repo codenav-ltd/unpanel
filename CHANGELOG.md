@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.25] - 2026-10-03
+
+### Added
+
+- Owner-verified user management with single-user/team modes, four built-in roles, explicit node scopes, account disable/delete and password reset. Switching to single-user mode atomically revokes every other user's access without losing their permissions.
+- Read-only demo accounts protect both infrastructure and account credentials. Assigned monitoring remains accessible while writes, provider configuration, global logs and backups are denied by the API.
+
+### Security
+
+- Central authorization checks protect node routes and global modules, filter node lists, enforce same-origin writes and revoke sessions on access changes. Older binaries reject non-owner logins and sessions instead of granting accidental administrative access.
+
+### Fixed
+
+- Large overview cards now fit narrow screens; read-only access labels stay separate from navigation controls.
+
 ## [0.1.0-alpha.24] - 2026-10-03
 
 ### Changed

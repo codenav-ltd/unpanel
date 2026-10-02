@@ -107,6 +107,7 @@
 .certificates-page fieldset,
 .account-form fieldset,
 #password-guide fieldset,
+#user-form > fieldset,
 #turnstile-guide fieldset {
   min-width: 0;
   margin: 0;
@@ -136,7 +137,7 @@
   justify-content: space-between;
   gap: 16px;
   padding: 16px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
   overflow-wrap: anywhere;
 }
@@ -147,7 +148,7 @@
 .account-policy {
   margin-top: 24px;
   padding-top: 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
 }
 .account-policy h3 {
   font-size: 14px;
@@ -2448,6 +2449,15 @@ button.picker-item:focus-visible {
   letter-spacing: 0;
 }
 
+.access-notice {
+  margin: 0;
+  padding: 8px 20px;
+  color: var(--text-2);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
 .layout-switch {
   display: inline-flex;
   flex: none;
@@ -2545,12 +2555,12 @@ button.tag-chip[aria-pressed="true"] {
 
 .node-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
   gap: 12px;
 }
 
 .node-grid[data-layout="compact"] {
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
 }
 
 .node-grid[data-layout="compact"] .node-metrics {
@@ -2560,11 +2570,11 @@ button.tag-chip[aria-pressed="true"] {
 }
 
 .node-grid[data-layout="standard"] {
-  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
 }
 
 .node-grid[data-layout="detail"] {
-  grid-template-columns: repeat(auto-fill, minmax(26rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr));
 }
 
 .node-grid[data-layout="detail"] button.node-card {

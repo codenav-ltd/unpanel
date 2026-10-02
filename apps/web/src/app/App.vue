@@ -14,7 +14,15 @@ import {
   ReloadOutlined,
   SlidersOutlined,
 } from "@ant-design/icons-vue";
-import { compareVersions, liveSampleMs, product, type FactorView } from "@unpanel/shared";
+import {
+  compareVersions,
+  liveSampleMs,
+  product,
+  managesPanel,
+  controlsNodes,
+  type UserAccess,
+  type FactorView,
+} from "@unpanel/shared";
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import AddNodeDialog from "../components/AddNodeDialog.vue";
 import AppDialog from "../components/AppDialog.vue";
@@ -156,6 +164,10 @@ const view = ref<View>("loading");
 const pending = ref(false);
 const error = ref("");
 const username = ref("");
+const accountId = ref("");
+const access = ref<UserAccess>({ role: "viewer", nodeIds: [], locked: true });
+const canManage = computed(() => managesPanel(access.value));
+const canOperate = computed(() => controlsNodes(access.value));
 const password = ref("");
 const setupToken = ref("");
 const draft = ref<SetupDraft | null>(null);
@@ -446,7 +458,23 @@ async function copyCodes(): Promise<void> {
   if (!ok) error.value = en.auth.copyFailed;
 }
 
-function showNode(): void {
+async function showNode(): Promise<void> {
+  try {
+    const response = await fetch("/api/v1/me");
+    if (!response.ok) {
+      view.value = "login";
+      return;
+    }
+    const me = (await response.json()) as { id: string; username: string; access: UserAccess };
+    accountId.value = me.id;
+    username.value = me.username;
+    access.value = me.access;
+    restrictPage();
+  } catch {
+    view.value = "unreachable";
+    error.value = couldNotReach("load account access");
+    return;
+  }
   view.value = "node";
   void loadTheme();
   void refreshList();
@@ -584,6 +612,7 @@ function openNode(id: string): void {
 
 async function refresh(): Promise<void> {
   if (view.value !== "node") return;
+  if (page.value !== "dashboard" && page.value !== "host") return;
   detailRequest?.abort();
   const request = new AbortController();
   detailRequest = request;
@@ -933,6 +962,7 @@ const menuNode = computed(
 );
 
 function openNodeMenu(payload: { id: string; x: number; y: number }): void {
+  if (!canManage.value) return;
   if (actionBusy.value) return;
   nodeMenu.value = payload;
 }
@@ -1181,10 +1211,26 @@ watch(page, (next) => {
   else void refresh();
 });
 
+function restrictPage(): void {
+  if (!canManage.value && ["alerts", "certificates"].includes(page.value)) page.value = "overview";
+  if (
+    page.value === "settings" &&
+    ((!canManage.value && !["security", "about"].includes(settingsSection.value)) ||
+      (settingsSection.value === "users" && access.value.role !== "owner"))
+  )
+    settingsSection.value = "security";
+  if (
+    (page.value === "dashboard" || page.value === "host") &&
+    access.value.nodeIds !== null &&
+    !access.value.nodeIds.includes(nodeId.value)
+  )
+    page.value = "overview";
+}
 watch(
   [page, nodeId, settingsSection],
   () => {
     if (applyingHistory || view.value !== "node") return;
+    restrictPage();
     routeNotice.value = "";
     const path = formatPath({
       page: page.value,
@@ -1207,6 +1253,7 @@ function onPop(): void {
   routeNotice.value = next.unknown ? en.shell.unknownPage : "";
   applyingHistory = false;
   if (view.value !== "node") return;
+  restrictPage();
   if (next.page === "overview") void refreshList();
   else if (next.page !== "settings") void refresh();
 }
@@ -1227,6 +1274,7 @@ onUnmounted(() => {
 <template>
   <div v-if="view === 'node'" class="app-shell">
     <AppSidebar
+      :can-manage="canManage"
       :page="page"
       :pending="pending"
       :nodes="catalog"
@@ -1265,7 +1313,11 @@ onUnmounted(() => {
           <span v-else-if="catalogLoaded" class="status-ok">{{ en.shell.panelConnected }}</span>
           <span v-else>{{ en.shell.nodesLoading }}</span>
         </p>
-        <p v-else class="app-status" aria-live="polite">
+        <p
+          v-else-if="page === 'dashboard' || page === 'host'"
+          class="app-status"
+          aria-live="polite"
+        >
           <span :class="phase === 'online' ? 'status-ok' : 'status-bad'">{{ statusLabel }}</span>
           <template v-if="detail"> · {{ detail }}</template>
         </p>
@@ -1276,6 +1328,7 @@ onUnmounted(() => {
           :aria-label="en.nav.overview"
         >
           <button
+            v-if="canManage"
             class="bar-action bar-primary"
             type="button"
             aria-haspopup="dialog"
@@ -1291,19 +1344,31 @@ onUnmounted(() => {
           role="toolbar"
           :aria-label="en.nav.dashboard"
         >
-          <button class="bar-action bar-restart" type="button" @click="openConfirm('restart')">
+          <button
+            v-if="canOperate"
+            class="bar-action bar-restart"
+            type="button"
+            @click="openConfirm('restart')"
+          >
             <ReloadOutlined aria-hidden="true" />
             {{ en.shell.restart }}
           </button>
-          <button class="bar-action" type="button" @click="openConfirm('stop')">
+          <button v-if="canOperate" class="bar-action" type="button" @click="openConfirm('stop')">
             <PoweroffOutlined aria-hidden="true" />
             {{ en.shell.stop }}
           </button>
-          <button class="bar-action" type="button" aria-haspopup="dialog" @click="showLogs = true">
+          <button
+            v-if="canManage"
+            class="bar-action"
+            type="button"
+            aria-haspopup="dialog"
+            @click="showLogs = true"
+          >
             <BarsOutlined aria-hidden="true" />
             {{ en.shell.logs }}
           </button>
           <button
+            v-if="access.role === 'owner'"
             class="bar-action"
             type="button"
             aria-haspopup="dialog"
@@ -1332,6 +1397,9 @@ onUnmounted(() => {
           </button>
         </div>
       </header>
+      <p v-if="access.role === 'viewer'" class="access-notice">
+        {{ access.locked ? "Read-only demo" : "Read-only access" }}
+      </p>
       <div class="app-content">
         <p v-if="actionBusy" class="hint" role="status">
           <span class="spinner" aria-hidden="true" /> {{ en.shell.saving }}
@@ -1475,6 +1543,8 @@ onUnmounted(() => {
         <NodePage
           v-else-if="page === 'host' && snapshotNodeId === nodeId"
           :key="nodeId"
+          :can-operate="canOperate"
+          :can-manage="canManage"
           :hostname="info?.hostname ?? ''"
           :os="info?.os.pretty ?? ''"
           :kernel="info?.kernel ?? ''"
@@ -1504,10 +1574,15 @@ onUnmounted(() => {
         >
           {{ detail }}
         </p>
-        <CertificatesPage v-else-if="page === 'certificates'" @public-url="publicUrl = $event" />
-        <AlertsPage v-else-if="page === 'alerts'" />
+        <CertificatesPage
+          v-else-if="page === 'certificates' && canManage"
+          @public-url="publicUrl = $event"
+        />
+        <AlertsPage v-else-if="page === 'alerts' && canManage" />
         <SettingsPage
           v-else-if="page === 'settings'"
+          :access="access"
+          :account-id="accountId"
           :username="username"
           :theme="theme"
           :public-url="publicUrl"

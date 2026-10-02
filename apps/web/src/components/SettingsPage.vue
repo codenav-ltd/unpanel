@@ -12,7 +12,7 @@ import {
   SafetyCertificateOutlined,
   WarningOutlined,
 } from "@ant-design/icons-vue";
-import { compareVersions, product } from "@unpanel/shared";
+import { compareVersions, product, managesPanel, type UserAccess } from "@unpanel/shared";
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
@@ -27,6 +27,7 @@ import TurnstileWidget from "./TurnstileWidget.vue";
 import type { SettingsSection } from "../app/route.ts";
 const AccountSecurity = defineAsyncComponent(() => import("./AccountSecurity.vue"));
 const EmailSettings = defineAsyncComponent(() => import("./EmailSettings.vue"));
+const UserSettings = defineAsyncComponent(() => import("./UserSettings.vue"));
 
 export interface PanelOps {
   pollSec: 2 | 5 | 10 | 30;
@@ -54,6 +55,8 @@ interface BannedIp {
 }
 
 const props = defineProps<{
+  access: UserAccess;
+  accountId: string;
   username: string;
   theme: ThemeName;
   publicUrl: string;
@@ -73,13 +76,21 @@ const emit = defineEmits<{
   openNode: [id: string];
 }>();
 
-const sections = [
-  { id: "panel" as const, label: en.settings.panel, icon: DashboardOutlined },
-  { id: "security" as const, label: en.settings.security, icon: SafetyCertificateOutlined },
-  { id: "email" as const, label: "Email", icon: MailOutlined },
-  { id: "updates" as const, label: en.updates.title, icon: CloudSyncOutlined },
-  { id: "about" as const, label: en.shell.about, icon: InfoCircleOutlined },
-];
+const canManage = computed(() => managesPanel(props.access));
+const sections = computed(() =>
+  [
+    { id: "panel" as const, label: en.settings.panel, icon: DashboardOutlined },
+    { id: "security" as const, label: en.settings.security, icon: SafetyCertificateOutlined },
+    { id: "email" as const, label: "Email", icon: MailOutlined },
+    { id: "users" as const, label: "Users", icon: SafetyCertificateOutlined },
+    { id: "updates" as const, label: en.updates.title, icon: CloudSyncOutlined },
+    { id: "about" as const, label: en.shell.about, icon: InfoCircleOutlined },
+  ].filter((item) =>
+    item.id === "users"
+      ? props.access.role === "owner"
+      : canManage.value || ["security", "about"].includes(item.id),
+  ),
+);
 
 const theme = ref<ThemeName>(props.theme);
 const publicUrl = ref(props.publicUrl);
@@ -429,6 +440,7 @@ function removeTurnstileSecret(): void {
 }
 
 async function loadBans(): Promise<void> {
+  if (props.access.role !== "owner") return;
   if (bansLoading.value || !banIpEnabled.value) {
     if (!banIpEnabled.value) bannedIps.value = [];
     return;
@@ -864,7 +876,7 @@ async function waitForAgent(nodeId: string): Promise<boolean> {
 }
 
 onMounted(() => {
-  if (!resumePanelUpdate()) void checkUpdates();
+  if (canManage.value && !resumePanelUpdate()) void checkUpdates();
   if (props.section === "security") void loadBans();
 });
 
@@ -981,149 +993,121 @@ onUnmounted(() => {
       </section>
     </div>
     <div v-else-if="section === 'security'" class="page-stack">
-      <AccountSecurity />
-      <section class="wide">
-        <span class="vital-kicker">{{ en.settings.turnstile }}</span>
-        <p class="hint">{{ en.settings.turnstileHint }}</p>
-        <p class="hint">{{ security.turnstile.enabled ? "Enabled on sign-in" : "Not enabled" }}</p>
-        <button type="button" @click="openTurnstile">
-          {{ security.turnstile.secretConfigured ? "Manage Turnstile" : "Set up Turnstile" }}
-        </button>
-        <p v-if="turnstileNote" class="form-warn" role="status">{{ turnstileNote }}</p>
+      <section v-if="access.locked" class="wide">
+        <h2>Read-only demo account</h2>
+        <p class="hint">
+          Explore the nodes and monitoring without changing the panel. Password and authentication
+          methods are managed by an owner.
+        </p>
       </section>
-      <section class="wide">
-        <span class="vital-kicker">{{ en.settings.restrictions }}</span>
-        <p class="hint">{{ en.settings.restrictionsHint }}</p>
-        <form @submit.prevent="saveRestrictions">
-          <div class="switch-row security-master">
-            <span id="restrictions-label">{{ en.settings.restrictionsEnable }}</span>
-            <button
-              type="button"
-              class="switch"
-              role="switch"
-              :aria-checked="restrictionsEnabled"
-              aria-labelledby="restrictions-label"
-              :disabled="Boolean(busy)"
-              @click="restrictionsEnabled = !restrictionsEnabled"
-            >
-              <span class="switch-thumb" />
-            </button>
-          </div>
-          <p v-if="!restrictionsEnabled" class="security-warning" role="status">
-            <WarningOutlined aria-hidden="true" />
-            <span>{{ en.settings.restrictionsOff }}</span>
+      <AccountSecurity v-else :can-manage-email="canManage" />
+      <template v-if="access.role === 'owner'">
+        <section class="wide">
+          <span class="vital-kicker">{{ en.settings.turnstile }}</span>
+          <p class="hint">{{ en.settings.turnstileHint }}</p>
+          <p class="hint">
+            {{ security.turnstile.enabled ? "Enabled on sign-in" : "Not enabled" }}
           </p>
-          <fieldset class="security-policy" :disabled="!restrictionsEnabled || Boolean(busy)">
-            <div class="security-rule">
-              <div class="security-rule-head">
-                <div>
-                  <strong>{{ en.settings.rateLimit }}</strong>
-                  <p class="hint">{{ en.settings.rateLimitHint }}</p>
-                </div>
-                <button
-                  type="button"
-                  class="switch"
-                  role="switch"
-                  :aria-checked="rateEnabled"
-                  :aria-label="en.settings.rateLimit"
-                  @click="rateEnabled = !rateEnabled"
-                >
-                  <span class="switch-thumb" />
-                </button>
-              </div>
-              <div v-if="rateEnabled" class="security-rule-body">
-                <SelectField
-                  v-model="rateMode"
-                  :label="en.settings.rateMode"
-                  :options="rateModeOptions"
-                />
-                <p v-if="rateMode === 'default'" class="hint">
-                  {{ en.settings.rateDefaultHint }}
-                </p>
-                <div v-else class="security-number-grid">
-                  <label class="field">
-                    <span>{{ en.settings.attempts }}</span>
-                    <input v-model.number="rateAttempts" type="number" min="3" max="100" required />
-                  </label>
-                  <label class="field">
-                    <span>{{ en.settings.waitSeconds }}</span>
-                    <input
-                      v-model.number="rateWaitSec"
-                      type="number"
-                      min="1"
-                      max="31536000"
-                      required
-                    />
-                  </label>
-                </div>
-              </div>
+          <button type="button" @click="openTurnstile">
+            {{ security.turnstile.secretConfigured ? "Manage Turnstile" : "Set up Turnstile" }}
+          </button>
+          <p v-if="turnstileNote" class="form-warn" role="status">{{ turnstileNote }}</p>
+        </section>
+        <section class="wide">
+          <span class="vital-kicker">{{ en.settings.restrictions }}</span>
+          <p class="hint">{{ en.settings.restrictionsHint }}</p>
+          <form @submit.prevent="saveRestrictions">
+            <div class="switch-row security-master">
+              <span id="restrictions-label">{{ en.settings.restrictionsEnable }}</span>
+              <button
+                type="button"
+                class="switch"
+                role="switch"
+                :aria-checked="restrictionsEnabled"
+                aria-labelledby="restrictions-label"
+                :disabled="Boolean(busy)"
+                @click="restrictionsEnabled = !restrictionsEnabled"
+              >
+                <span class="switch-thumb" />
+              </button>
             </div>
-            <div class="security-rule">
-              <div class="security-rule-head">
-                <div>
-                  <strong>{{ en.settings.banIp }}</strong>
-                  <p class="hint">{{ en.settings.banIpHint }}</p>
+            <p v-if="!restrictionsEnabled" class="security-warning" role="status">
+              <WarningOutlined aria-hidden="true" />
+              <span>{{ en.settings.restrictionsOff }}</span>
+            </p>
+            <fieldset class="security-policy" :disabled="!restrictionsEnabled || Boolean(busy)">
+              <div class="security-rule">
+                <div class="security-rule-head">
+                  <div>
+                    <strong>{{ en.settings.rateLimit }}</strong>
+                    <p class="hint">{{ en.settings.rateLimitHint }}</p>
+                  </div>
+                  <button
+                    type="button"
+                    class="switch"
+                    role="switch"
+                    :aria-checked="rateEnabled"
+                    :aria-label="en.settings.rateLimit"
+                    @click="rateEnabled = !rateEnabled"
+                  >
+                    <span class="switch-thumb" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  class="switch"
-                  role="switch"
-                  :aria-checked="banIpEnabled"
-                  :aria-label="en.settings.banIp"
-                  @click="banIpEnabled = !banIpEnabled"
-                >
-                  <span class="switch-thumb" />
-                </button>
-              </div>
-              <div v-if="banIpEnabled" class="security-rule-body security-number-grid">
-                <label class="field">
-                  <span>{{ en.settings.attempts }}</span>
-                  <input v-model.number="banIpAttempts" type="number" min="3" max="100" required />
-                </label>
-                <SelectField
-                  v-model="banIpDuration"
-                  :label="en.settings.duration"
-                  :options="durationOptions"
-                />
-                <label v-if="banIpDuration === 'temporary'" class="field">
-                  <span>{{ en.settings.seconds }}</span>
-                  <input
-                    v-model.number="banIpSeconds"
-                    type="number"
-                    min="1"
-                    max="31536000"
-                    required
+                <div v-if="rateEnabled" class="security-rule-body">
+                  <SelectField
+                    v-model="rateMode"
+                    :label="en.settings.rateMode"
+                    :options="rateModeOptions"
                   />
-                </label>
-              </div>
-            </div>
-            <div class="security-rule">
-              <div class="security-rule-head">
-                <div>
-                  <strong>{{ en.settings.banPanel }}</strong>
-                  <p class="hint">{{ en.settings.banPanelHint }}</p>
+                  <p v-if="rateMode === 'default'" class="hint">
+                    {{ en.settings.rateDefaultHint }}
+                  </p>
+                  <div v-else class="security-number-grid">
+                    <label class="field">
+                      <span>{{ en.settings.attempts }}</span>
+                      <input
+                        v-model.number="rateAttempts"
+                        type="number"
+                        min="3"
+                        max="100"
+                        required
+                      />
+                    </label>
+                    <label class="field">
+                      <span>{{ en.settings.waitSeconds }}</span>
+                      <input
+                        v-model.number="rateWaitSec"
+                        type="number"
+                        min="1"
+                        max="31536000"
+                        required
+                      />
+                    </label>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  class="switch"
-                  role="switch"
-                  :aria-checked="banPanelEnabled"
-                  :aria-label="en.settings.banPanel"
-                  @click="banPanelEnabled = !banPanelEnabled"
-                >
-                  <span class="switch-thumb" />
-                </button>
               </div>
-              <template v-if="banPanelEnabled">
-                <p class="security-warning" role="status">
-                  <WarningOutlined aria-hidden="true" />
-                  <span>{{ en.settings.panelLockWarning }}</span>
-                </p>
-                <div class="security-rule-body security-number-grid">
+              <div class="security-rule">
+                <div class="security-rule-head">
+                  <div>
+                    <strong>{{ en.settings.banIp }}</strong>
+                    <p class="hint">{{ en.settings.banIpHint }}</p>
+                  </div>
+                  <button
+                    type="button"
+                    class="switch"
+                    role="switch"
+                    :aria-checked="banIpEnabled"
+                    :aria-label="en.settings.banIp"
+                    @click="banIpEnabled = !banIpEnabled"
+                  >
+                    <span class="switch-thumb" />
+                  </button>
+                </div>
+                <div v-if="banIpEnabled" class="security-rule-body security-number-grid">
                   <label class="field">
                     <span>{{ en.settings.attempts }}</span>
                     <input
-                      v-model.number="banPanelAttempts"
+                      v-model.number="banIpAttempts"
                       type="number"
                       min="3"
                       max="100"
@@ -1131,14 +1115,14 @@ onUnmounted(() => {
                     />
                   </label>
                   <SelectField
-                    v-model="banPanelDuration"
+                    v-model="banIpDuration"
                     :label="en.settings.duration"
                     :options="durationOptions"
                   />
-                  <label v-if="banPanelDuration === 'temporary'" class="field">
+                  <label v-if="banIpDuration === 'temporary'" class="field">
                     <span>{{ en.settings.seconds }}</span>
                     <input
-                      v-model.number="banPanelSeconds"
+                      v-model.number="banIpSeconds"
                       type="number"
                       min="1"
                       max="31536000"
@@ -1146,60 +1130,114 @@ onUnmounted(() => {
                     />
                   </label>
                 </div>
-              </template>
+              </div>
+              <div class="security-rule">
+                <div class="security-rule-head">
+                  <div>
+                    <strong>{{ en.settings.banPanel }}</strong>
+                    <p class="hint">{{ en.settings.banPanelHint }}</p>
+                  </div>
+                  <button
+                    type="button"
+                    class="switch"
+                    role="switch"
+                    :aria-checked="banPanelEnabled"
+                    :aria-label="en.settings.banPanel"
+                    @click="banPanelEnabled = !banPanelEnabled"
+                  >
+                    <span class="switch-thumb" />
+                  </button>
+                </div>
+                <template v-if="banPanelEnabled">
+                  <p class="security-warning" role="status">
+                    <WarningOutlined aria-hidden="true" />
+                    <span>{{ en.settings.panelLockWarning }}</span>
+                  </p>
+                  <div class="security-rule-body security-number-grid">
+                    <label class="field">
+                      <span>{{ en.settings.attempts }}</span>
+                      <input
+                        v-model.number="banPanelAttempts"
+                        type="number"
+                        min="3"
+                        max="100"
+                        required
+                      />
+                    </label>
+                    <SelectField
+                      v-model="banPanelDuration"
+                      :label="en.settings.duration"
+                      :options="durationOptions"
+                    />
+                    <label v-if="banPanelDuration === 'temporary'" class="field">
+                      <span>{{ en.settings.seconds }}</span>
+                      <input
+                        v-model.number="banPanelSeconds"
+                        type="number"
+                        min="1"
+                        max="31536000"
+                        required
+                      />
+                    </label>
+                  </div>
+                </template>
+              </div>
+            </fieldset>
+            <p v-if="restrictionError" class="form-error" role="alert">{{ restrictionError }}</p>
+            <p v-else-if="restrictionNote" class="form-warn" role="status">
+              {{ restrictionNote }}
+            </p>
+            <div class="actions">
+              <button type="submit" :disabled="Boolean(busy)">
+                {{ busy === "restrictions" ? en.shell.saving : en.settings.saveRestrictions }}
+              </button>
             </div>
-          </fieldset>
-          <p v-if="restrictionError" class="form-error" role="alert">{{ restrictionError }}</p>
-          <p v-else-if="restrictionNote" class="form-warn" role="status">
-            {{ restrictionNote }}
+          </form>
+        </section>
+        <section v-if="restrictionsEnabled && banIpEnabled" class="wide">
+          <span class="vital-kicker">{{ en.settings.blockedAddresses }}</span>
+          <p class="hint">{{ en.settings.blockedAddressesHint }}</p>
+          <p v-if="bansLoading" class="hint" aria-live="polite">
+            <span class="spinner" aria-hidden="true" />
+            {{ en.settings.loadingBans }}
           </p>
-          <div class="actions">
-            <button type="submit" :disabled="Boolean(busy)">
-              {{ busy === "restrictions" ? en.shell.saving : en.settings.saveRestrictions }}
-            </button>
-          </div>
-        </form>
-      </section>
-      <section v-if="restrictionsEnabled && banIpEnabled" class="wide">
-        <span class="vital-kicker">{{ en.settings.blockedAddresses }}</span>
-        <p class="hint">{{ en.settings.blockedAddressesHint }}</p>
-        <p v-if="bansLoading" class="hint" aria-live="polite">
-          <span class="spinner" aria-hidden="true" />
-          {{ en.settings.loadingBans }}
-        </p>
-        <p v-else-if="bansError" class="form-error" role="alert">{{ bansError }}</p>
-        <p v-else-if="bannedIps.length === 0" class="security-empty">
-          {{ en.settings.noBlockedAddresses }}
-        </p>
-        <ul v-else class="ban-list">
-          <li v-for="entry in bannedIps" :key="entry.ip" class="ban-row">
-            <div>
-              <code>{{ entry.ip }}</code>
-              <p>
-                {{ blockedUntil(entry) }} ·
-                {{ en.settings.blockedFailures.replace("{count}", String(entry.failures)) }}
-              </p>
-            </div>
-            <button
-              type="button"
-              class="quiet"
-              :disabled="Boolean(unbanBusy)"
-              @click="unban(entry.ip)"
-            >
-              {{ unbanBusy === entry.ip ? en.settings.unblocking : en.settings.unblock }}
-            </button>
-          </li>
-        </ul>
-        <p v-if="bansNote" class="form-warn" role="status">{{ bansNote }}</p>
-      </section>
-      <section class="wide">
+          <p v-else-if="bansError" class="form-error" role="alert">{{ bansError }}</p>
+          <p v-else-if="bannedIps.length === 0" class="security-empty">
+            {{ en.settings.noBlockedAddresses }}
+          </p>
+          <ul v-else class="ban-list">
+            <li v-for="entry in bannedIps" :key="entry.ip" class="ban-row">
+              <div>
+                <code>{{ entry.ip }}</code>
+                <p>
+                  {{ blockedUntil(entry) }} ·
+                  {{ en.settings.blockedFailures.replace("{count}", String(entry.failures)) }}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="quiet"
+                :disabled="Boolean(unbanBusy)"
+                @click="unban(entry.ip)"
+              >
+                {{ unbanBusy === entry.ip ? en.settings.unblocking : en.settings.unblock }}
+              </button>
+            </li>
+          </ul>
+          <p v-if="bansNote" class="form-warn" role="status">{{ bansNote }}</p>
+        </section>
+      </template>
+      <section v-if="!access.locked" class="wide">
         <span class="vital-kicker">{{ en.shell.account }}</span>
         <p class="hint">{{ username }}</p>
         <button type="button" @click="openPassword">Change password</button>
         <p v-if="passwordNote" class="form-warn" role="status">{{ passwordNote }}</p>
       </section>
     </div>
-    <div v-else-if="section === 'email'" class="page-stack"><EmailSettings /></div>
+    <div v-else-if="section === 'email' && canManage" class="page-stack"><EmailSettings /></div>
+    <div v-else-if="section === 'users' && access.role === 'owner'" class="page-stack">
+      <UserSettings :account-id="accountId" :nodes="nodes" />
+    </div>
     <div v-else-if="section === 'updates'" class="page-stack">
       <Transition name="update-result">
         <div v-if="updateSuccessVersion" class="update-success" role="status">

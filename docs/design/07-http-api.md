@@ -2,11 +2,11 @@
 
 > Status: Draft
 
-This is the v1 API design, including routes and conventions not yet shipped (team permissions, API tokens, sudo mode, generic streams and several modules). Current handlers are in `apps/panel/src/http/api.ts`, `tls/api.ts` and `alerts/api.ts`; use their shared contracts when implementing a client.
+This is the v1 API design, including routes and conventions not yet shipped (custom/tag-based role bindings, API tokens, general sudo mode, generic streams and several modules). Alpha.25 includes single/team mode, built-in roles, explicit node scopes and demo locks; see [the shipped user API](../kb/users-and-permissions.md). Current handlers are in `apps/panel/src/http/api.ts`, `auth/account-api.ts`, `auth/users-api.ts`, `tls/api.ts` and `alerts/api.ts`; use their shared contracts when implementing a client.
 
 ## Current alert API
 
-All routes below are prefixed with `/api/v1/alerts`, require the owner session, and return `{ data: ... }` or `{ error: { code, message } }`. Mutating requests check a supplied Origin against the panel's allowed origin. Credentials never appear in response objects.
+All routes below are prefixed with `/api/v1/alerts`, require an owner or administrator session, and return `{ data: ... }` or `{ error: { code, message } }`. Mutating requests check a supplied Origin against the panel's allowed origin. Credentials never appear in response objects.
 
 - `GET` at the base path: rules, incidents, redacted channels and the latest delivery records.
 - `POST /rules`, `PUT /rules/:id`, `DELETE /rules/:id`: configure or remove rules.

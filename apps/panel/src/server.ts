@@ -26,6 +26,7 @@ import { createPanelListener } from "./tls/listener.ts";
 import { createAlerts } from "./alerts/service.ts";
 import { createEmailMethods } from "./email/store.ts";
 import { createFactors } from "./auth/factors.ts";
+import { createAccess } from "./auth/access.ts";
 
 export async function startPanel(options: {
   panelKey: KeyObject;
@@ -45,6 +46,7 @@ export async function startPanel(options: {
   close: () => Promise<void>;
 }> {
   const data = openPanelData(options.dataDir);
+  const access = createAccess(data.db);
   const settings = createSettings(data.db, Date.now, (value) => factors.assertPublicUrl(value));
   const email = createEmailMethods({ db: data.db, masterKey: data.masterKey });
   const factors = createFactors({
@@ -56,6 +58,7 @@ export async function startPanel(options: {
   seedPublicUrl(settings, options.publicUrl);
   const security = createLoginSecurity({ db: data.db, masterKey: data.masterKey });
   const auth = await createAuth({
+    access,
     db: data.db,
     masterKey: data.masterKey,
     setupToken: data.readSetupToken,
@@ -139,6 +142,7 @@ export async function startPanel(options: {
   });
   let armUpdateWatch = (): void => undefined;
   const app = createApi({
+    access,
     factors,
     email,
     auth,
@@ -212,8 +216,10 @@ export async function startPanel(options: {
     onSettings: () => armUpdateWatch(),
   });
   const onRequest = handleHttp(app, options.webRoot, {
-    authorizeBackup: (cookie) =>
-      auth.sessionUser(sessionTokenFromCookie(cookie, secureCookie())) !== null,
+    authorizeBackup: (cookie) => {
+      const user = auth.sessionUser(sessionTokenFromCookie(cookie, secureCookie()));
+      return Boolean(user && access.get(user.id).role === "owner");
+    },
   });
 
   const listener = createPanelListener({
