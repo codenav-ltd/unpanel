@@ -10,13 +10,14 @@ import { privateKeyFromPem, publicKeyFromPem } from "@unpanel/protocol";
 import { WebSocketServer } from "ws";
 import { createAudit } from "./audit/log.ts";
 import { createAuth } from "./auth/service.ts";
+import { createLoginSecurity } from "./auth/security.ts";
 import { exportPanelDb, stageRestore } from "./backup/panel.ts";
 import { openPanelData } from "./data/panel-data.ts";
-import { createHub } from "./hub.ts";
+import { createHub, HubCallError } from "./hub.ts";
 import { createHistory } from "./metrics/history.ts";
 import { createNodes } from "./nodes/store.ts";
 import { createSettings, seedPublicUrl } from "./settings/store.ts";
-import { findUpdate, releaseToApply } from "./updates/check.ts";
+import { findUpdate, releaseForVersion, releaseToApply, UpdateError } from "./updates/check.ts";
 import { createApi } from "./http/api.ts";
 import { handleHttp } from "./http/node.ts";
 
@@ -32,11 +33,13 @@ export async function startPanel(options: {
   publicUrl?: string;
 }): Promise<{ port: number; setupToken: string | null; close: () => Promise<void> }> {
   const data = openPanelData(options.dataDir);
+  const security = createLoginSecurity({ db: data.db, masterKey: data.masterKey });
   const auth = await createAuth({
     db: data.db,
     masterKey: data.masterKey,
     setupToken: data.readSetupToken,
     clearSetupToken: data.clearSetupToken,
+    security,
   });
   const settings = createSettings(data.db);
   seedPublicUrl(settings, options.publicUrl);
@@ -89,6 +92,7 @@ export async function startPanel(options: {
     exportDb: (dest) => exportPanelDb(data.db, dest),
     stageRestore: (bytes) => stageRestore(options.dataDir, bytes),
     settings,
+    security,
     catalog: nodes,
     panelPublicKeyPem: publicPem(options.panelKey),
     history: (nodeId, minutes) => history.series(nodeId, Date.now(), minutes),
@@ -108,6 +112,36 @@ export async function startPanel(options: {
         sourceUrl: product.sourceUrl,
       });
       const result = await hub.upgrade("local", {
+        version: release.version,
+        url: release.url,
+        sha256: release.sha256,
+      });
+      return { accepted: true as const, version: result.version };
+    },
+    applyAgentUpdate: async (nodeId) => {
+      if (nodeId === "local") {
+        throw new UpdateError("E_CONFLICT", "The local agent is updated together with the panel.");
+      }
+      const node = hub.live().find((item) => item.id === nodeId);
+      if (!node?.online) {
+        throw new HubCallError(
+          "E_NODE_OFFLINE",
+          "The node is offline, so its agent update was not sent. Bring it online and try again.",
+        );
+      }
+      if (!node.arch) {
+        throw new UpdateError(
+          "E_CONFLICT",
+          "The node has not reported its architecture yet. Wait for its host details and try again.",
+        );
+      }
+      const release = await releaseForVersion({
+        version: product.version,
+        arch: node.arch,
+        manifestUrl: product.updatesUrl,
+        sourceUrl: product.sourceUrl,
+      });
+      const result = await hub.upgradeAgent(nodeId, {
         version: release.version,
         url: release.url,
         sha256: release.sha256,

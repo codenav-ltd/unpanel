@@ -6,8 +6,8 @@ import { errorStatus, httpStatusFor } from "./errors.ts";
 import { PROTOCOL_VERSION } from "./version.ts";
 
 describe("protocol", () => {
-  it("speaks protocol 1.0", () => {
-    expect(PROTOCOL_VERSION).toBe("1.0");
+  it("speaks protocol 1.1", () => {
+    expect(PROTOCOL_VERSION).toBe("1.1");
   });
 
   it("maps every error code to the status in the specification", () => {

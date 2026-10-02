@@ -72,7 +72,7 @@ Auth routes are listed in [design/04](./04-auth.md) §9.
 | POST | `/nodes/:id/enrollment-token` | `node:danger` |
 | POST | `/nodes/:id/disable` · `/enable` | `node:write` |
 | POST | `/nodes/:id/maintenance` | `node:write` (`{until}` or `{clear:true}`) |
-| POST | `/nodes/:id/upgrade` | `node:danger` |
+| POST | `/nodes/:id/update` | Session. Updates a connected remote agent to the running panel version. Returns `501 E_UNSUPPORTED` for agents that predate remote self-update; those nodes must be re-enrolled once. |
 | GET | `/tags` | `node:read` |
 | GET/POST | `/batch` | Permission of the batched action |
 | GET | `/jobs` · `/jobs/:id` · `/jobs/:id/logs` | Creator or `admin` |

@@ -51,6 +51,7 @@ describe("release tags", () => {
     expect(update).toContain("/opt/unpanel.previous");
     const bundle = readFileSync("scripts/bundle.mjs", "utf8");
     expect(bundle).toContain('"update.sh"');
+    expect(bundle).toContain('"agent-swap.sh"');
     expect(bundle).toContain('"select-update.mjs"');
     expect(bundle).toContain('join(out, "VERSION")');
     expect(apply).toContain("panel-swap.sh");
@@ -60,6 +61,11 @@ describe("release tags", () => {
     expect(swap).toContain("The running panel was not changed.");
     expect(swap).toContain("systemd-run");
     expect(swap).toContain('chmod 755 "$ROOT"');
+    const agentSwap = readFileSync("scripts/agent-swap.sh", "utf8");
+    expect(agentSwap).toContain("Restoring the previous agent version");
+    expect(agentSwap).toContain("systemctl is-active");
+    expect(agentSwap).toContain("flock -n 9");
+    expect(agentSwap).toContain("Refusing an unsafe agent install path");
     expect(script).toContain('chmod 755 "$dest"');
     expect(agent).toContain('chmod 755 "$dest"');
     expect(agent).toContain('"$installed_version" != "$VERSION"');

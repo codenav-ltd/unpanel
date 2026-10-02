@@ -2,7 +2,7 @@
 
 **The server panel that doesn't act like one.** Simple, modern, and lightweight: one web UI for the load, alerts, containers, processes, sites, and certificates of all your servers — without turning any of them into a "panel server".
 
-> **Status: 0.1.0-alpha.16 pre-alpha.** First-run setup creates the owner account with a password and TOTP. After sign-in, the address bar follows the page. System history shows the time and the reading under the pointer. Settings saves refresh, retention, and update checks. A new release is shown on every page. Automatic install stays off until it is turned on. A lost reply no longer claims a write did not happen, and failures keep their full reason in Logs. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
+> **Status: 0.1.0-alpha.17 pre-alpha.** First-run setup creates the owner account with a password and TOTP. Settings includes configurable sign-in restrictions and optional Cloudflare Turnstile. Updates keeps the panel ahead of its remote agents, shows every agent version, and rolls back an agent update that does not stay active. Automatic install stays off until it is turned on. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
 
 ## Install
 
@@ -14,7 +14,7 @@ curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 
 That downloads this version's release package into `/opt/unpanel`, checks its SHA-256, and starts the panel and the local agent. It uses this machine's public IP when the address on the interface is private. It then prints what to do next: allow the panel's TCP port at your server provider and, if enabled, in ufw or firewalld, then open the printed address and create the owner account. The page is HTTP. Pass `--public-url` when the detected address is wrong.
 
-A later release is installed from Settings → About, or with `sudo bash /opt/unpanel/scripts/update.sh`. The current install is moved to `/opt/unpanel.previous` before the new package replaces it. If the new process does not come up, that directory, the systemd units, and `panel.env` are restored. The database stays in place.
+A later release is installed from Settings → Updates, or with `sudo bash /opt/unpanel/scripts/update.sh`. The current install is moved to `/opt/unpanel.previous` before the new package replaces it. If the new process does not come up, that directory, the systemd units, and `panel.env` are restored. The database stays in place. After the panel is current, supported remote agents can be updated one at a time from the same screen.
 
 ## Why
 

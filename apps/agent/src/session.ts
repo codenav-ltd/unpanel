@@ -8,8 +8,9 @@ import { product } from "@unpanel/shared";
 import { ControlUnsupported, controlPanel } from "./control.ts";
 import { sampleHost } from "./cpu.ts";
 import { SwapRefused, configureSwap } from "./swap.ts";
-import { performUpgrade } from "./upgrade.ts";
+import { performAgentUpgrade, performUpgrade } from "./upgrade.ts";
 import {
+  agentUpgrade,
   authMessage,
   closeCode,
   decodeTextFrame,
@@ -34,6 +35,7 @@ const agentMethods = new Set([
   systemInfo.name,
   metricsCpu.name,
   panelUpgrade.name,
+  agentUpgrade.name,
   panelRestart.name,
   panelStop.name,
   hostSwap.name,
@@ -115,7 +117,11 @@ export function connectAgent(options: {
             sigA: signMessage(authMessage(agentId, frame.nonceM, nonceA), options.agentKey),
             caps: [
               { name: "system", version: product.version },
-              { name: "control", version: product.version },
+              {
+                name: "control",
+                version: product.version,
+                meta: { agentUpgrade: true },
+              },
             ],
             policyDigest: createHash("sha256").update("").digest("base64url"),
             host,
@@ -165,6 +171,25 @@ export function connectAgent(options: {
                 e: {
                   code: error instanceof ControlUnsupported ? "E_UNSUPPORTED" : "E_INTERNAL",
                   msg: error instanceof Error ? error.message : "update failed",
+                },
+              }),
+            );
+          });
+      }
+      if (frame.t === "req" && frame.m === agentUpgrade.name) {
+        void performAgentUpgrade(frame.p, { agentId })
+          .then((result) => {
+            socket?.send(encodeTextFrame({ t: "res", id: frame.id, ok: true, r: result }));
+          })
+          .catch((error: unknown) => {
+            socket?.send(
+              encodeTextFrame({
+                t: "res",
+                id: frame.id,
+                ok: false,
+                e: {
+                  code: error instanceof ControlUnsupported ? "E_UNSUPPORTED" : "E_INTERNAL",
+                  msg: error instanceof Error ? error.message : "agent update failed",
                 },
               }),
             );

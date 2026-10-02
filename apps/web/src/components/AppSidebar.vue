@@ -8,6 +8,7 @@ import {
   AppstoreOutlined,
   BellOutlined,
   CloudServerOutlined,
+  CloudDownloadOutlined,
   ClusterOutlined,
   CodeOutlined,
   ContainerOutlined,
@@ -18,6 +19,7 @@ import {
   LogoutOutlined,
   MenuOutlined,
   PlusOutlined,
+  RightOutlined,
   SafetyCertificateOutlined,
   SafetyOutlined,
   ScheduleOutlined,
@@ -44,8 +46,10 @@ const props = withDefaults(
     pending: boolean;
     nodes?: SideNode[];
     nodeId?: string;
+    updateVersion?: string;
+    automaticUpdate?: boolean;
   }>(),
-  { nodes: () => [], nodeId: "" },
+  { nodes: () => [], nodeId: "", updateVersion: "", automaticUpdate: false },
 );
 
 const emit = defineEmits<{
@@ -54,6 +58,7 @@ const emit = defineEmits<{
   openNode: [id: string];
   addNode: [];
   menu: [payload: { id: string; x: number; y: number }];
+  reviewUpdate: [];
 }>();
 
 const sectionLabel = computed(() => {
@@ -345,6 +350,23 @@ function onItem(item: Item): void {
       <p v-if="laterNote" class="nav-note" role="status">{{ laterNote }}</p>
     </nav>
     <div class="sider-utility">
+      <Transition name="utility-update">
+        <button
+          v-if="updateVersion"
+          class="sidebar-update"
+          type="button"
+          @click="emit('reviewUpdate')"
+        >
+          <CloudDownloadOutlined aria-hidden="true" />
+          <span class="sidebar-update-copy">
+            <strong>{{ en.updates.availableShort }}</strong>
+            <small>
+              {{ automaticUpdate ? en.updates.automaticQueued : `v${updateVersion}` }}
+            </small>
+          </span>
+          <RightOutlined class="sidebar-update-arrow" aria-hidden="true" />
+        </button>
+      </Transition>
       <button class="nav-item" type="button" :disabled="pending" @click="emit('signOut')">
         <LogoutOutlined aria-hidden="true" />
         <span>{{ en.shell.signOut }}</span>

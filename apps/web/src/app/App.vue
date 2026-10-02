@@ -14,7 +14,7 @@ import {
   ReloadOutlined,
   SlidersOutlined,
 } from "@ant-design/icons-vue";
-import { liveSampleMs, product } from "@unpanel/shared";
+import { compareVersions, liveSampleMs, product } from "@unpanel/shared";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import AddNodeDialog from "../components/AddNodeDialog.vue";
 import AppDialog from "../components/AppDialog.vue";
@@ -31,6 +31,7 @@ import NodePage from "../components/NodePage.vue";
 import PulseRail from "../components/PulseRail.vue";
 import SettingsPage, { type PanelOps } from "../components/SettingsPage.vue";
 import ThroughputCard from "../components/ThroughputCard.vue";
+import TurnstileWidget from "../components/TurnstileWidget.vue";
 import VitalTile from "../components/VitalTile.vue";
 import { loadCards, saveCards, type CardVisibility } from "../cards.ts";
 import {
@@ -45,6 +46,7 @@ import { formatPath, parsePath, type SettingsSection } from "./route.ts";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
+import { defaultLoginSecurity, type LoginSecuritySettings } from "../security.ts";
 
 interface LocalInfo {
   hostname: string;
@@ -135,6 +137,7 @@ interface NodeCard {
   udpCount: number | null;
   uptime: number | null;
   agentVersion: string | null;
+  canUpdateAgent: boolean;
   error: string | null;
 }
 
@@ -168,6 +171,10 @@ const pollMs = ref(liveSampleMs);
 const updateOffer = ref("");
 const theme = ref<ThemeName>("dark");
 const publicUrl = ref("");
+const security = ref<LoginSecuritySettings>(defaultLoginSecurity());
+const turnstileToken = ref("");
+const turnstileVersion = ref(0);
+const loginWarnings = ref<string[]>([]);
 const prefs = ref<NodePrefs>({ name: "", tags: [], maintenance: false });
 const catalog = ref<NodeCard[]>([]);
 const tagFilter = ref("");
@@ -210,7 +217,18 @@ async function boot(): Promise<void> {
     if (me.status !== 401) throw new Error(String(me.status));
     const state = await fetch("/api/v1/auth/state");
     if (!state.ok) throw new Error(String(state.status));
-    const body = (await state.json()) as { initialized: boolean };
+    const body = (await state.json()) as {
+      initialized: boolean;
+      turnstile?: { enabled: boolean; siteKey?: string };
+    };
+    security.value = {
+      ...security.value,
+      turnstile: {
+        enabled: body.turnstile?.enabled === true,
+        siteKey: body.turnstile?.siteKey ?? "",
+        secretConfigured: body.turnstile?.enabled === true,
+      },
+    };
     view.value = body.initialized ? "login" : "setup";
   } catch {
     view.value = "unreachable";
@@ -291,19 +309,41 @@ async function submitConfirm(): Promise<void> {
 
 async function submitLogin(): Promise<void> {
   if (pending.value) return;
+  if (security.value.turnstile.enabled && !turnstileToken.value) {
+    error.value = "Complete the security check before signing in.";
+    return;
+  }
   pending.value = true;
   error.value = "";
+  loginWarnings.value = [];
   try {
     const response = await fetch("/api/v1/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: username.value.trim(), password: password.value }),
+      body: JSON.stringify({
+        username: username.value.trim(),
+        password: password.value,
+        turnstileToken: turnstileToken.value,
+      }),
     });
     if (!response.ok) {
-      error.value = await errorMessage(response);
+      const problem = await loginProblem(response);
+      error.value = problem.message;
+      if (problem.ipAttemptsLeft !== undefined) {
+        loginWarnings.value.push(
+          en.settings.deviceAttemptsLeft.replace("{count}", String(problem.ipAttemptsLeft)),
+        );
+      }
+      if (problem.panelAttemptsLeft !== undefined) {
+        loginWarnings.value.push(
+          en.settings.panelAttemptsLeft.replace("{count}", String(problem.panelAttemptsLeft)),
+        );
+      }
+      resetTurnstile();
       return;
     }
     const body = (await response.json()) as { status?: string; ticket?: string };
+    resetTurnstile();
     if (body.status === "ok") {
       password.value = "";
       showNode();
@@ -318,6 +358,7 @@ async function submitLogin(): Promise<void> {
     authenticatorCode.value = "";
     view.value = "mfa";
   } catch {
+    resetTurnstile();
     error.value = replyNotReceived(
       "sign in",
       "Reload this page to check whether you are signed in before trying again.",
@@ -387,6 +428,8 @@ async function signOut(): Promise<void> {
     controlNote.value = "";
     showAddresses.value = false;
     password.value = "";
+    loginWarnings.value = [];
+    resetTurnstile();
     view.value = "login";
     applyingHistory = true;
     page.value = "overview";
@@ -465,7 +508,7 @@ async function checkOffer(): Promise<void> {
 
 function openUpdate(): void {
   page.value = "settings";
-  settingsSection.value = "about";
+  settingsSection.value = "updates";
 }
 
 async function loadTheme(): Promise<void> {
@@ -473,11 +516,17 @@ async function loadTheme(): Promise<void> {
     const response = await fetch("/api/v1/settings");
     if (!response.ok) return;
     const body = (await response.json()) as {
-      data: { theme: ThemeName; publicUrl: string; ops?: PanelOps };
+      data: {
+        theme: ThemeName;
+        publicUrl: string;
+        ops?: PanelOps;
+        security?: LoginSecuritySettings;
+      };
     };
     theme.value = body.data.theme;
     publicUrl.value = body.data.publicUrl;
     if (body.data.ops) applyOps(body.data.ops);
+    if (body.data.security) security.value = body.data.security;
     applyTheme(body.data.theme);
   } catch {
     // Keep the CSS default until settings answer.
@@ -549,6 +598,56 @@ async function refresh(): Promise<void> {
 
 async function errorMessage(response: Response): Promise<string> {
   return readProblem(response, "complete that request");
+}
+
+async function loginProblem(response: Response): Promise<{
+  message: string;
+  ipAttemptsLeft?: number;
+  panelAttemptsLeft?: number;
+}> {
+  try {
+    const body = (await response.json()) as {
+      error?: {
+        message?: string;
+        retryAfter?: number;
+        ipAttemptsLeft?: number;
+        panelAttemptsLeft?: number;
+      };
+    };
+    const retry = body.error?.retryAfter;
+    const message =
+      body.error?.message?.trim() || "Sign-in failed. Check the details and try again.";
+    return {
+      message:
+        typeof retry === "number" && retry > 0
+          ? `${message} Try again in ${waitText(retry)}.`
+          : message,
+      ...(typeof body.error?.ipAttemptsLeft === "number"
+        ? { ipAttemptsLeft: body.error.ipAttemptsLeft }
+        : {}),
+      ...(typeof body.error?.panelAttemptsLeft === "number"
+        ? { panelAttemptsLeft: body.error.panelAttemptsLeft }
+        : {}),
+    };
+  } catch {
+    return { message: `Sign-in failed (HTTP ${response.status}). Reload and try again.` };
+  }
+}
+
+function waitText(seconds: number): string {
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? "" : "s"}`;
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+function resetTurnstile(): void {
+  turnstileToken.value = "";
+  turnstileVersion.value += 1;
+}
+
+function onTurnstileError(message: string): void {
+  error.value = message;
+  turnstileToken.value = "";
 }
 
 function stripToken(): void {
@@ -738,6 +837,15 @@ function nodePresence(node: NodeCard): string {
   return node.online ? en.shell.statusOnline : en.shell.statusOffline;
 }
 
+function nodeAgentState(node: NodeCard): "current" | "outdated" | "ahead" | "unknown" {
+  if (!node.agentVersion) return "unknown";
+  const compared = compareVersions(node.agentVersion, product.version);
+  if (compared === null) return "unknown";
+  if (compared < 0) return "outdated";
+  if (compared > 0) return "ahead";
+  return "current";
+}
+
 function layoutLabel(size: OverviewLayout): string {
   if (size === "compact") return en.shell.layoutCompact;
   if (size === "standard") return en.shell.layoutStandard;
@@ -754,6 +862,12 @@ function chooseNode(id: string): void {
   const stay = page.value === "dashboard" || page.value === "host";
   nodeId.value = id;
   if (!stay) page.value = "dashboard";
+  void refresh();
+}
+
+function openNodeHost(id: string): void {
+  nodeId.value = id;
+  page.value = "host";
   void refresh();
 }
 
@@ -864,11 +978,6 @@ async function confirmRemove(): Promise<void> {
 const nodeLabel = computed(
   () => selectedNode.value?.name || prefs.value.name || info.value?.hostname || en.shell.localNode,
 );
-
-const updateBanner = computed(() => {
-  const text = ops.value.autoUpdate ? en.shell.updateBannerAuto : en.shell.updateAvailable;
-  return text.replace("{version}", updateOffer.value);
-});
 
 const pageTitle = computed(() => {
   if (page.value === "overview") return en.nav.overview;
@@ -1030,11 +1139,14 @@ onUnmounted(() => {
       :pending="pending"
       :nodes="catalog"
       :node-id="nodeId"
+      :update-version="updateOffer"
+      :automatic-update="ops.autoUpdate"
       @navigate="page = $event"
       @sign-out="signOut"
       @open-node="chooseNode"
       @add-node="showAdd = true"
       @menu="openNodeMenu"
+      @review-update="openUpdate"
     />
     <div class="app-main">
       <header class="app-bar">
@@ -1124,12 +1236,6 @@ onUnmounted(() => {
         </div>
       </header>
       <div class="app-content">
-        <div v-if="updateOffer" class="form-warn update-banner" role="status">
-          <span>{{ updateBanner }}</span>
-          <button class="quiet" type="button" @click="openUpdate">
-            {{ en.shell.updateReview }}
-          </button>
-        </div>
         <p v-if="routeNotice" class="form-warn" role="status">{{ routeNotice }}</p>
         <p v-if="prefs.maintenance" class="maint-banner" role="status">
           {{ en.shell.maintenanceOn }}
@@ -1172,10 +1278,19 @@ onUnmounted(() => {
             >
               <span class="node-card-head">
                 <strong>{{ node.name || node.hostname || en.shell.localNode }}</strong>
-                <span
-                  :class="node.status === 'active' && node.online ? 'status-ok' : 'status-bad'"
-                  >{{ nodePresence(node) }}</span
-                >
+                <span class="node-card-state">
+                  <span
+                    class="node-agent-badge"
+                    :data-state="nodeAgentState(node)"
+                    :title="en.updates.agentVersion"
+                  >
+                    {{ node.agentVersion ? `v${node.agentVersion}` : "v—" }}
+                  </span>
+                  <span
+                    :class="node.status === 'active' && node.online ? 'status-ok' : 'status-bad'"
+                    >{{ nodePresence(node) }}</span
+                  >
+                </span>
               </span>
               <span v-if="overviewLayout === 'detail' && detailSub(node)" class="node-sub">{{
                 detailSub(node)
@@ -1274,10 +1389,16 @@ onUnmounted(() => {
           :public-url="publicUrl"
           :section="settingsSection"
           :ops="ops"
+          :security="security"
+          :nodes="catalog"
           @theme="theme = $event"
           @public-url="publicUrl = $event"
           @section="settingsSection = $event"
           @ops="applyOps"
+          @security="security = $event"
+          @update-found="updateOffer = $event"
+          @refresh-nodes="refreshList"
+          @open-node="openNodeHost"
         />
         <div v-else-if="page === 'dashboard' && visibleVitals > 0" class="vitals">
           <VitalTile
@@ -1568,6 +1689,17 @@ onUnmounted(() => {
                 :aria-invalid="Boolean(error)"
               />
             </label>
+            <TurnstileWidget
+              v-if="security.turnstile.enabled && security.turnstile.siteKey"
+              :key="turnstileVersion"
+              v-model="turnstileToken"
+              :site-key="security.turnstile.siteKey"
+              :theme="theme === 'light' ? 'light' : 'dark'"
+              @error="onTurnstileError"
+            />
+            <div v-if="loginWarnings.length" class="login-warnings" role="status">
+              <p v-for="warning in loginWarnings" :key="warning">{{ warning }}</p>
+            </div>
             <p v-if="error" class="form-error" role="alert">{{ error }}</p>
             <div class="actions">
               <button type="submit" :disabled="pending">

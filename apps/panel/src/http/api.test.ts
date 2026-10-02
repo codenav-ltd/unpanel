@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
+import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import { createApi } from "./api.ts";
 import { createAudit, type Audit } from "../audit/log.ts";
 import { openDatabase } from "../db/open.ts";
 import type { Auth } from "../auth/service.ts";
+import { createLoginSecurity, type LoginSecurity } from "../auth/security.ts";
 import { HubCallError, type LocalSnapshot, type NodeLive } from "../hub.ts";
 import { createNodes, type NodeCatalog } from "../nodes/store.ts";
 import { createSettings, type Settings } from "../settings/store.ts";
@@ -53,6 +55,7 @@ function appWith(
     exportDb?: (dest: string) => Promise<void>;
     stageRestore?: (bytes: Uint8Array) => void;
     settings?: Settings;
+    security?: LoginSecurity;
     catalog?: NodeCatalog;
     live?: () => NodeLive[];
     history?: (
@@ -72,6 +75,7 @@ function appWith(
       error: string | null;
     }>;
     applyUpdate?: () => Promise<{ accepted: true; version: string }>;
+    applyAgentUpdate?: (nodeId: string) => Promise<{ accepted: true; version: string }>;
   } = {},
 ): ReturnType<typeof createApi> {
   return createApi({
@@ -92,6 +96,9 @@ function appWith(
     exportDb: extras.exportDb ?? (async () => undefined),
     stageRestore: extras.stageRestore ?? (() => undefined),
     settings: extras.settings ?? createSettings(openDatabase(":memory:")),
+    security:
+      extras.security ??
+      createLoginSecurity({ db: openDatabase(":memory:"), masterKey: randomBytes(32) }),
     catalog: extras.catalog ?? createNodes(openDatabase(":memory:")),
     panelPublicKeyPem: "test-key",
     history: extras.history ?? (() => ({ start: 0, stepMs: 60_000, cpu: [], mem: [], disk: [] })),
@@ -103,6 +110,11 @@ function appWith(
       extras.applyUpdate ??
       (async () => {
         throw new Error("applyUpdate is not stubbed");
+      }),
+    applyAgentUpdate:
+      extras.applyAgentUpdate ??
+      (async () => {
+        throw new Error("applyAgentUpdate is not stubbed");
       }),
   });
 }
@@ -253,6 +265,46 @@ describe("POST /api/v1/updates", () => {
   });
 });
 
+describe("POST /api/v1/nodes/:id/update", () => {
+  it("starts a remote agent update and records the target node", async () => {
+    const audit = createAudit(openDatabase(":memory:"));
+    const app = appWith(audit, "tok", {
+      applyAgentUpdate: async (nodeId) => ({
+        accepted: true,
+        version: nodeId === "nd_1" ? "0.1.0-alpha.17" : "unexpected",
+      }),
+    });
+
+    const response = await app.request("/api/v1/nodes/nd_1/update", {
+      method: "POST",
+      headers: { cookie: "unpanel_sid=tok" },
+    });
+    const body = (await response.json()) as { data: { version: string } };
+
+    expect(response.status).toBe(200);
+    expect(body.data.version).toBe("0.1.0-alpha.17");
+    expect(audit.list(1)[0]).toMatchObject({ action: "agent.update", nodeId: "nd_1" });
+  });
+
+  it("returns a useful unsupported response for a legacy agent", async () => {
+    const audit = createAudit(openDatabase(":memory:"));
+    const app = appWith(audit, "tok", {
+      applyAgentUpdate: async () => {
+        throw new HubCallError("E_UNSUPPORTED", "Re-enroll this agent once.");
+      },
+    });
+
+    const response = await app.request("/api/v1/nodes/nd_1/update", {
+      method: "POST",
+      headers: { cookie: "unpanel_sid=tok" },
+    });
+    const body = (await response.json()) as { error: { code: string; message: string } };
+
+    expect(response.status).toBe(501);
+    expect(body.error).toEqual({ code: "E_UNSUPPORTED", message: "Re-enroll this agent once." });
+  });
+});
+
 describe("GET /api/v1/backup/panel", () => {
   it("downloads the snapshot the exporter wrote", async () => {
     const audit = createAudit(openDatabase(":memory:"));
@@ -383,6 +435,72 @@ describe("PATCH /api/v1/settings", () => {
       updateHours: 0,
       autoUpdate: false,
     });
+  });
+
+  it("stores login security without returning the Turnstile secret", async () => {
+    const db = openDatabase(":memory:");
+    const security = createLoginSecurity({ db, masterKey: randomBytes(32) });
+    const app = appWith(createAudit(openDatabase(":memory:")), "tok", { security });
+    const response = await app.request("/api/v1/settings", {
+      method: "PATCH",
+      headers: { cookie: "unpanel_sid=tok", "content-type": "application/json" },
+      body: JSON.stringify({
+        security: {
+          loginRestrictions: {
+            banPanel: { enabled: true, attempts: 5, duration: "permanent" },
+          },
+          turnstile: { enabled: true, siteKey: "site-key", secret: "secret-key" },
+        },
+      }),
+    });
+    const body = (await response.json()) as {
+      data: { security: LoginSecurity["view"] extends () => infer T ? T : never };
+    };
+    expect(response.status).toBe(200);
+    expect(body.data.security.loginRestrictions.banPanel).toMatchObject({
+      enabled: true,
+      attempts: 5,
+      duration: "permanent",
+    });
+    expect(body.data.security.turnstile).toEqual({
+      enabled: true,
+      siteKey: "site-key",
+      secretConfigured: true,
+    });
+    expect(JSON.stringify(body)).not.toContain("secret-key");
+  });
+
+  it("lists and removes an IP ban", async () => {
+    const db = openDatabase(":memory:");
+    const security = createLoginSecurity({ db, masterKey: randomBytes(32) });
+    security.update(
+      {
+        loginRestrictions: {
+          rateLimit: { enabled: false },
+          banIp: { attempts: 3, duration: "permanent" },
+        },
+      },
+      "ada",
+    );
+    security.noteFailure("192.0.2.30", "ada");
+    security.noteFailure("192.0.2.30", "ada");
+    security.noteFailure("192.0.2.30", "ada");
+    const app = appWith(createAudit(openDatabase(":memory:")), "tok", { security });
+
+    const listed = await app.request("/api/v1/security/bans", {
+      headers: { cookie: "unpanel_sid=tok" },
+    });
+    const listBody = (await listed.json()) as { data: { ip: string }[] };
+    expect(listed.status).toBe(200);
+    expect(listBody.data.map((entry) => entry.ip)).toEqual(["192.0.2.30"]);
+
+    const removed = await app.request("/api/v1/security/bans", {
+      method: "DELETE",
+      headers: { cookie: "unpanel_sid=tok", "content-type": "application/json" },
+      body: JSON.stringify({ ip: "192.0.2.30" }),
+    });
+    expect(removed.status).toBe(200);
+    expect(security.bannedIps()).toEqual([]);
   });
 
   it("names a swap size the agent will not be asked to create", async () => {

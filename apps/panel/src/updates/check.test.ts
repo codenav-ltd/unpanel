@@ -8,6 +8,7 @@ import {
   githubReleasesUrl,
   packageForArch,
   parseChannels,
+  releaseForVersion,
   selectUpdate,
   type ChannelsFile,
 } from "./check.ts";
@@ -175,5 +176,38 @@ describe("findUpdate", () => {
     });
     expect(status.update).toBeNull();
     expect(status.error).toBe("Could not check for updates.");
+  });
+});
+
+describe("releaseForVersion", () => {
+  it("selects the running panel release for a remote agent architecture", async () => {
+    const manifest = {
+      stable: null,
+      beta: {
+        version: "0.1.0-alpha.8",
+        url: "https://github.com/codenav-ltd/unpanel/releases/download/v0.1.0-alpha.8/unpanel-linux-x64.tar.gz",
+        sha256: sha,
+        notes: "",
+        assets: {
+          "linux-arm64": {
+            url: "https://github.com/codenav-ltd/unpanel/releases/download/v0.1.0-alpha.8/unpanel-linux-arm64.tar.gz",
+            sha256: other,
+          },
+        },
+      },
+    };
+    const fetchImpl: typeof fetch = async (input) => {
+      if (String(input).includes("api.github.com")) return Response.json([]);
+      return Response.json(manifest);
+    };
+    const release = await releaseForVersion({
+      version: "0.1.0-alpha.8",
+      arch: "arm64",
+      manifestUrl: "https://unpanel.codenav.dev/channels.json",
+      sourceUrl: "https://github.com/codenav-ltd/unpanel",
+      fetchImpl,
+    });
+    expect(release.version).toBe("0.1.0-alpha.8");
+    expect(release.sha256).toBe(other);
   });
 });

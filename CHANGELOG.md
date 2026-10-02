@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.17] - 2026-10-02
+
+### Added
+
+- Security settings can enable server-verified Cloudflare Turnstile, configure progressive or fixed sign-in delays, ban individual IP addresses, and optionally lock panel sign-in temporarily or permanently.
+- Active IP bans can be reviewed and removed in Settings. A whole-panel lock can be cleared over SSH with `sudo unpanel-manage unlock`.
+- After two failed passwords, the sign-in page shows how many attempts remain before an IP or whole-panel lock.
+- Remote Linux agents can update to the running panel release from Settings, with architecture checks, SHA-256 verification, service restart verification, and automatic rollback when the new agent does not stay active.
+
+### Changed
+
+- Settings categories have icons, and settings and swap choices now use a keyboard-accessible custom dropdown.
+- Updates has its own Settings screen with panel-first fleet guidance, per-node agent versions, and one-at-a-time update states. Panel update notices now live above Sign out in the sidebar, while About focuses on the running build, source, and license.
+
 ## [0.1.0-alpha.16] - 2026-10-02
 
 ### Changed

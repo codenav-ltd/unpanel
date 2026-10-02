@@ -5,7 +5,13 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { decryptSecret, encryptSecret } from "./secret.ts";
 import { hashPassword, passwordProblem, usernameProblem, verifyPassword } from "./password.ts";
+import type { LoginBlock, LoginSecurity } from "./security.ts";
 import { matchTotp, totpSecret, totpSecretText, totpUri } from "./totp.ts";
+import {
+  TurnstileUnavailableError,
+  verifyTurnstileToken,
+  type TurnstileVerifier,
+} from "./turnstile.ts";
 
 const IDLE_SEC = 12 * 60 * 60;
 const ABSOLUTE_SEC = 7 * 24 * 60 * 60;
@@ -13,16 +19,15 @@ const SEEN_THROTTLE_SEC = 5 * 60;
 const TICKET_SEC = 5 * 60;
 const SETUP_SEC = 10 * 60;
 const MAX_ATTEMPTS = 5;
-const WINDOW_SEC = 15 * 60;
-const IP_BLOCK_AT = 10;
-const USER_DELAY_AT = 5;
 
 export interface AuthFailure {
   ok: false;
-  status: 400 | 401 | 403 | 404 | 409 | 429;
+  status: 400 | 401 | 403 | 404 | 409 | 429 | 503;
   code: string;
   message: string;
   retryAfter?: number;
+  ipAttemptsLeft?: number;
+  panelAttemptsLeft?: number;
 }
 
 export interface SessionUser {
@@ -62,6 +67,7 @@ export interface Auth {
   login: (input: {
     username: string;
     password: string;
+    turnstileToken: string;
     ip: string;
     userAgent: string;
   }) => Promise<
@@ -90,71 +96,15 @@ export async function createAuth(options: {
   masterKey: Buffer;
   setupToken: () => string | null;
   clearSetupToken: () => void;
+  security: LoginSecurity;
+  verifyTurnstile?: TurnstileVerifier;
   now?: () => number;
 }): Promise<Auth> {
   const nowMs = options.now ?? Date.now;
   const seconds = (): number => Math.floor(nowMs() / 1000);
   const setups = new Map<string, PendingSetup>();
-  const ipFailures = new Map<string, number[]>();
-  const userFailures = new Map<string, number[]>();
-  const ipBlockedUntil = new Map<string, number>();
-  let recentFailures: number[] = [];
   const dummy = await hashPassword(randomBytes(32).toString("base64url"));
-
-  function prune(times: number[], now: number): number[] {
-    return times.filter((time) => now - time < WINDOW_SEC);
-  }
-
-  function noteFailure(ip: string, username: string): void {
-    const now = seconds();
-    const ipTimes = prune(ipFailures.get(ip) ?? [], now);
-    ipTimes.push(now);
-    ipFailures.set(ip, ipTimes);
-    if (ipTimes.length >= IP_BLOCK_AT) ipBlockedUntil.set(ip, now + WINDOW_SEC);
-    const name = username.toLowerCase();
-    const userTimes = prune(userFailures.get(name) ?? [], now);
-    userTimes.push(now);
-    userFailures.set(name, userTimes);
-    recentFailures = prune(recentFailures, now);
-    recentFailures.push(now);
-  }
-
-  function rateProblem(ip: string, username: string): AuthFailure | null {
-    const now = seconds();
-    const blocked = ipBlockedUntil.get(ip) ?? 0;
-    if (blocked > now) {
-      return {
-        ok: false,
-        status: 429,
-        code: "E_RATE_LIMITED",
-        message: "Too many attempts from this address. Wait and try again.",
-        retryAfter: blocked - now,
-      };
-    }
-    const userTimes = prune(userFailures.get(username.toLowerCase()) ?? [], now);
-    if (userTimes.length >= USER_DELAY_AT) {
-      const delay = Math.min(WINDOW_SEC, 2 ** (userTimes.length - USER_DELAY_AT));
-      const last = userTimes[userTimes.length - 1] ?? now;
-      const wait = last + delay - now;
-      if (wait > 0) {
-        return {
-          ok: false,
-          status: 429,
-          code: "E_RATE_LIMITED",
-          message: "Too many attempts for this username. Wait and try again.",
-          retryAfter: wait,
-        };
-      }
-    }
-    return null;
-  }
-
-  async function maybeDelay(): Promise<void> {
-    const now = seconds();
-    recentFailures = prune(recentFailures, now);
-    if (recentFailures.length <= 100) return;
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
+  const verifyTurnstile = options.verifyTurnstile ?? verifyTurnstileToken;
 
   function userCount(): number {
     const row = options.db.prepare("SELECT COUNT(*) AS n FROM users").get() as
@@ -345,9 +295,54 @@ export async function createAuth(options: {
     },
 
     async login(input) {
-      await maybeDelay();
-      const limited = rateProblem(input.ip, input.username);
-      if (limited) return limited;
+      const blocked = options.security.beforeAttempt(input.ip, input.username);
+      if (blocked) return blockFailure(blocked);
+      let security: ReturnType<LoginSecurity["runtime"]>;
+      try {
+        security = options.security.runtime();
+      } catch {
+        return {
+          ok: false,
+          status: 503,
+          code: "E_SECURITY_CONFIG",
+          message:
+            "Login security settings could not be read. Sign in is paused to protect the panel. Check the panel logs over SSH.",
+        };
+      }
+      if (security.turnstile.enabled) {
+        if (!input.turnstileToken) {
+          return {
+            ok: false,
+            status: 403,
+            code: "E_TURNSTILE_REQUIRED",
+            message: "Complete the security check before signing in.",
+          };
+        }
+        let verified: boolean;
+        try {
+          verified = await verifyTurnstile({
+            secret: security.turnstile.secret,
+            token: input.turnstileToken,
+            ip: input.ip,
+          });
+        } catch (error) {
+          if (!(error instanceof TurnstileUnavailableError)) throw error;
+          return {
+            ok: false,
+            status: 503,
+            code: "E_TURNSTILE_UNAVAILABLE",
+            message: "The security check could not be verified. Wait a moment and try again.",
+          };
+        }
+        if (!verified) {
+          return {
+            ok: false,
+            status: 403,
+            code: "E_TURNSTILE_FAILED",
+            message: "The security check failed or expired. Complete it again.",
+          };
+        }
+      }
       const row = one<{
         id: string;
         password_hash: string | null;
@@ -361,14 +356,32 @@ export async function createAuth(options: {
       const hash = row?.password_hash ?? dummy;
       const valid = await verifyPassword(hash, input.password);
       if (!row || !row.password_hash || row.status !== "active" || !valid) {
-        noteFailure(input.ip, input.username);
+        const failure = options.security.noteFailure(input.ip, input.username);
+        if (failure.block) {
+          return {
+            ...blockFailure(failure.block),
+            ...(failure.ipAttemptsLeft === undefined
+              ? {}
+              : { ipAttemptsLeft: failure.ipAttemptsLeft }),
+            ...(failure.panelAttemptsLeft === undefined
+              ? {}
+              : { panelAttemptsLeft: failure.panelAttemptsLeft }),
+          };
+        }
         return {
           ok: false,
           status: 401,
           code: "E_UNAUTHENTICATED",
           message: "Invalid username or password.",
+          ...(failure.ipAttemptsLeft === undefined
+            ? {}
+            : { ipAttemptsLeft: failure.ipAttemptsLeft }),
+          ...(failure.panelAttemptsLeft === undefined
+            ? {}
+            : { panelAttemptsLeft: failure.panelAttemptsLeft }),
         };
       }
+      options.security.resetFailures(input.ip, input.username);
       if (!row.totp_secret_enc) {
         return {
           ok: true,
@@ -503,6 +516,16 @@ export async function createAuth(options: {
     close() {
       options.db.close();
     },
+  };
+}
+
+function blockFailure(block: LoginBlock): AuthFailure {
+  return {
+    ok: false,
+    status: 429,
+    code: block.code,
+    message: block.message,
+    ...(block.retryAfter === undefined ? {} : { retryAfter: block.retryAfter }),
   };
 }
 

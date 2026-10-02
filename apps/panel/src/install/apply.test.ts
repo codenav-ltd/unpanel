@@ -61,6 +61,8 @@ describe("installPanel", () => {
     await installPanel(plan, fake.host);
     expect(fake.files.get("/etc/systemd/system/unpanel.service")).toContain("User=unpanel");
     expect(fake.files.get("/etc/systemd/system/unpanel-agent.service")).toContain("User=root");
+    expect(fake.files.get(product.paths.manageBin)).toContain("apps/panel/src/manage.ts");
+    expect(fake.files.get(product.paths.manageBin)).toContain('"$@"');
     expect(fake.files.get("/etc/unpanel/panel.pem")).toBe("PRIVATE");
     expect(fake.commands).toContain("systemctl restart unpanel.service");
     expect(fake.commands).toContain("systemctl restart unpanel-agent.service");

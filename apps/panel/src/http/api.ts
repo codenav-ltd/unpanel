@@ -16,6 +16,7 @@ import { product } from "@unpanel/shared";
 import { backupFilename } from "../backup/panel.ts";
 import type { Audit, AuditInput } from "../audit/log.ts";
 import type { Auth, AuthFailure } from "../auth/service.ts";
+import { LoginSecurityError, type LoginSecurity } from "../auth/security.ts";
 import { blankNodeLive, HubCallError, type LocalSnapshot, type NodeLive } from "../hub.ts";
 import type { HistorySeries } from "../metrics/history.ts";
 import { enrollmentScripts } from "../nodes/enroll-script.ts";
@@ -36,6 +37,7 @@ export function createApi(options: {
   exportDb: (dest: string) => Promise<void>;
   stageRestore: (bytes: Uint8Array) => void;
   settings: Settings;
+  security: LoginSecurity;
   catalog: NodeCatalog;
   panelPublicKeyPem: string;
   history: (nodeId: string, minutes: number) => HistorySeries;
@@ -43,9 +45,11 @@ export function createApi(options: {
   secureCookie: boolean;
   checkUpdate: () => Promise<UpdateView>;
   applyUpdate: () => Promise<{ accepted: true; version: string }>;
+  applyAgentUpdate: (nodeId: string) => Promise<{ accepted: true; version: string }>;
   onSettings?: () => void;
 }): Hono {
   const app = new Hono();
+  const settingsView = () => ({ ...options.settings.view(), security: options.security.view() });
 
   app.use("*", async (c, next) => {
     await next();
@@ -86,8 +90,17 @@ export function createApi(options: {
 
   app.get("/api/v1/auth/state", (c) => {
     const initialized = options.auth.initialized();
+    const turnstile = options.security.view().turnstile;
     return c.json(
-      initialized ? { initialized: true, methods: ["password"] } : { initialized: false },
+      initialized
+        ? {
+            initialized: true,
+            methods: ["password"],
+            turnstile: turnstile.enabled
+              ? { enabled: true, siteKey: turnstile.siteKey }
+              : { enabled: false },
+          }
+        : { initialized: false },
     );
   });
 
@@ -160,6 +173,7 @@ export function createApi(options: {
     const result = await options.auth.login({
       username,
       password: field(body, "password"),
+      turnstileToken: field(body, "turnstileToken"),
       ip: clientIp(c),
       userAgent: c.req.header("user-agent") ?? "",
     });
@@ -443,10 +457,56 @@ export function createApi(options: {
     }
   });
 
+  app.post("/api/v1/nodes/:id/update", async (c) => {
+    const user = options.auth.sessionUser(sessionToken(c));
+    if (!user) return unauthenticated(c);
+    const nodeId = c.req.param("id");
+    const startedAt = Date.now();
+    try {
+      const result = await options.applyAgentUpdate(nodeId);
+      options.audit.record({
+        action: "agent.update",
+        result: "ok",
+        actorKind: "user",
+        actorId: user.username,
+        ip: clientIp(c),
+        nodeId,
+        params: { version: result.version },
+        durationMs: Date.now() - startedAt,
+      });
+      return c.json({ data: result });
+    } catch (error) {
+      const known = error instanceof UpdateError || error instanceof HubCallError;
+      const code = known ? error.code : "E_INTERNAL";
+      const reason =
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "The panel failed before it could confirm the agent update.";
+      const message = known
+        ? reason
+        : `${reason} The update may already be running; check the node and Logs before trying again.`;
+      options.audit.record({
+        action: "agent.update",
+        result: "error",
+        actorKind: "user",
+        actorId: user.username,
+        ip: clientIp(c),
+        nodeId,
+        errorCode: code,
+        params: { detail: message },
+        durationMs: Date.now() - startedAt,
+      });
+      return c.json(
+        { error: { code, message } },
+        httpStatusFor(code) as 400 | 403 | 404 | 409 | 412 | 429 | 500 | 501 | 502 | 503 | 504,
+      );
+    }
+  });
+
   app.get("/api/v1/settings", (c) => {
     const user = options.auth.sessionUser(sessionToken(c));
     if (!user) return unauthenticated(c);
-    return c.json({ data: options.settings.view() });
+    return c.json({ data: settingsView() });
   });
 
   app.patch("/api/v1/settings", async (c) => {
@@ -465,8 +525,11 @@ export function createApi(options: {
         options.settings.setOps(opsPatch(body["ops"]), user.username);
         options.onSettings?.();
       }
+      if (isRecord(body["security"])) {
+        options.security.update(body["security"], user.username);
+      }
     } catch (error) {
-      if (error instanceof SettingsError) {
+      if (error instanceof SettingsError || error instanceof LoginSecurityError) {
         return c.json({ error: { code: "E_INVALID_PARAMS", message: error.message } }, 400);
       }
       throw error;
@@ -482,7 +545,38 @@ export function createApi(options: {
         publicUrl: options.settings.view().publicUrl,
       },
     });
-    return c.json({ data: options.settings.view() });
+    return c.json({ data: settingsView() });
+  });
+
+  app.get("/api/v1/security/bans", (c) => {
+    const user = options.auth.sessionUser(sessionToken(c));
+    if (!user) return unauthenticated(c);
+    return c.json({ data: options.security.bannedIps() });
+  });
+
+  app.delete("/api/v1/security/bans", async (c) => {
+    const user = options.auth.sessionUser(sessionToken(c));
+    if (!user) return unauthenticated(c);
+    const body = await readJson(c);
+    if (!body) return invalid(c);
+    const ip = field(body, "ip").trim();
+    if (!ip || ip.length > 64) {
+      return c.json(
+        { error: { code: "E_INVALID_PARAMS", message: "Choose a valid blocked address." } },
+        400,
+      );
+    }
+    const removed = options.security.unbanIp(ip);
+    options.audit.record({
+      action: "security.ip.unban",
+      result: "ok",
+      actorKind: "user",
+      actorId: user.username,
+      ip: clientIp(c),
+      target: ip,
+      params: { removed },
+    });
+    return c.json({ data: { removed } });
   });
 
   app.post("/api/v1/me/password", async (c) => {
@@ -999,5 +1093,18 @@ function unauthenticated(c: Context): Response {
 
 function failure(c: Context, result: AuthFailure): Response {
   if (result.retryAfter !== undefined) c.header("retry-after", String(result.retryAfter));
-  return c.json({ error: { code: result.code, message: result.message } }, result.status);
+  return c.json(
+    {
+      error: {
+        code: result.code,
+        message: result.message,
+        ...(result.retryAfter === undefined ? {} : { retryAfter: result.retryAfter }),
+        ...(result.ipAttemptsLeft === undefined ? {} : { ipAttemptsLeft: result.ipAttemptsLeft }),
+        ...(result.panelAttemptsLeft === undefined
+          ? {}
+          : { panelAttemptsLeft: result.panelAttemptsLeft }),
+      },
+    },
+    result.status,
+  );
 }

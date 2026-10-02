@@ -50,6 +50,7 @@ export const panelUpgradeResultSchema = z.object({
 });
 
 export type PanelUpgradeResult = z.infer<typeof panelUpgradeResultSchema>;
+export type AgentUpgradeResult = PanelUpgradeResult;
 
 /**
  * Download and verify happen before the reply, so a bad package never restarts
@@ -68,4 +69,23 @@ export const panelUpgrade = defineMethod({
   }),
   result: panelUpgradeResultSchema,
   since: "1.0",
+});
+
+/**
+ * A remote agent downloads the release for its own architecture, verifies the
+ * published hash, swaps its install, and reconnects to the panel.
+ */
+export const agentUpgrade = defineMethod({
+  name: "agent.upgrade",
+  capability: "control",
+  risk: "danger",
+  permission: "agent:upgrade",
+  timeoutMs: 180_000,
+  params: z.object({
+    version: z.string().min(1),
+    url: z.string().url(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  }),
+  result: panelUpgradeResultSchema,
+  since: "1.1",
 });

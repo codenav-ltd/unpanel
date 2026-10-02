@@ -29,8 +29,12 @@ export async function installPanel(
 ): Promise<void> {
   assertServiceNode(plan.nodePath);
   if (plan.bundled) {
-    if (!host.exists(`${plan.root}/panel.cjs`) || !host.exists(`${plan.root}/agent.cjs`)) {
-      throw new Error("The release package is missing panel.cjs or agent.cjs.");
+    if (
+      !host.exists(`${plan.root}/panel.cjs`) ||
+      !host.exists(`${plan.root}/agent.cjs`) ||
+      !host.exists(`${plan.root}/manage.cjs`)
+    ) {
+      throw new Error("The release package is missing panel.cjs, agent.cjs, or manage.cjs.");
     }
   } else {
     const tsx = `${plan.root}/node_modules/tsx/dist/cli.mjs`;
@@ -73,6 +77,7 @@ export async function installPanel(
   host.write(`${plan.etc}/panel.env`, panelEnvironment(plan), 0o640);
   host.own(`${plan.etc}/panel.env`, 0, user.gid, 0o640);
   host.write(`${plan.agentEtc}/agent.env`, agentEnvironment(plan), 0o600);
+  host.write(product.paths.manageBin, manageScript(plan), 0o755);
   host.write(`/etc/systemd/system/${product.units.panel}`, panelService(plan), 0o644);
   host.write(`/etc/systemd/system/${product.units.agent}`, agentService(plan), 0o644);
 
@@ -82,6 +87,13 @@ export async function installPanel(
   if (options.restartAgent !== false) {
     await host.command("systemctl", ["restart", product.units.agent], plan.root);
   }
+}
+
+function manageScript(plan: InstallPlan): string {
+  const entry = plan.bundled
+    ? `${plan.nodePath} ${plan.root}/manage.cjs`
+    : `${plan.nodePath} ${plan.root}/node_modules/tsx/dist/cli.mjs ${plan.root}/apps/panel/src/manage.ts`;
+  return `#!/bin/sh\nexec ${entry} "$@"\n`;
 }
 
 function ensureKey(

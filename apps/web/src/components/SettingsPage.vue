@@ -3,12 +3,20 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
-import { product } from "@unpanel/shared";
+import {
+  CloudSyncOutlined,
+  DashboardOutlined,
+  InfoCircleOutlined,
+  SafetyCertificateOutlined,
+  WarningOutlined,
+} from "@ant-design/icons-vue";
+import { compareVersions, product } from "@unpanel/shared";
 import { computed, onMounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
+import type { BanDurationMode, LoginSecuritySettings, RateLimitMode } from "../security.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
-import ChoiceField from "./ChoiceField.vue";
+import SelectField from "./SelectField.vue";
 
 export interface PanelOps {
   pollSec: 2 | 5 | 10 | 30;
@@ -17,25 +25,49 @@ export interface PanelOps {
   autoUpdate: boolean;
 }
 
+export interface UpdateNode {
+  id: string;
+  name: string;
+  hostname: string | null;
+  status: "pending" | "active" | "disabled";
+  online: boolean;
+  arch: string | null;
+  agentVersion: string | null;
+  canUpdateAgent: boolean;
+}
+
+interface BannedIp {
+  ip: string;
+  failures: number;
+  createdAt: number;
+  expiresAt: number | null;
+}
+
 const props = defineProps<{
   username: string;
   theme: ThemeName;
   publicUrl: string;
-  section: "panel" | "security" | "about";
+  section: "panel" | "security" | "updates" | "about";
   ops: PanelOps;
+  security: LoginSecuritySettings;
+  nodes: UpdateNode[];
 }>();
 const emit = defineEmits<{
   theme: [ThemeName];
   publicUrl: [string];
-  section: ["panel" | "security" | "about"];
+  section: ["panel" | "security" | "updates" | "about"];
   ops: [PanelOps];
+  security: [LoginSecuritySettings];
+  updateFound: [version: string];
+  refreshNodes: [];
+  openNode: [id: string];
 }>();
 
-type Section = "panel" | "security" | "about";
-const sections: { id: Section; label: string }[] = [
-  { id: "panel", label: en.settings.panel },
-  { id: "security", label: en.settings.security },
-  { id: "about", label: en.shell.about },
+const sections = [
+  { id: "panel" as const, label: en.settings.panel, icon: DashboardOutlined },
+  { id: "security" as const, label: en.settings.security, icon: SafetyCertificateOutlined },
+  { id: "updates" as const, label: en.updates.title, icon: CloudSyncOutlined },
+  { id: "about" as const, label: en.shell.about, icon: InfoCircleOutlined },
 ];
 
 const theme = ref<ThemeName>(props.theme);
@@ -61,6 +93,41 @@ const updateState = ref<"checking" | "current" | "available" | "error" | "workin
 const updateVersion = ref("");
 const updateNotes = ref("");
 const updateError = ref("");
+const agentBusy = ref("");
+const agentResult = ref<Record<string, { kind: "working" | "success" | "error"; text: string }>>(
+  {},
+);
+const restrictionsEnabled = ref(props.security.loginRestrictions.enabled);
+const rateEnabled = ref(props.security.loginRestrictions.rateLimit.enabled);
+const rateMode = ref<RateLimitMode>(props.security.loginRestrictions.rateLimit.mode);
+const rateAttempts = ref(props.security.loginRestrictions.rateLimit.attempts);
+const rateWaitSec = ref(props.security.loginRestrictions.rateLimit.waitSec);
+const banIpEnabled = ref(props.security.loginRestrictions.banIp.enabled);
+const banIpAttempts = ref(props.security.loginRestrictions.banIp.attempts);
+const banIpDuration = ref<BanDurationMode>(props.security.loginRestrictions.banIp.duration);
+const banIpSeconds = ref(props.security.loginRestrictions.banIp.seconds);
+const banPanelEnabled = ref(props.security.loginRestrictions.banPanel.enabled);
+const banPanelAttempts = ref(props.security.loginRestrictions.banPanel.attempts);
+const banPanelDuration = ref<BanDurationMode>(props.security.loginRestrictions.banPanel.duration);
+const banPanelSeconds = ref(props.security.loginRestrictions.banPanel.seconds);
+const turnstileEnabled = ref(props.security.turnstile.enabled);
+const turnstileSiteKey = ref(props.security.turnstile.siteKey);
+const turnstileSecret = ref("");
+const turnstileSecretConfigured = ref(props.security.turnstile.secretConfigured);
+const clearTurnstileSecret = ref(false);
+const restrictionError = ref("");
+const restrictionNote = ref("");
+const turnstileError = ref("");
+const turnstileNote = ref("");
+const bannedIps = ref<BannedIp[]>([]);
+const bansLoading = ref(false);
+const bansError = ref("");
+const bansNote = ref("");
+const unbanBusy = ref("");
+const remoteNodes = computed(() => props.nodes.filter((node) => node.id !== "local"));
+const panelBlocksAgentUpdates = computed(
+  () => updateState.value !== "current" || Boolean(updateVersion.value),
+);
 
 const themes: { id: ThemeName; label: string }[] = [
   { id: "dark", label: en.shell.themeDark },
@@ -84,6 +151,14 @@ const updateOptions: { value: PanelOps["updateHours"]; label: string }[] = [
   { value: 1, label: en.shell.updateHour },
   { value: 6, label: en.shell.updateHours.replace("{hours}", "6") },
   { value: 24, label: en.shell.updateHours.replace("{hours}", "24") },
+];
+const rateModeOptions: { value: RateLimitMode; label: string }[] = [
+  { value: "default", label: en.settings.rateDefault },
+  { value: "custom", label: en.settings.rateCustom },
+];
+const durationOptions: { value: BanDurationMode; label: string }[] = [
+  { value: "temporary", label: en.settings.temporary },
+  { value: "permanent", label: en.settings.permanent },
 ];
 
 const strength = computed(() => {
@@ -115,6 +190,198 @@ watch(
     autoUpdate.value = next.autoUpdate;
   },
 );
+
+watch(
+  () => props.security,
+  (next) => applySecurity(next),
+  { deep: true },
+);
+
+watch(
+  () => props.section,
+  (next) => {
+    if (next === "security") void loadBans();
+  },
+);
+
+watch(banIpEnabled, (enabled) => {
+  if (enabled && props.section === "security") void loadBans();
+  if (!enabled) bannedIps.value = [];
+});
+
+function applySecurity(next: LoginSecuritySettings): void {
+  restrictionsEnabled.value = next.loginRestrictions.enabled;
+  rateEnabled.value = next.loginRestrictions.rateLimit.enabled;
+  rateMode.value = next.loginRestrictions.rateLimit.mode;
+  rateAttempts.value = next.loginRestrictions.rateLimit.attempts;
+  rateWaitSec.value = next.loginRestrictions.rateLimit.waitSec;
+  banIpEnabled.value = next.loginRestrictions.banIp.enabled;
+  banIpAttempts.value = next.loginRestrictions.banIp.attempts;
+  banIpDuration.value = next.loginRestrictions.banIp.duration;
+  banIpSeconds.value = next.loginRestrictions.banIp.seconds;
+  banPanelEnabled.value = next.loginRestrictions.banPanel.enabled;
+  banPanelAttempts.value = next.loginRestrictions.banPanel.attempts;
+  banPanelDuration.value = next.loginRestrictions.banPanel.duration;
+  banPanelSeconds.value = next.loginRestrictions.banPanel.seconds;
+  turnstileEnabled.value = next.turnstile.enabled;
+  turnstileSiteKey.value = next.turnstile.siteKey;
+  turnstileSecretConfigured.value = next.turnstile.secretConfigured;
+}
+
+function restrictionsPayload(): LoginSecuritySettings["loginRestrictions"] {
+  return {
+    enabled: restrictionsEnabled.value,
+    rateLimit: {
+      enabled: rateEnabled.value,
+      mode: rateMode.value,
+      attempts: Number(rateAttempts.value),
+      waitSec: Number(rateWaitSec.value),
+    },
+    banIp: {
+      enabled: banIpEnabled.value,
+      attempts: Number(banIpAttempts.value),
+      duration: banIpDuration.value,
+      seconds: Number(banIpSeconds.value),
+    },
+    banPanel: {
+      enabled: banPanelEnabled.value,
+      attempts: Number(banPanelAttempts.value),
+      duration: banPanelDuration.value,
+      seconds: Number(banPanelSeconds.value),
+    },
+  };
+}
+
+async function saveRestrictions(): Promise<void> {
+  if (busy.value) return;
+  busy.value = "restrictions";
+  restrictionError.value = "";
+  restrictionNote.value = "";
+  try {
+    const response = await fetch("/api/v1/settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ security: { loginRestrictions: restrictionsPayload() } }),
+    });
+    if (!response.ok) {
+      restrictionError.value = await readProblem(response, "save login restrictions");
+      return;
+    }
+    const body = (await response.json()) as { data: { security: LoginSecuritySettings } };
+    applySecurity(body.data.security);
+    emit("security", body.data.security);
+    restrictionNote.value = en.settings.securitySaved;
+    await loadBans();
+  } catch {
+    restrictionError.value = replyNotReceived(
+      "save login restrictions",
+      "Reload Security to check the saved policy before trying again.",
+    );
+  } finally {
+    busy.value = "";
+  }
+}
+
+async function saveTurnstile(): Promise<void> {
+  if (busy.value) return;
+  busy.value = "turnstile";
+  turnstileError.value = "";
+  turnstileNote.value = "";
+  try {
+    const turnstile: Record<string, unknown> = {
+      enabled: turnstileEnabled.value,
+      siteKey: turnstileSiteKey.value,
+    };
+    if (turnstileSecret.value.trim()) turnstile["secret"] = turnstileSecret.value;
+    if (clearTurnstileSecret.value) turnstile["clearSecret"] = true;
+    const response = await fetch("/api/v1/settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ security: { turnstile } }),
+    });
+    if (!response.ok) {
+      turnstileError.value = await readProblem(response, "save Turnstile settings");
+      return;
+    }
+    const body = (await response.json()) as { data: { security: LoginSecuritySettings } };
+    turnstileSecret.value = "";
+    clearTurnstileSecret.value = false;
+    applySecurity(body.data.security);
+    emit("security", body.data.security);
+    turnstileNote.value = en.settings.securitySaved;
+  } catch {
+    turnstileError.value = replyNotReceived(
+      "save Turnstile settings",
+      "Reload Security to check whether verification is enabled before trying again.",
+    );
+  } finally {
+    busy.value = "";
+  }
+}
+
+function removeTurnstileSecret(): void {
+  turnstileEnabled.value = false;
+  turnstileSecret.value = "";
+  clearTurnstileSecret.value = true;
+  turnstileNote.value = en.settings.turnstileSecretWillRemove;
+}
+
+async function loadBans(): Promise<void> {
+  if (bansLoading.value || !banIpEnabled.value) {
+    if (!banIpEnabled.value) bannedIps.value = [];
+    return;
+  }
+  bansLoading.value = true;
+  bansError.value = "";
+  try {
+    const response = await fetch("/api/v1/security/bans");
+    if (!response.ok) {
+      bansError.value = await readProblem(response, "load blocked addresses");
+      return;
+    }
+    const body = (await response.json()) as { data: BannedIp[] };
+    bannedIps.value = body.data;
+  } catch {
+    bansError.value = couldNotReach("load blocked addresses");
+  } finally {
+    bansLoading.value = false;
+  }
+}
+
+async function unban(ip: string): Promise<void> {
+  if (unbanBusy.value) return;
+  unbanBusy.value = ip;
+  bansError.value = "";
+  bansNote.value = "";
+  try {
+    const response = await fetch("/api/v1/security/bans", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ip }),
+    });
+    if (!response.ok) {
+      bansError.value = await readProblem(response, "unblock this address");
+      return;
+    }
+    bannedIps.value = bannedIps.value.filter((entry) => entry.ip !== ip);
+    bansNote.value = en.settings.unblockSuccess;
+  } catch {
+    bansError.value = replyNotReceived(
+      "unblock this address",
+      "Reload the blocked-address list before trying again.",
+    );
+  } finally {
+    unbanBusy.value = "";
+  }
+}
+
+function blockedUntil(entry: BannedIp): string {
+  if (entry.expiresAt === null) return en.settings.blockedPermanent;
+  return en.settings.blockedUntil.replace(
+    "{time}",
+    new Date(entry.expiresAt * 1000).toLocaleString(),
+  );
+}
 
 async function saveTheme(nextTheme: ThemeName): Promise<void> {
   if (busy.value) return;
@@ -276,9 +543,11 @@ async function checkUpdates(): Promise<void> {
       updateState.value = "available";
       updateVersion.value = body.data.update.version;
       updateNotes.value = body.data.update.notes ?? "";
+      emit("updateFound", updateVersion.value);
       return;
     }
     updateState.value = "current";
+    emit("updateFound", "");
   } catch {
     updateState.value = "error";
     updateError.value = couldNotReach("check for updates");
@@ -301,13 +570,115 @@ async function applyUpdate(): Promise<void> {
     updateState.value = "error";
     updateError.value = replyNotReceived(
       "install the update",
-      "The update may already be running. Wait a minute, then reload About before trying again.",
+      "The update may already be running. Wait a minute, then reload Updates before trying again.",
     );
   }
 }
 
+function updateNodeName(node: UpdateNode): string {
+  return node.name || node.hostname || en.shell.localNode;
+}
+
+function nodeVersionState(node: UpdateNode): "current" | "outdated" | "ahead" | "unknown" {
+  if (!node.agentVersion) return "unknown";
+  const compared = compareVersions(node.agentVersion, product.version);
+  if (compared === null) return "unknown";
+  if (compared < 0) return "outdated";
+  if (compared > 0) return "ahead";
+  return "current";
+}
+
+function nodeUpdateLabel(node: UpdateNode): string {
+  if (node.status === "pending") return en.updates.nodePending;
+  if (node.status === "disabled") return en.updates.nodeDisabled;
+  const state = nodeVersionState(node);
+  if (state === "unknown") return en.updates.nodeUnknown;
+  if (state === "ahead") return en.updates.nodeAhead;
+  if (state === "current") return en.updates.nodeCurrent;
+  if (updateState.value === "checking") return en.updates.waitingForPanelCheck;
+  if (updateState.value === "error") return en.updates.resolvePanelCheck;
+  if (panelBlocksAgentUpdates.value) return en.updates.panelFirst;
+  if (!node.online) return en.updates.nodeOffline;
+  if (!node.canUpdateAgent) return en.updates.nodeManual;
+  return en.updates.nodeOutdated;
+}
+
+function canUpdateNode(node: UpdateNode): boolean {
+  return (
+    node.status === "active" &&
+    node.online &&
+    node.canUpdateAgent &&
+    nodeVersionState(node) === "outdated" &&
+    !panelBlocksAgentUpdates.value &&
+    !agentBusy.value
+  );
+}
+
+async function updateAgent(node: UpdateNode): Promise<void> {
+  if (!canUpdateNode(node)) return;
+  agentBusy.value = node.id;
+  agentResult.value = {
+    ...agentResult.value,
+    [node.id]: { kind: "working", text: en.updates.agentDownloading },
+  };
+  try {
+    const response = await fetch(`/api/v1/nodes/${encodeURIComponent(node.id)}/update`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      agentResult.value = {
+        ...agentResult.value,
+        [node.id]: { kind: "error", text: await readProblem(response, "update this agent") },
+      };
+      return;
+    }
+    agentResult.value = {
+      ...agentResult.value,
+      [node.id]: { kind: "working", text: en.updates.agentReconnecting },
+    };
+    const current = await waitForAgent(node.id);
+    agentResult.value = {
+      ...agentResult.value,
+      [node.id]: current
+        ? { kind: "success", text: en.updates.agentUpdated }
+        : { kind: "error", text: en.updates.agentReconnectFailed },
+    };
+    emit("refreshNodes");
+  } catch {
+    agentResult.value = {
+      ...agentResult.value,
+      [node.id]: {
+        kind: "error",
+        text: replyNotReceived(
+          "update this agent",
+          "The update may already be running. Wait for the node to reconnect before trying again.",
+        ),
+      },
+    };
+  } finally {
+    agentBusy.value = "";
+  }
+}
+
+async function waitForAgent(nodeId: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    try {
+      const response = await fetch("/api/v1/nodes");
+      if (!response.ok) continue;
+      const body = (await response.json()) as { data?: UpdateNode[] };
+      const node = body.data?.find((item) => item.id === nodeId);
+      if (node?.online && node.agentVersion === product.version) return true;
+    } catch {
+      // The agent normally disappears briefly while its service restarts.
+    }
+  }
+  return false;
+}
+
 onMounted(() => {
   void checkUpdates();
+  if (props.section === "security") void loadBans();
 });
 </script>
 
@@ -322,7 +693,8 @@ onMounted(() => {
         :aria-current="section === item.id ? 'true' : undefined"
         @click="emit('section', item.id)"
       >
-        {{ item.label }}
+        <component :is="item.icon" aria-hidden="true" />
+        <span>{{ item.label }}</span>
       </button>
     </nav>
     <div v-if="section === 'panel'" class="page-stack">
@@ -372,20 +744,20 @@ onMounted(() => {
         <span class="vital-kicker">{{ en.shell.pollLabel }}</span>
         <p class="hint">{{ en.shell.pollHint }}</p>
         <form @submit.prevent="saveOps">
-          <ChoiceField
+          <SelectField
             v-model="pollSec"
             :label="en.shell.pollLabel"
             :options="pollOptions"
             :disabled="Boolean(busy)"
           />
-          <ChoiceField
+          <SelectField
             v-model="historyDays"
             :label="en.shell.historyLabel"
             :options="historyOptions"
             :disabled="Boolean(busy)"
           />
           <p class="hint">{{ en.shell.historyKeepHint }}</p>
-          <ChoiceField
+          <SelectField
             v-model="updateHours"
             :label="en.shell.updateEvery"
             :options="updateOptions"
@@ -422,8 +794,274 @@ onMounted(() => {
     </div>
     <div v-else-if="section === 'security'" class="page-stack">
       <section class="wide">
-        <span class="vital-kicker">{{ en.shell.loginProtection }}</span>
-        <p class="hint">{{ en.shell.loginProtectionHint }}</p>
+        <span class="vital-kicker">{{ en.settings.turnstile }}</span>
+        <p class="hint">{{ en.settings.turnstileHint }}</p>
+        <form @submit.prevent="saveTurnstile">
+          <div class="switch-row">
+            <span id="turnstile-label">{{ en.settings.turnstileEnable }}</span>
+            <button
+              type="button"
+              class="switch"
+              role="switch"
+              :aria-checked="turnstileEnabled"
+              aria-labelledby="turnstile-label"
+              :disabled="Boolean(busy)"
+              @click="turnstileEnabled = !turnstileEnabled"
+            >
+              <span class="switch-thumb" />
+            </button>
+          </div>
+          <div class="security-fields">
+            <label class="field">
+              <span>{{ en.settings.turnstileSiteKey }}</span>
+              <input
+                v-model="turnstileSiteKey"
+                autocomplete="off"
+                maxlength="200"
+                placeholder="0x4AAAAAAA…"
+              />
+            </label>
+            <label class="field">
+              <span>{{ en.settings.turnstileSecretKey }}</span>
+              <input
+                v-model="turnstileSecret"
+                type="password"
+                autocomplete="new-password"
+                maxlength="500"
+                placeholder="0x4AAAAAAA…"
+                @input="clearTurnstileSecret = false"
+              />
+            </label>
+          </div>
+          <p class="hint">
+            {{
+              turnstileSecretConfigured && !clearTurnstileSecret
+                ? en.settings.turnstileSecretStored
+                : en.settings.turnstileSecretMissing
+            }}
+          </p>
+          <p v-if="clearTurnstileSecret" class="security-warning" role="status">
+            <WarningOutlined aria-hidden="true" />
+            <span>{{ en.settings.turnstileSecretWillRemove }}</span>
+          </p>
+          <p v-if="turnstileError" class="form-error" role="alert">{{ turnstileError }}</p>
+          <p v-else-if="turnstileNote" class="form-warn" role="status">{{ turnstileNote }}</p>
+          <div class="actions">
+            <button type="submit" :disabled="Boolean(busy)">
+              {{ busy === "turnstile" ? en.shell.saving : en.settings.saveTurnstile }}
+            </button>
+            <button
+              v-if="turnstileSecretConfigured && !clearTurnstileSecret"
+              type="button"
+              class="quiet"
+              :disabled="Boolean(busy)"
+              @click="removeTurnstileSecret"
+            >
+              {{ en.settings.turnstileRemoveSecret }}
+            </button>
+          </div>
+        </form>
+      </section>
+      <section class="wide">
+        <span class="vital-kicker">{{ en.settings.restrictions }}</span>
+        <p class="hint">{{ en.settings.restrictionsHint }}</p>
+        <form @submit.prevent="saveRestrictions">
+          <div class="switch-row security-master">
+            <span id="restrictions-label">{{ en.settings.restrictionsEnable }}</span>
+            <button
+              type="button"
+              class="switch"
+              role="switch"
+              :aria-checked="restrictionsEnabled"
+              aria-labelledby="restrictions-label"
+              :disabled="Boolean(busy)"
+              @click="restrictionsEnabled = !restrictionsEnabled"
+            >
+              <span class="switch-thumb" />
+            </button>
+          </div>
+          <p v-if="!restrictionsEnabled" class="security-warning" role="status">
+            <WarningOutlined aria-hidden="true" />
+            <span>{{ en.settings.restrictionsOff }}</span>
+          </p>
+          <fieldset class="security-policy" :disabled="!restrictionsEnabled || Boolean(busy)">
+            <div class="security-rule">
+              <div class="security-rule-head">
+                <div>
+                  <strong>{{ en.settings.rateLimit }}</strong>
+                  <p class="hint">{{ en.settings.rateLimitHint }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="switch"
+                  role="switch"
+                  :aria-checked="rateEnabled"
+                  :aria-label="en.settings.rateLimit"
+                  @click="rateEnabled = !rateEnabled"
+                >
+                  <span class="switch-thumb" />
+                </button>
+              </div>
+              <div v-if="rateEnabled" class="security-rule-body">
+                <SelectField
+                  v-model="rateMode"
+                  :label="en.settings.rateMode"
+                  :options="rateModeOptions"
+                />
+                <p v-if="rateMode === 'default'" class="hint">
+                  {{ en.settings.rateDefaultHint }}
+                </p>
+                <div v-else class="security-number-grid">
+                  <label class="field">
+                    <span>{{ en.settings.attempts }}</span>
+                    <input v-model.number="rateAttempts" type="number" min="3" max="100" required />
+                  </label>
+                  <label class="field">
+                    <span>{{ en.settings.waitSeconds }}</span>
+                    <input
+                      v-model.number="rateWaitSec"
+                      type="number"
+                      min="1"
+                      max="31536000"
+                      required
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="security-rule">
+              <div class="security-rule-head">
+                <div>
+                  <strong>{{ en.settings.banIp }}</strong>
+                  <p class="hint">{{ en.settings.banIpHint }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="switch"
+                  role="switch"
+                  :aria-checked="banIpEnabled"
+                  :aria-label="en.settings.banIp"
+                  @click="banIpEnabled = !banIpEnabled"
+                >
+                  <span class="switch-thumb" />
+                </button>
+              </div>
+              <div v-if="banIpEnabled" class="security-rule-body security-number-grid">
+                <label class="field">
+                  <span>{{ en.settings.attempts }}</span>
+                  <input v-model.number="banIpAttempts" type="number" min="3" max="100" required />
+                </label>
+                <SelectField
+                  v-model="banIpDuration"
+                  :label="en.settings.duration"
+                  :options="durationOptions"
+                />
+                <label v-if="banIpDuration === 'temporary'" class="field">
+                  <span>{{ en.settings.seconds }}</span>
+                  <input
+                    v-model.number="banIpSeconds"
+                    type="number"
+                    min="1"
+                    max="31536000"
+                    required
+                  />
+                </label>
+              </div>
+            </div>
+            <div class="security-rule">
+              <div class="security-rule-head">
+                <div>
+                  <strong>{{ en.settings.banPanel }}</strong>
+                  <p class="hint">{{ en.settings.banPanelHint }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="switch"
+                  role="switch"
+                  :aria-checked="banPanelEnabled"
+                  :aria-label="en.settings.banPanel"
+                  @click="banPanelEnabled = !banPanelEnabled"
+                >
+                  <span class="switch-thumb" />
+                </button>
+              </div>
+              <template v-if="banPanelEnabled">
+                <p class="security-warning" role="status">
+                  <WarningOutlined aria-hidden="true" />
+                  <span>{{ en.settings.panelLockWarning }}</span>
+                </p>
+                <div class="security-rule-body security-number-grid">
+                  <label class="field">
+                    <span>{{ en.settings.attempts }}</span>
+                    <input
+                      v-model.number="banPanelAttempts"
+                      type="number"
+                      min="3"
+                      max="100"
+                      required
+                    />
+                  </label>
+                  <SelectField
+                    v-model="banPanelDuration"
+                    :label="en.settings.duration"
+                    :options="durationOptions"
+                  />
+                  <label v-if="banPanelDuration === 'temporary'" class="field">
+                    <span>{{ en.settings.seconds }}</span>
+                    <input
+                      v-model.number="banPanelSeconds"
+                      type="number"
+                      min="1"
+                      max="31536000"
+                      required
+                    />
+                  </label>
+                </div>
+              </template>
+            </div>
+          </fieldset>
+          <p v-if="restrictionError" class="form-error" role="alert">{{ restrictionError }}</p>
+          <p v-else-if="restrictionNote" class="form-warn" role="status">
+            {{ restrictionNote }}
+          </p>
+          <div class="actions">
+            <button type="submit" :disabled="Boolean(busy)">
+              {{ busy === "restrictions" ? en.shell.saving : en.settings.saveRestrictions }}
+            </button>
+          </div>
+        </form>
+      </section>
+      <section v-if="restrictionsEnabled && banIpEnabled" class="wide">
+        <span class="vital-kicker">{{ en.settings.blockedAddresses }}</span>
+        <p class="hint">{{ en.settings.blockedAddressesHint }}</p>
+        <p v-if="bansLoading" class="hint" aria-live="polite">
+          <span class="spinner" aria-hidden="true" />
+          {{ en.settings.loadingBans }}
+        </p>
+        <p v-else-if="bansError" class="form-error" role="alert">{{ bansError }}</p>
+        <p v-else-if="bannedIps.length === 0" class="security-empty">
+          {{ en.settings.noBlockedAddresses }}
+        </p>
+        <ul v-else class="ban-list">
+          <li v-for="entry in bannedIps" :key="entry.ip" class="ban-row">
+            <div>
+              <code>{{ entry.ip }}</code>
+              <p>
+                {{ blockedUntil(entry) }} ·
+                {{ en.settings.blockedFailures.replace("{count}", String(entry.failures)) }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="quiet"
+              :disabled="Boolean(unbanBusy)"
+              @click="unban(entry.ip)"
+            >
+              {{ unbanBusy === entry.ip ? en.settings.unblocking : en.settings.unblock }}
+            </button>
+          </li>
+        </ul>
+        <p v-if="bansNote" class="form-warn" role="status">{{ bansNote }}</p>
       </section>
       <section class="wide">
         <span class="vital-kicker">{{ en.shell.account }}</span>
@@ -448,42 +1086,57 @@ onMounted(() => {
         </form>
       </section>
     </div>
-    <div v-else class="page-stack">
-      <section class="wide">
-        <span class="vital-kicker">{{ en.shell.about }}</span>
-        <dl class="facts">
+    <div v-else-if="section === 'updates'" class="page-stack">
+      <section class="wide update-panel-card">
+        <div class="update-section-head">
           <div>
-            <dt>{{ en.shell.version }}</dt>
-            <dd>{{ product.version }}</dd>
+            <span class="vital-kicker">{{ en.updates.panelTitle }}</span>
+            <p class="hint">{{ en.updates.panelHint }}</p>
           </div>
+          <span
+            class="update-state-chip"
+            :data-state="
+              updateState === 'available' ? 'warning' : updateState === 'error' ? 'error' : 'ok'
+            "
+          >
+            <span
+              v-if="updateState === 'checking' || updateState === 'working'"
+              class="spinner"
+              aria-hidden="true"
+            />
+            <template v-if="updateState === 'checking'">{{ en.updates.checkingShort }}</template>
+            <template v-else-if="updateState === 'available'">{{
+              en.updates.availableShort
+            }}</template>
+            <template v-else-if="updateState === 'working'">{{
+              en.updates.installingShort
+            }}</template>
+            <template v-else-if="updateState === 'started'">{{
+              en.updates.restartingShort
+            }}</template>
+            <template v-else-if="updateState === 'error'">{{
+              en.updates.checkFailedShort
+            }}</template>
+            <template v-else>{{ en.updates.currentShort }}</template>
+          </span>
+        </div>
+        <div class="release-path" :data-available="updateVersion ? 'true' : 'false'">
           <div>
-            <dt>{{ en.shell.license }}</dt>
-            <dd>{{ product.license }}</dd>
+            <span>{{ en.updates.installed }}</span>
+            <strong>v{{ product.version }}</strong>
           </div>
+          <span class="release-path-line" aria-hidden="true" />
           <div>
-            <dt>{{ en.shell.source }}</dt>
-            <dd>
-              <a
-                class="source-link"
-                :href="product.sourceUrl"
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                {{ product.sourceUrl }}
-              </a>
-            </dd>
+            <span>{{ en.updates.target }}</span>
+            <strong>{{ updateVersion ? `v${updateVersion}` : en.updates.noNewRelease }}</strong>
           </div>
-        </dl>
+        </div>
         <p
-          class="hint"
+          class="update-message"
           aria-live="polite"
+          :class="{ 'form-error': updateState === 'error' }"
           :aria-busy="updateState === 'checking' || updateState === 'working'"
         >
-          <span
-            v-if="updateState === 'checking' || updateState === 'working'"
-            class="spinner"
-            aria-hidden="true"
-          />
           <template v-if="updateState === 'checking'">{{ en.shell.updateChecking }}</template>
           <template v-else-if="updateState === 'current'">{{ en.shell.updateCurrent }}</template>
           <template v-else-if="updateState === 'available'">
@@ -493,11 +1146,16 @@ onMounted(() => {
           <template v-else-if="updateState === 'started'">{{ en.shell.updateStarted }}</template>
           <template v-else>{{ updateError }}</template>
         </p>
-        <p class="hint">{{ en.shell.updateScope }}</p>
-        <p v-if="updateNotes" class="hint">{{ updateNotes }}</p>
+        <p v-if="updateNotes" class="release-notes">{{ updateNotes }}</p>
         <div class="actions">
-          <button v-if="updateState === 'available'" type="button" @click="applyUpdate">
-            {{ en.shell.updateAction }}
+          <button
+            v-if="updateState === 'available' || updateState === 'working'"
+            type="button"
+            :disabled="updateState === 'working'"
+            @click="applyUpdate"
+          >
+            <span v-if="updateState === 'working'" class="spinner" aria-hidden="true" />
+            {{ updateState === "working" ? en.shell.updateWorking : en.shell.updateAction }}
           </button>
           <button
             v-else-if="updateState === 'current' || updateState === 'error'"
@@ -507,6 +1165,113 @@ onMounted(() => {
             {{ en.shell.updateCheck }}
           </button>
         </div>
+      </section>
+
+      <section class="wide">
+        <div class="update-section-head">
+          <div>
+            <span class="vital-kicker">{{ en.updates.nodesTitle }}</span>
+            <p class="hint">{{ en.updates.nodesHint }}</p>
+          </div>
+          <span v-if="remoteNodes.length" class="fleet-count">
+            {{ en.updates.nodeCount.replace("{count}", String(remoteNodes.length)) }}
+          </span>
+        </div>
+        <p v-if="updateState === 'available'" class="security-warning" role="status">
+          <WarningOutlined aria-hidden="true" />
+          <span>{{ en.updates.panelFirstHint }}</span>
+        </p>
+        <div v-if="remoteNodes.length" class="update-node-list">
+          <article v-for="node in remoteNodes" :key="node.id" class="update-node-row">
+            <div class="update-node-main">
+              <span
+                class="node-dot"
+                :data-state="node.online ? 'online' : 'off'"
+                aria-hidden="true"
+              />
+              <div>
+                <strong>{{ updateNodeName(node) }}</strong>
+                <span>{{ node.arch || en.updates.archUnknown }}</span>
+              </div>
+            </div>
+            <div class="update-node-version">
+              <span>{{ en.updates.agentVersion }}</span>
+              <strong>{{ node.agentVersion ? `v${node.agentVersion}` : "—" }}</strong>
+            </div>
+            <div class="update-node-action">
+              <span class="node-update-state" :data-state="nodeVersionState(node)">
+                {{ nodeUpdateLabel(node) }}
+              </span>
+              <button
+                v-if="nodeVersionState(node) === 'outdated' && node.canUpdateAgent"
+                type="button"
+                class="quiet"
+                :disabled="!canUpdateNode(node)"
+                @click="updateAgent(node)"
+              >
+                <span v-if="agentBusy === node.id" class="spinner" aria-hidden="true" />
+                {{ agentBusy === node.id ? en.updates.updatingAgent : en.updates.updateAgent }}
+              </button>
+              <button
+                v-else-if="nodeVersionState(node) === 'outdated'"
+                type="button"
+                class="quiet"
+                @click="emit('openNode', node.id)"
+              >
+                {{ en.updates.manualSteps }}
+              </button>
+            </div>
+            <p
+              v-if="agentResult[node.id]"
+              class="agent-update-result"
+              :data-state="agentResult[node.id]?.kind"
+              role="status"
+            >
+              {{ agentResult[node.id]?.text }}
+            </p>
+          </article>
+        </div>
+        <div v-else class="update-empty">
+          <CloudSyncOutlined aria-hidden="true" />
+          <div>
+            <strong>{{ en.updates.noRemoteNodes }}</strong>
+            <p>{{ en.updates.noRemoteNodesHint }}</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div v-else class="page-stack">
+      <section class="wide about-hero">
+        <div class="about-mark" aria-hidden="true">U</div>
+        <div class="about-copy">
+          <span class="vital-kicker">{{ product.name }}</span>
+          <h2>{{ product.tagline }}</h2>
+          <p>{{ en.about.description }}</p>
+        </div>
+        <div class="about-build">
+          <span>{{ en.about.runningVersion }}</span>
+          <strong>v{{ product.version }}</strong>
+          <small>{{ product.version.includes("-") ? en.about.prerelease : en.about.stable }}</small>
+        </div>
+      </section>
+      <section class="wide about-provenance">
+        <div>
+          <span class="vital-kicker">{{ en.about.openSource }}</span>
+          <p>{{ en.about.licenseHint.replace("{license}", product.license) }}</p>
+        </div>
+        <a
+          class="about-source-link"
+          :href="product.sourceUrl"
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          <span>
+            <small>{{ en.shell.source }}</small>
+            <strong>{{ product.sourceUrl.replace("https://", "") }}</strong>
+          </span>
+          <span aria-hidden="true">↗</span>
+        </a>
       </section>
     </div>
   </div>

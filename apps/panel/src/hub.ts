@@ -4,6 +4,7 @@
 import type { KeyObject } from "node:crypto";
 import { WebSocket } from "ws";
 import {
+  agentUpgrade,
   authMessage,
   clockSkewed,
   closeCode,
@@ -15,6 +16,7 @@ import {
   panelRestart,
   panelStop,
   panelUpgrade,
+  PROTOCOL_VERSION,
   protocolCompatible,
   randomNonce,
   signMessage,
@@ -22,6 +24,7 @@ import {
   metricsCpu,
   verifyMessage,
   welcomeMessage,
+  type AgentUpgradeResult,
   type ErrorCode,
   type HostInfo,
   type PanelUpgradeResult,
@@ -96,6 +99,7 @@ export interface NodeLive {
   udpCount: number | null;
   uptime: number | null;
   agentVersion: string | null;
+  canUpdateAgent: boolean;
 }
 
 export function blankNodeLive(id: string): NodeLive {
@@ -127,6 +131,7 @@ export function blankNodeLive(id: string): NodeLive {
     udpCount: null,
     uptime: null,
     agentVersion: null,
+    canUpdateAgent: false,
   };
 }
 
@@ -167,6 +172,11 @@ type Pending =
       reject: (error: HubCallError) => void;
     }
   | {
+      kind: "agent-upgrade";
+      resolve: (value: AgentUpgradeResult) => void;
+      reject: (error: HubCallError) => void;
+    }
+  | {
       kind: "swap";
       resolve: (value: SwapResult) => void;
       reject: (error: HubCallError) => void;
@@ -176,6 +186,8 @@ interface Link {
   socket: WebSocket | null;
   info: HostInfo | null;
   error: string | null;
+  agentVersion: string | null;
+  canUpdateAgent: boolean;
   nextId: number;
   cpuInflight: boolean;
   cpuAt: number;
@@ -220,6 +232,10 @@ export function createHub(options: {
     nodeId: string,
     release: { version: string; url: string; sha256: string },
   ) => Promise<PanelUpgradeResult>;
+  upgradeAgent: (
+    nodeId: string,
+    release: { version: string; url: string; sha256: string },
+  ) => Promise<AgentUpgradeResult>;
   disconnect: (nodeId: string, code: number) => void;
   close: () => void;
 } {
@@ -249,6 +265,8 @@ export function createHub(options: {
       socket: null,
       info: null,
       error: null,
+      agentVersion: null,
+      canUpdateAgent: false,
       nextId: 1,
       cpuInflight: false,
       cpuAt: 0,
@@ -331,11 +349,13 @@ export function createHub(options: {
             "The agent connection closed while the service command was pending. The command may already have been scheduled. Open Logs.",
           ),
         );
-      } else if (wait.kind === "upgrade") {
+      } else if (wait.kind === "upgrade" || wait.kind === "agent-upgrade") {
         wait.reject(
           new HubCallError(
             "E_NODE_OFFLINE",
-            "The agent connection closed while the update was pending. The update may already be running. Open Logs.",
+            wait.kind === "agent-upgrade"
+              ? "The node disconnected while its agent update was pending. The update may already be running. Wait for it to reconnect before trying again."
+              : "The agent connection closed while the update was pending. The update may already be running. Open Logs.",
           ),
         );
       }
@@ -505,10 +525,73 @@ export function createHub(options: {
     });
   }
 
+  function upgradeAgent(
+    nodeId: string,
+    release: { version: string; url: string; sha256: string },
+  ): Promise<AgentUpgradeResult> {
+    const link = links.get(nodeId);
+    if (!link?.socket || link.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(
+        new HubCallError(
+          "E_NODE_OFFLINE",
+          "The node is offline, so its agent update was not sent. Bring the node online and try again.",
+        ),
+      );
+    }
+    if (!link.canUpdateAgent) {
+      return Promise.reject(
+        new HubCallError(
+          "E_UNSUPPORTED",
+          "This agent is too old to update itself from the panel. Re-enroll it once; future agent updates can be installed here.",
+        ),
+      );
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (id !== null && link.pending.get(id)?.kind === "agent-upgrade") {
+          link.pending.delete(id);
+          reject(
+            new HubCallError(
+              "E_TIMEOUT",
+              `The agent did not answer the update request within ${agentUpgrade.timeoutMs / 1000} seconds. It may already be updating; wait for the node to reconnect.`,
+            ),
+          );
+        }
+      }, agentUpgrade.timeoutMs);
+      const id = request(
+        link,
+        agentUpgrade.name,
+        agentUpgrade.timeoutMs,
+        {
+          kind: "agent-upgrade",
+          resolve: (value) => {
+            clearTimeout(timer);
+            resolve(value);
+          },
+          reject: (error) => {
+            clearTimeout(timer);
+            reject(error);
+          },
+        },
+        release,
+      );
+      if (id === null) {
+        clearTimeout(timer);
+        reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The node went offline before its agent update was sent. Bring it online and try again.",
+          ),
+        );
+      }
+    });
+  }
+
   function attach(socket: WebSocket): void {
     let phase: "hello" | "auth" | "open" = "hello";
     let agentId = "";
     let nonceA = "";
+    let agentVersion = "";
     let link: Link | null = null;
     const nonceM = randomNonce();
     const timer = setTimeout(() => {
@@ -547,12 +630,13 @@ export function createHub(options: {
           return;
         }
         agentId = frame.agentId;
+        agentVersion = frame.agentVer;
         nonceA = frame.nonceA;
         const sigM = signMessage(welcomeMessage(agentId, nonceA, nonceM), options.panelKey);
         socket.send(
           encodeTextFrame({
             t: "welcome",
-            proto: "1.0",
+            proto: PROTOCOL_VERSION,
             panelVer: options.panelVersion,
             nonceM,
             sigM,
@@ -583,6 +667,11 @@ export function createHub(options: {
         const superseded = current.socket !== null && current.socket !== socket;
         if (superseded) current.socket?.close(closeCode.replaced, "replaced");
         current.socket = socket;
+        current.agentVersion = agentVersion;
+        current.canUpdateAgent = frame.caps.some(
+          (capability) =>
+            capability.name === "control" && capability.meta?.["agentUpgrade"] === true,
+        );
         links.set(agentId, current);
         link = current;
         phase = "open";
@@ -666,6 +755,24 @@ export function createHub(options: {
             new HubCallError(
               "E_INTERNAL",
               "The agent's update reply did not match this panel version. The update may already be running. Open Logs.",
+            ),
+          );
+          return;
+        }
+        wait.resolve(parsed.data);
+        return;
+      }
+      if (wait.kind === "agent-upgrade") {
+        if (!frame.ok) {
+          wait.reject(agentRefusal(frame.e));
+          return;
+        }
+        const parsed = agentUpgrade.result.safeParse(frame.r);
+        if (!parsed.success) {
+          wait.reject(
+            new HubCallError(
+              "E_INTERNAL",
+              "The agent update reply did not match this panel version. The update may already be running; wait for the node to reconnect.",
             ),
           );
           return;
@@ -762,13 +869,15 @@ export function createHub(options: {
           tcpCount: sample?.tcpCount ?? null,
           udpCount: sample?.udpCount ?? null,
           uptime: sample?.uptime ?? null,
-          agentVersion: info?.unpanel ?? null,
+          agentVersion: info?.unpanel ?? link.agentVersion,
+          canUpdateAgent: link.canUpdateAgent,
         };
       });
     },
     control,
     configureSwap,
     upgrade,
+    upgradeAgent,
     disconnect(nodeId, code) {
       const socket = links.get(nodeId)?.socket;
       if (!socket || socket.readyState !== WebSocket.OPEN) return;

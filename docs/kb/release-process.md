@@ -26,7 +26,7 @@ The update check reads a signed manifest (`channels.json` + `channels.json.minis
 |---|---|
 | `https://unpanel.codenav.dev/install.sh` | Panel installer. It downloads the linux-x64 or linux-arm64 package for the pinned version and checks `SHA256SUMS`. |
 | `https://unpanel.codenav.dev/install-agent.sh` | Agent installer for a machine that does not run the panel. Same package, agent only. |
-| `https://unpanel.codenav.dev/channels.json` | Update manifest for Settings → About. CI also uploads this file to the GitHub release. Minisign is not produced yet. |
+| `https://unpanel.codenav.dev/channels.json` | Update manifest for Settings → Updates. CI also uploads this file to the GitHub release. Minisign is not produced yet. |
 | `https://github.com/codenav-ltd/unpanel/releases` | Release artifacts, `SHA256SUMS`, `SHA256SUMS.minisig` |
 
 - **Moving domains.** Installed panels keep the manifest URL they shipped with. If the domain changes, keep the old one serving or redirecting `channels.json` for at least one major version. The release that switches the default URL must ship while the old URL still works.

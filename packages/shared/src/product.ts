@@ -5,7 +5,7 @@
 export const product = {
   name: "Unpanel",
   tagline: "The server panel that doesn't act like one.",
-  version: "0.1.0-alpha.16",
+  version: "0.1.0-alpha.17",
   license: "AGPL-3.0-or-later",
   sourceUrl: "https://github.com/codenav-ltd/unpanel",
   siteUrl: "https://unpanel.codenav.dev",
@@ -13,6 +13,7 @@ export const product = {
   updatesUrl: "https://unpanel.codenav.dev/channels.json",
   bin: "unpanel",
   agentBin: "unpanel-agent",
+  manageBin: "unpanel-manage",
   user: "unpanel",
   envPrefix: "UNPANEL_",
   agentEnvPrefix: "UNPANEL_AGENT_",
@@ -23,6 +24,7 @@ export const product = {
     socket: "/run/unpanel/agent.sock",
     agentEtc: "/etc/unpanel-agent",
     agentLib: "/var/lib/unpanel-agent",
+    manageBin: "/usr/local/sbin/unpanel-manage",
   },
   units: {
     panel: "unpanel.service",

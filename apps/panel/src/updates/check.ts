@@ -177,6 +177,43 @@ export async function releaseToApply(options: {
   return status.release;
 }
 
+/** Resolves the package that matches the running panel for a remote agent. */
+export async function releaseForVersion(options: {
+  version: string;
+  manifestUrl: string;
+  sourceUrl: string;
+  arch: string;
+  fetchImpl?: typeof fetch;
+}): Promise<ReleaseFile> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const candidates: ReleaseFile[] = [];
+  const site = await readChannels(fetchImpl, options.manifestUrl);
+  if (site) candidates.push(...matchingReleases(site, options.version));
+  const github = await readGitHubChannels(fetchImpl, options.sourceUrl);
+  if (github) candidates.push(...matchingReleases(github, options.version));
+  const release = candidates[0];
+  if (!release) {
+    throw new UpdateError(
+      "E_EXTERNAL",
+      `Could not find the ${options.version} release package for this agent.`,
+    );
+  }
+  try {
+    return packageForArch(release, options.arch);
+  } catch (error) {
+    throw new UpdateError(
+      "E_EXTERNAL",
+      error instanceof Error ? error.message : "Could not select an agent package.",
+    );
+  }
+}
+
+function matchingReleases(channels: ChannelsFile, version: string): ReleaseFile[] {
+  return [channels.beta, channels.stable].filter(
+    (release): release is ReleaseFile => release?.version === version,
+  );
+}
+
 function parseRelease(value: unknown): ReleaseFile | null {
   if (value == null) return null;
   if (typeof value !== "object") throw new Error("Update manifest release is invalid.");

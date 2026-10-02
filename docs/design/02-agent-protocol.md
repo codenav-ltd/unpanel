@@ -1,6 +1,6 @@
 # 02 · Panel ↔ Agent Protocol
 
-> Status: Draft · Protocol version: `1.0` · Related ADRs: [0002](../adr/0002-agent-initiated-connection.md), [0008](../adr/0008-node-agent-language-agnostic-protocol.md)
+> Status: Draft · Protocol version: `1.1` · Related ADRs: [0002](../adr/0002-agent-initiated-connection.md), [0008](../adr/0008-node-agent-language-agnostic-protocol.md)
 
 This protocol must stay **implementation-language agnostic**. This document and the zod schemas in `packages/protocol` are the specification; an agent written in another language only needs to follow this document.
 
@@ -85,9 +85,9 @@ sequenceDiagram
   participant A as Agent
   participant M as Panel
   A->>M: WS upgrade (header X-Panel-Agent-Id)
-  A->>M: Hello {agentId, proto:"1.0", agentVer, nonceA, ts}
+  A->>M: Hello {agentId, proto:"1.1", agentVer, nonceA, ts}
   M->>M: Look up PK_a; check protocol compatibility; clock skew ≤ 300 s
-  M-->>A: Welcome {proto:"1.0", panelVer, nonceM, sigM = Sign(SK_m, "panel-welcome\n"+agentId+"\n"+nonceA+"\n"+nonceM)}
+  M-->>A: Welcome {proto:"1.1", panelVer, nonceM, sigM = Sign(SK_m, "panel-welcome\n"+agentId+"\n"+nonceA+"\n"+nonceM)}
   A->>A: Verify(pinned PK_m, sigM)
   A->>M: Auth {sigA = Sign(SK_a, "panel-auth\n"+agentId+"\n"+nonceM+"\n"+nonceA), caps, policyDigest, host}
   M->>M: Verify(PK_a, sigA)
@@ -154,6 +154,7 @@ export const dockerContainerRestart = defineMethod({
 
 - `risk: "danger"` methods require the user to be in sudo mode, and their `req`/`sopen` frames must carry a `sig` (§4.3).
 - `since`: the protocol version that introduced the method. Calling a newer method on an older agent fails fast on the panel with `E_UNSUPPORTED`.
+- `agent.upgrade` (since `1.1`) downloads the release package for the node's architecture, verifies its published SHA-256, swaps the remote agent install from a transient systemd unit, and reconnects with the same enrollment key. Agents advertise support with `control.meta.agentUpgrade: true`.
 
 ### 4.3 Signed dangerous requests
 

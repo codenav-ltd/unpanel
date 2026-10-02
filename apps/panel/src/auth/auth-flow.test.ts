@@ -6,19 +6,23 @@ import { decodeBase32IgnorePadding } from "@oslojs/encoding";
 import { generateHOTP } from "@oslojs/otp";
 import { describe, expect, it } from "vitest";
 import { createAuth } from "./service.ts";
+import { createLoginSecurity } from "./security.ts";
 import { openDatabase } from "../db/open.ts";
 
 describe("setup and login", () => {
   it("enrolls TOTP, then requires a fresh code on the next sign-in", async () => {
     let now = 1_700_000_030_000;
     let token: string | null = "st_test";
+    const db = openDatabase(":memory:");
+    const masterKey = randomBytes(32);
     const auth = await createAuth({
-      db: openDatabase(":memory:"),
-      masterKey: randomBytes(32),
+      db,
+      masterKey,
       setupToken: () => token,
       clearSetupToken: () => {
         token = null;
       },
+      security: createLoginSecurity({ db, masterKey, now: () => now }),
       now: () => now,
     });
 
@@ -58,6 +62,7 @@ describe("setup and login", () => {
       const login = await auth.login({
         username: "ada",
         password: "wrong-password",
+        turnstileToken: "",
         ip: "127.0.0.1",
         userAgent: "test",
       });
@@ -67,6 +72,7 @@ describe("setup and login", () => {
       const missing = await auth.login({
         username: "nobody",
         password: "correct-horse",
+        turnstileToken: "",
         ip: "127.0.0.1",
         userAgent: "test",
       });
@@ -75,6 +81,7 @@ describe("setup and login", () => {
       const pending = await auth.login({
         username: "ada",
         password: "correct-horse",
+        turnstileToken: "",
         ip: "127.0.0.1",
         userAgent: "test",
       });
@@ -106,13 +113,16 @@ describe("setup and login", () => {
 
   it("lets setup finish without TOTP and signs in with the password alone", async () => {
     let token: string | null = "st_test";
+    const db = openDatabase(":memory:");
+    const masterKey = randomBytes(32);
     const auth = await createAuth({
-      db: openDatabase(":memory:"),
-      masterKey: randomBytes(32),
+      db,
+      masterKey,
       setupToken: () => token,
       clearSetupToken: () => {
         token = null;
       },
+      security: createLoginSecurity({ db, masterKey }),
     });
     try {
       const begun = await auth.beginSetup({
@@ -134,6 +144,7 @@ describe("setup and login", () => {
       const signedIn = await auth.login({
         username: "ada",
         password: "correct-horse",
+        turnstileToken: "",
         ip: "127.0.0.1",
         userAgent: "test",
       });
@@ -147,13 +158,16 @@ describe("setup and login", () => {
 
   it("changes the password after the current one is checked", async () => {
     let token: string | null = "st_test";
+    const db = openDatabase(":memory:");
+    const masterKey = randomBytes(32);
     const auth = await createAuth({
-      db: openDatabase(":memory:"),
-      masterKey: randomBytes(32),
+      db,
+      masterKey,
       setupToken: () => token,
       clearSetupToken: () => {
         token = null;
       },
+      security: createLoginSecurity({ db, masterKey }),
     });
     try {
       const begun = await auth.beginSetup({
@@ -191,6 +205,7 @@ describe("setup and login", () => {
       const oldLogin = await auth.login({
         username: "ada",
         password: "correct-horse",
+        turnstileToken: "",
         ip: "127.0.0.1",
         userAgent: "test",
       });
@@ -198,10 +213,86 @@ describe("setup and login", () => {
       const nextLogin = await auth.login({
         username: "ada",
         password: "new-correct-horse",
+        turnstileToken: "",
         ip: "127.0.0.1",
         userAgent: "test",
       });
       expect(nextLogin.ok && nextLogin.status === "ok").toBe(true);
+    } finally {
+      auth.close();
+    }
+  });
+
+  it("requires a server-verified Turnstile token when it is enabled", async () => {
+    let setupToken: string | null = "st_test";
+    const db = openDatabase(":memory:");
+    const masterKey = randomBytes(32);
+    const security = createLoginSecurity({ db, masterKey });
+    const seen: string[] = [];
+    const auth = await createAuth({
+      db,
+      masterKey,
+      setupToken: () => setupToken,
+      clearSetupToken: () => {
+        setupToken = null;
+      },
+      security,
+      verifyTurnstile: async ({ token }) => {
+        seen.push(token);
+        return token === "valid-token";
+      },
+    });
+    try {
+      const begun = await auth.beginSetup({
+        token: "st_test",
+        username: "ada",
+        password: "correct-horse",
+      });
+      expect(begun.ok).toBe(true);
+      if (!begun.ok) return;
+      expect(
+        auth.confirmSetup({
+          ticket: begun.ticket,
+          totp: false,
+          code: "",
+          recoveryCode: "",
+          ip: "127.0.0.1",
+          userAgent: "test",
+        }).ok,
+      ).toBe(true);
+      security.update(
+        { turnstile: { enabled: true, siteKey: "site-key", secret: "secret-key" } },
+        "ada",
+      );
+
+      const missing = await auth.login({
+        username: "ada",
+        password: "correct-horse",
+        turnstileToken: "",
+        ip: "127.0.0.1",
+        userAgent: "test",
+      });
+      expect(missing.ok ? "ok" : missing.code).toBe("E_TURNSTILE_REQUIRED");
+      expect(seen).toEqual([]);
+
+      const failed = await auth.login({
+        username: "ada",
+        password: "correct-horse",
+        turnstileToken: "expired-token",
+        ip: "127.0.0.1",
+        userAgent: "test",
+      });
+      expect(failed.ok ? "ok" : failed.code).toBe("E_TURNSTILE_FAILED");
+
+      const signedIn = await auth.login({
+        username: "ada",
+        password: "correct-horse",
+        turnstileToken: "valid-token",
+        ip: "127.0.0.1",
+        userAgent: "test",
+      });
+      expect(signedIn.ok && signedIn.status === "ok").toBe(true);
+      expect(seen).toEqual(["expired-token", "valid-token"]);
     } finally {
       auth.close();
     }

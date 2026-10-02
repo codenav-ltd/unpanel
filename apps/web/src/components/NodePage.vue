@@ -4,11 +4,11 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { product } from "@unpanel/shared";
+import { compareVersions, product } from "@unpanel/shared";
 import { formatBytes } from "../format.ts";
 import { en } from "../i18n/en.ts";
 import { readProblem, replyNotReceived } from "../http-error.ts";
-import ChoiceField from "./ChoiceField.vue";
+import SelectField from "./SelectField.vue";
 import EnrollGuide from "./EnrollGuide.vue";
 
 const props = defineProps<{
@@ -169,10 +169,11 @@ const linux = computed(() => {
 const swapOn = computed(() => props.swapTotal != null && props.swapTotal > 0);
 const agentNote = computed(() => {
   if (!props.agentVersion) return en.shell.agentUnknown;
-  if (props.agentVersion === product.version) return "";
-  return en.shell.agentBehind
-    .replace("{agent}", props.agentVersion)
-    .replace("{panel}", product.version);
+  const compared = compareVersions(props.agentVersion, product.version);
+  if (compared === null) return en.shell.agentUnknown;
+  if (compared === 0) return "";
+  const message = compared > 0 ? en.shell.agentAhead : en.shell.agentBehind;
+  return message.replace("{agent}", props.agentVersion).replace("{panel}", product.version);
 });
 
 async function createSwap(): Promise<void> {
@@ -318,7 +319,7 @@ async function remove(): Promise<void> {
       </template>
       <form v-else @submit.prevent="createSwap">
         <p class="hint">{{ en.shell.swapOffer }}</p>
-        <ChoiceField
+        <SelectField
           v-model="swapGib"
           :label="en.shell.swapSize"
           :options="swapOptions"

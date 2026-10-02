@@ -32,11 +32,13 @@ export {
 } from "./handshake.ts";
 export { defineMethod, type MethodDef, type Risk } from "./methods.ts";
 export {
+  agentUpgrade,
   panelRestart,
   panelStop,
   panelUpgrade,
   panelUpgradeResultSchema,
   serviceControlResultSchema,
+  type AgentUpgradeResult,
   type PanelUpgradeResult,
   type ServiceControlResult,
 } from "./methods/control.ts";

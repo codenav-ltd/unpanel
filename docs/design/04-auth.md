@@ -156,15 +156,23 @@ Routes for managing other users are under `/api/v1/users` in [design/07](./07-ht
 
 ## 10. Brute-force protection
 
-| Dimension | Rule |
-|---|---|
-| Per IP | 10 failures / 15 min → that IP is blocked for 15 min |
-| Per username | 5 failures / 15 min → exponential delay (up to 15 min) for that username; accounts are **never** fully locked, so attackers cannot lock owners out |
-| Global | More than 100 failures/min → add 1 s delay to every login request and raise an alert |
-| Second factor | 5 attempts per ticket |
-| TOTP replay | The last used time step is stored per user; that step and earlier ones are rejected |
+The owner can configure these controls independently in **Settings → Security**:
 
-- Counters live in memory (single process); losing them on restart is acceptable. Lockouts are audited.
+| Control | Default | Behavior |
+|---|---|---|
+| Login restrictions | On | Master switch for rate limits and password-failure lockouts |
+| Per username rate limit | Progressive | The third failure waits 30 s; each later failure doubles the wait, capped at 1 h. Custom mode uses an owner-selected failure threshold and fixed wait |
+| Per IP ban | 10 failures, 15 min | Blocks only the source address; the owner may choose a temporary duration or a permanent ban |
+| Whole-panel lock | Off | Blocks password sign-in from every address after the configured threshold. The UI warns that a public panel can be deliberately locked |
+| Cloudflare Turnstile | Off | When enabled, every password login token is validated server-side with Siteverify before password verification |
+| Second factor | 5 attempts per ticket | Invalidates the pending login after the fifth failed second-factor attempt |
+| TOTP replay | Always on | The last used time step is stored per user; that step and earlier ones are rejected |
+
+- Failure counters and bans live in SQLite so restarting the service does not remove a lockout.
+- A successful password verification resets the consecutive username, address, and panel failure counters.
+- Expired temporary bans are removed automatically. IP bans can also be removed from Settings.
+- A whole-panel lock can be cleared from an SSH session with `sudo unpanel-manage unlock`.
+- The Turnstile secret is encrypted with the panel master key. Settings responses expose only the site key and whether a secret exists.
 - The client IP is taken from `X-Forwarded-For` (rightmost untrusted address) only when the request comes from one of `server.trusted_proxies`.
 - Successful/failed logins and new-device logins can trigger notifications (configurable).
 

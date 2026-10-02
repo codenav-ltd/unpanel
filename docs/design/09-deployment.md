@@ -2,7 +2,7 @@
 
 > Status: Draft · Related ADRs: [0003](../adr/0003-unprivileged-panel-local-agent.md), [0010](../adr/0010-https-by-default.md) · Release process: [kb/release-process.md](../kb/release-process.md)
 
-**Shipped now (0.1.0-alpha.16 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
+**Shipped now (0.1.0-alpha.17 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
 
 ```bash
 curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
@@ -16,7 +16,9 @@ A machine that should only run the agent uses the command the panel fills in:
 curl -fsSL https://unpanel.codenav.dev/install-agent.sh | sudo bash -s -- --panel <url> --token <token> --agent-id <id> --agent-url <ws>
 ```
 
-Settings → About reads `channels.json` from the site and, if that file is missing, the newest GitHub release. A newer release is also shown on every page. Automatic install stays off until Settings turns it on, and it updates only this machine. When a newer release exists, Update asks the local agent to download the package for this machine, check the SHA-256, and switch `/opt/unpanel` only after that package is complete. `scripts/update.sh` does the same download and check. The current install directory is moved to `/opt/unpanel.previous` before the new package replaces it. A package for the wrong architecture is refused before the running panel is stopped. If the new process does not answer `GET /api/v1/health`, that directory, the systemd units, and `panel.env` are restored and the previous panel is started again. The database is kept. Signed packages, the guard timer, and HTTPS in the sections below are not built yet.
+Settings → Updates reads `channels.json` from the site and, if that file is missing, the newest GitHub release. A newer panel release appears above Sign out in the sidebar. Automatic install stays off until Settings turns it on. When a newer release exists, Update asks the local agent to download the package for this machine, check the SHA-256, and switch `/opt/unpanel` only after that package is complete. `scripts/update.sh` does the same download and check. The current install directory is moved to `/opt/unpanel.previous` before the new package replaces it. A package for the wrong architecture is refused before the running panel is stopped. If the new process does not answer `GET /api/v1/health`, that directory, the systemd units, and `panel.env` are restored and the previous panel is started again. The database is kept.
+
+After the panel is current, the same Updates screen compares every remote agent version with the panel version. Supported online agents update one at a time: the agent downloads the release for its own architecture, verifies the hash, hands the swap to a transient systemd unit, restarts, and reconnects with its existing key. The previous agent tree is restored when the new service does not stay active. Offline nodes wait until they reconnect. Agents from before protocol 1.1 cannot self-update and show a one-time manual re-enrollment path. Signed packages, the guard timer, and HTTPS in the sections below are not built yet.
 
 `sudo` does not keep the caller's PATH. If root would otherwise see an older system Node, the script uses the Node 24 from the account that ran sudo, and copies a home-directory install to `/usr/local/lib/unpanel-node` so systemd can run it.
 
@@ -290,6 +292,8 @@ Migrations are **forward-only**. Rollback relies on the pre-migration backup, so
 ### 6.3 Compatibility
 
 Panel version N supports agents on the current protocol major and the previous one (see [design/02](./02-agent-protocol.md) §9). Recommended order: upgrade the panel first, then agents in batches.
+
+The UI follows that order explicitly: panel update actions block node update actions until the running panel is current. Remote agents update individually so one failed restart does not interrupt the whole fleet. A node stays visible as offline while its service restarts, then changes to current only after it reconnects and reports the target version.
 
 ## 7. Uninstall
 

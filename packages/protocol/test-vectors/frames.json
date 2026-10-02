@@ -4,6 +4,17 @@
     {
       "encoded": "{\"ts\":1,\"t\":\"ping\"}",
       "frame": { "t": "ping", "ts": 1 }
+    },
+    {
+      "encoded": "{\"t\":\"hello\",\"agentId\":\"nd_1\",\"proto\":\"1.1\",\"agentVer\":\"0.1.0-alpha.17\",\"nonceA\":\"nonce\",\"ts\":1}",
+      "frame": {
+        "t": "hello",
+        "agentId": "nd_1",
+        "proto": "1.1",
+        "agentVer": "0.1.0-alpha.17",
+        "nonceA": "nonce",
+        "ts": 1
+      }
     }
   ],
   "binary": [
