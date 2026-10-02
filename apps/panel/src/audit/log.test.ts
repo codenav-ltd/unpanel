@@ -68,6 +68,16 @@ describe("audit log", () => {
     expect(audit.list(1)[0]?.params?.["detail"]).toBe(detail);
   });
 
+  it("still caps ordinary parameter text", () => {
+    const audit = createAudit(openDatabase(":memory:"));
+    const entry = audit.record({
+      action: "node.update",
+      result: "ok",
+      params: { note: "x".repeat(500) },
+    });
+    expect(entry.params?.["note"]).toBe(`${"x".repeat(200)}…`);
+  });
+
   it("lists the newest records first and caps the limit", () => {
     const audit = createAudit(openDatabase(":memory:"));
     for (let index = 0; index < 5; index += 1) {

@@ -733,7 +733,6 @@ button.strip-eye svg {
 }
 
 input,
-select,
 textarea.command {
   width: 100%;
   background: var(--raised);
@@ -748,16 +747,90 @@ textarea.command {
 }
 
 input:hover,
-select:hover,
 textarea.command:hover {
   border-color: color-mix(in srgb, var(--line) 70%, var(--text-3));
 }
 
 input:focus-visible,
-select:focus-visible,
 textarea.command:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+
+.choice-field {
+  min-width: 0;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.choice-field legend {
+  padding: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.choice-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.choice-option {
+  position: relative;
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    color var(--transition),
+    transform var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out);
+}
+
+.choice-option:hover:not([data-disabled]) {
+  border-color: color-mix(in srgb, var(--line) 65%, var(--primary));
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.choice-option:active:not([data-disabled]) {
+  transform: scale(0.98);
+}
+
+.choice-option:focus-within {
+  box-shadow: var(--focus-ring);
+}
+
+.choice-option[data-selected="true"] {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 16%, var(--raised));
+  color: var(--text);
+}
+
+.choice-option[data-disabled] {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.choice-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
 }
 
 .actions {

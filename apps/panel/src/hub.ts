@@ -315,7 +315,7 @@ export function createHub(options: {
     return id;
   }
 
-  function dropPending(link: Link, error: HubCallError): void {
+  function dropPending(link: Link): void {
     for (const wait of link.pending.values()) {
       if (wait.kind === "swap") {
         wait.reject(
@@ -324,8 +324,20 @@ export function createHub(options: {
             "The agent connection closed while a swap file was being created. The file may already exist. Open Logs.",
           ),
         );
-      } else if (wait.kind === "control" || wait.kind === "upgrade") {
-        wait.reject(error);
+      } else if (wait.kind === "control") {
+        wait.reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The agent connection closed while the service command was pending. The command may already have been scheduled. Open Logs.",
+          ),
+        );
+      } else if (wait.kind === "upgrade") {
+        wait.reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The agent connection closed while the update was pending. The update may already be running. Open Logs.",
+          ),
+        );
       }
     }
     link.pending.clear();
@@ -346,13 +358,23 @@ export function createHub(options: {
     const method = action === "restart" ? panelRestart : panelStop;
     const link = links.get(nodeId);
     if (!link?.socket || link.socket.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new HubCallError("E_NODE_OFFLINE", "The node is offline."));
+      return Promise.reject(
+        new HubCallError(
+          "E_NODE_OFFLINE",
+          "The node is offline, so the service command was not sent. Start its agent and try again.",
+        ),
+      );
     }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (id !== null && link.pending.get(id)?.kind === "control") {
           link.pending.delete(id);
-          reject(new HubCallError("E_TIMEOUT", `${action} timed out`));
+          reject(
+            new HubCallError(
+              "E_TIMEOUT",
+              `The agent did not answer the ${action} request within ${method.timeoutMs / 1000} seconds. The ${action} may already have been scheduled. Open Logs.`,
+            ),
+          );
         }
       }, method.timeoutMs);
       const id = request(link, method.name, method.timeoutMs, {
@@ -368,7 +390,12 @@ export function createHub(options: {
       });
       if (id === null) {
         clearTimeout(timer);
-        reject(new HubCallError("E_NODE_OFFLINE", "The node is offline."));
+        reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The node went offline before the service command was sent. Start its agent and try again.",
+          ),
+        );
       }
     });
   }
@@ -430,13 +457,23 @@ export function createHub(options: {
   ): Promise<PanelUpgradeResult> {
     const link = links.get(nodeId);
     if (!link?.socket || link.socket.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new HubCallError("E_NODE_OFFLINE", "The local agent is offline."));
+      return Promise.reject(
+        new HubCallError(
+          "E_NODE_OFFLINE",
+          "The local agent is offline, so the update was not sent. Start the agent and try again.",
+        ),
+      );
     }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (id !== null && link.pending.get(id)?.kind === "upgrade") {
           link.pending.delete(id);
-          reject(new HubCallError("E_TIMEOUT", "update timed out"));
+          reject(
+            new HubCallError(
+              "E_TIMEOUT",
+              `The agent did not answer the update request within ${panelUpgrade.timeoutMs / 1000} seconds. The update may already be running. Open Logs.`,
+            ),
+          );
         }
       }, panelUpgrade.timeoutMs);
       const id = request(
@@ -458,7 +495,12 @@ export function createHub(options: {
       );
       if (id === null) {
         clearTimeout(timer);
-        reject(new HubCallError("E_NODE_OFFLINE", "The local agent is offline."));
+        reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The local agent went offline before the update was sent. Start the agent and try again.",
+          ),
+        );
       }
     });
   }
@@ -602,7 +644,12 @@ export function createHub(options: {
         }
         const parsed = panelRestart.result.safeParse(frame.r);
         if (!parsed.success) {
-          wait.reject(new HubCallError("E_INTERNAL", "control result did not match the schema"));
+          wait.reject(
+            new HubCallError(
+              "E_INTERNAL",
+              "The agent's service-control reply did not match this panel version. The command may already have been scheduled. Update the agent and open Logs.",
+            ),
+          );
           return;
         }
         wait.resolve(parsed.data);
@@ -615,7 +662,12 @@ export function createHub(options: {
         }
         const parsed = panelUpgrade.result.safeParse(frame.r);
         if (!parsed.success) {
-          wait.reject(new HubCallError("E_INTERNAL", "upgrade result did not match the schema"));
+          wait.reject(
+            new HubCallError(
+              "E_INTERNAL",
+              "The agent's update reply did not match this panel version. The update may already be running. Open Logs.",
+            ),
+          );
           return;
         }
         wait.resolve(parsed.data);
@@ -662,7 +714,7 @@ export function createHub(options: {
       if (link && link.socket === socket) {
         link.socket = null;
         link.cpuInflight = false;
-        dropPending(link, new HubCallError("E_NODE_OFFLINE", "The node is offline."));
+        dropPending(link);
         options.onPresence?.("offline", agentId);
       }
     });
@@ -723,9 +775,8 @@ export function createHub(options: {
       socket.close(code);
     },
     close() {
-      const error = new HubCallError("E_NODE_OFFLINE", "The node is offline.");
       for (const link of links.values()) {
-        dropPending(link, error);
+        dropPending(link);
         link.socket?.close();
         link.socket = null;
       }

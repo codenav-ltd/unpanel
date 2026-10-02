@@ -4,7 +4,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
-const skip = new Set(["node_modules", "dist", "coverage", ".git", ".turbo", "docs"]);
+const skip = new Set(["node_modules", "build", "dist", "coverage", ".git", ".turbo", "docs"]);
 const extensions = new Set([".ts", ".vue", ".js", ".mjs"]);
 const agpl = "SPDX-License-Identifier: AGPL-3.0-or-later";
 const copyright = "Copyright (C) 2026 CodeNav Ltd and contributors";

@@ -28,7 +28,7 @@ const noDefaultExport = {
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**", "docs/**"],
+    ignores: ["**/build/**", "**/dist/**", "**/node_modules/**", "**/coverage/**", "docs/**"],
   },
   eslint.configs.recommended,
   ...tseslint.configs.strict,

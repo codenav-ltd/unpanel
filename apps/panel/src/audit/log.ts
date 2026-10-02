@@ -212,18 +212,19 @@ function text(value: string | null | undefined): string | null {
 export function redactParams(params: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(params)) {
-    out[key] = SECRET_KEY.test(key) ? "[redacted]" : redactValue(value);
+    out[key] = SECRET_KEY.test(key)
+      ? "[redacted]"
+      : redactValue(value, key === "detail" ? MAX_DETAIL : MAX_TEXT);
   }
   return out;
 }
 
-function redactValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactValue);
+function redactValue(value: unknown, maxText: number): unknown {
+  if (Array.isArray(value)) return value.map((item) => redactValue(item, maxText));
   if (value && typeof value === "object") {
     return redactParams(value as Record<string, unknown>);
   }
-  if (typeof value === "string" && value.length > MAX_DETAIL)
-    return `${value.slice(0, MAX_DETAIL)}…`;
+  if (typeof value === "string" && value.length > maxText) return `${value.slice(0, maxText)}…`;
   if (typeof value === "number" && !Number.isFinite(value)) return null;
   return value;
 }

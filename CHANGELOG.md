@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.16] - 2026-10-02
+
+### Changed
+
+- Settings and swap choices use one keyboard-accessible control instead of browser-native select menus.
+
+### Fixed
+
+- A lost browser reply no longer claims a write did not happen. Restart, stop, update, settings, node, authentication, backup, and restore actions tell the user how to verify the result before retrying.
+- Control and update failures keep their full, user-visible reason in Logs, including unexpected server errors.
+- Local lint checks ignore generated release trees while continuing to check source files.
+
 ## [0.1.0-alpha.15] - 2026-10-02
 
 ### Fixed

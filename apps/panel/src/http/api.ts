@@ -52,6 +52,36 @@ export function createApi(options: {
     c.res.headers.set("cache-control", "no-store");
   });
 
+  app.onError((error, c) => {
+    c.header("cache-control", "no-store");
+    const reason = error.message.trim() || "unknown internal failure";
+    const mutating = c.req.method !== "GET" && c.req.method !== "HEAD";
+    const message = mutating
+      ? `The panel failed while processing this request (${reason}). The requested change may already have happened. Open Logs before trying again.`
+      : `The panel failed while processing this request (${reason}). Open Logs and try again.`;
+    let actorId: string | null = null;
+    try {
+      actorId = options.auth.sessionUser(sessionToken(c))?.username ?? null;
+    } catch {
+      // Authentication may be the subsystem that raised the original error.
+    }
+    try {
+      options.audit.record({
+        action: "http.request",
+        result: "error",
+        actorKind: actorId ? "user" : "anonymous",
+        actorId,
+        ip: clientIp(c),
+        target: c.req.path,
+        errorCode: "E_INTERNAL",
+        params: { method: c.req.method, detail: message },
+      });
+    } catch {
+      // The original failure still has to reach the browser if the log is unavailable.
+    }
+    return c.json({ error: { code: "E_INTERNAL", message } }, 500);
+  });
+
   app.get("/api/v1/health", (c) => c.json({ ok: true, version: product.version }));
 
   app.get("/api/v1/auth/state", (c) => {
@@ -69,7 +99,17 @@ export function createApi(options: {
       username: field(body, "username"),
       password: field(body, "password"),
     });
-    if (!result.ok) return failure(c, result);
+    if (!result.ok) {
+      options.audit.record({
+        action: "auth.setup",
+        result: "denied",
+        actorKind: "anonymous",
+        ip: clientIp(c),
+        errorCode: result.code,
+        params: { detail: result.message },
+      });
+      return failure(c, result);
+    }
     return c.json({
       ticket: result.ticket,
       secret: result.secret,
@@ -96,6 +136,7 @@ export function createApi(options: {
         actorKind: "anonymous",
         ip: clientIp(c),
         errorCode: result.code,
+        params: { detail: result.message },
       });
       return failure(c, result);
     }
@@ -130,7 +171,12 @@ export function createApi(options: {
       durationMs: Date.now() - startedAt,
     };
     if (!result.ok) {
-      options.audit.record({ ...base, result: "denied", errorCode: result.code });
+      options.audit.record({
+        ...base,
+        result: "denied",
+        errorCode: result.code,
+        params: { detail: result.message },
+      });
       return failure(c, result);
     }
     if (result.status === "ok") {
@@ -158,6 +204,7 @@ export function createApi(options: {
         actorKind: "anonymous",
         ip: clientIp(c),
         errorCode: result.code,
+        params: { detail: result.message },
       });
       return failure(c, result);
     }
@@ -372,20 +419,26 @@ export function createApi(options: {
       });
       return c.json({ data: result });
     } catch (error) {
-      if (!(error instanceof UpdateError) && !(error instanceof HubCallError)) throw error;
+      const known = error instanceof UpdateError || error instanceof HubCallError;
+      const code = known ? error.code : "E_INTERNAL";
+      const reason =
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "The panel failed before it could confirm the update result.";
+      const message = reason.includes("Logs") ? reason : `${reason} Open Logs before trying again.`;
       options.audit.record({
         action: "panel.update",
         result: "error",
         actorKind: "user",
         actorId: user.username,
         ip: clientIp(c),
-        errorCode: error.code,
+        errorCode: code,
+        params: { detail: message },
         durationMs: Date.now() - startedAt,
       });
       return c.json(
-        { error: { code: error.code, message: error.message } },
-        httpStatusFor(error.code) as
-          400 | 403 | 404 | 409 | 412 | 429 | 500 | 501 | 502 | 503 | 504,
+        { error: { code, message } },
+        httpStatusFor(code) as 400 | 403 | 404 | 409 | 412 | 429 | 500 | 501 | 502 | 503 | 504,
       );
     }
   });
@@ -450,6 +503,7 @@ export function createApi(options: {
         actorId: user.username,
         ip: clientIp(c),
         errorCode: result.code,
+        params: { detail: result.message },
       });
       return failure(c, result);
     }
@@ -522,7 +576,10 @@ export function createApi(options: {
           "cache-control": "no-store",
         },
       });
-    } catch {
+    } catch (error) {
+      const reason =
+        error instanceof Error && error.message.trim() ? error.message : "unknown failure";
+      const message = `Could not export the panel database (${reason}). Open Logs and try again.`;
       options.audit.record({
         action: "panel.backup.export",
         result: "error",
@@ -530,11 +587,9 @@ export function createApi(options: {
         actorId: user.username,
         ip: clientIp(c),
         errorCode: "E_INTERNAL",
+        params: { detail: message },
       });
-      return c.json(
-        { error: { code: "E_INTERNAL", message: "Could not export the panel database." } },
-        500,
-      );
+      return c.json({ error: { code: "E_INTERNAL", message } }, 500);
     } finally {
       try {
         unlinkSync(dest);
@@ -559,7 +614,7 @@ export function createApi(options: {
         actorId: user.username,
         ip: clientIp(c),
         errorCode: "E_INVALID_PARAMS",
-        params: { bytes: bytes.byteLength },
+        params: { bytes: bytes.byteLength, detail: message },
       });
       return c.json({ error: { code: "E_INVALID_PARAMS", message } }, 400);
     }
@@ -764,23 +819,32 @@ export function createApi(options: {
       });
       return c.json({ data: result });
     } catch (error) {
-      if (error instanceof HubCallError) {
-        options.audit.record({
-          action: `panel.${action}`,
-          result: "error",
-          actorKind: "user",
-          actorId: user.username,
-          ip: clientIp(c),
-          nodeId,
-          errorCode: error.code,
-          durationMs: Date.now() - startedAt,
-        });
-        return c.json(
-          { error: { code: error.code, message: error.message } },
-          error.status as 400 | 403 | 404 | 409 | 412 | 429 | 500 | 501 | 502 | 503 | 504,
-        );
-      }
-      throw error;
+      const code = error instanceof HubCallError ? error.code : "E_INTERNAL";
+      const reason =
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : `The panel failed before it could confirm the ${action} result.`;
+      const uncertainty =
+        error instanceof HubCallError
+          ? reason
+          : `${reason} The ${action} may already have been scheduled.`;
+      const message = uncertainty.includes("Logs")
+        ? uncertainty
+        : `${uncertainty} Open Logs before trying again.`;
+      const status = (error instanceof HubCallError ? error.status : 500) as
+        400 | 403 | 404 | 409 | 412 | 429 | 500 | 501 | 502 | 503 | 504;
+      options.audit.record({
+        action: `panel.${action}`,
+        result: "error",
+        actorKind: "user",
+        actorId: user.username,
+        ip: clientIp(c),
+        nodeId,
+        errorCode: code,
+        params: { detail: message },
+        durationMs: Date.now() - startedAt,
+      });
+      return c.json({ error: { code, message } }, status);
     }
   }
 

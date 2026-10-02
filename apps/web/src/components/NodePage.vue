@@ -7,7 +7,8 @@ import { computed, ref, watch } from "vue";
 import { product } from "@unpanel/shared";
 import { formatBytes } from "../format.ts";
 import { en } from "../i18n/en.ts";
-import { couldNotReach, readProblem } from "../http-error.ts";
+import { readProblem, replyNotReceived } from "../http-error.ts";
+import ChoiceField from "./ChoiceField.vue";
 import EnrollGuide from "./EnrollGuide.vue";
 
 const props = defineProps<{
@@ -53,6 +54,7 @@ const swapping = ref(false);
 const swapGib = ref<1 | 2 | 4 | 8>(1);
 const swapError = ref("");
 const swapNote = ref("");
+const swapOptions = ([1, 2, 4, 8] as const).map((value) => ({ value, label: `${value} GiB` }));
 const name = ref(props.name);
 const tagText = ref(props.tags.join(", "));
 const maintenance = ref(props.maintenance);
@@ -108,7 +110,10 @@ async function save(): Promise<void> {
     emit("saved", body.data);
     note.value = en.shell.saved;
   } catch {
-    error.value = couldNotReach("save this node");
+    error.value = replyNotReceived(
+      "save this node",
+      "Refresh this node to check its saved values before trying again.",
+    );
   } finally {
     busy.value = false;
   }
@@ -129,7 +134,10 @@ async function run(path: string, method: "POST" | "DELETE"): Promise<Response | 
     }
     return response;
   } catch {
-    accessError.value = couldNotReach("change this node");
+    accessError.value = replyNotReceived(
+      "change this node",
+      "Refresh the node list and check Logs before trying again.",
+    );
     return null;
   } finally {
     busy.value = false;
@@ -310,15 +318,12 @@ async function remove(): Promise<void> {
       </template>
       <form v-else @submit.prevent="createSwap">
         <p class="hint">{{ en.shell.swapOffer }}</p>
-        <label class="field">
-          <span>{{ en.shell.swapSize }}</span>
-          <select v-model.number="swapGib">
-            <option :value="1">1 GiB</option>
-            <option :value="2">2 GiB</option>
-            <option :value="4">4 GiB</option>
-            <option :value="8">8 GiB</option>
-          </select>
-        </label>
+        <ChoiceField
+          v-model="swapGib"
+          :label="en.shell.swapSize"
+          :options="swapOptions"
+          :disabled="busy"
+        />
         <p v-if="swapError" class="form-error" role="alert">{{ swapError }}</p>
         <p v-else-if="swapNote" class="form-warn" role="status">{{ swapNote }}</p>
         <div class="actions">

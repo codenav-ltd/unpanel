@@ -6,8 +6,6 @@ export const en = {
   shell: {
     connecting: "Connecting to the local node…",
     offline: "The local node is offline.",
-    requestFailed:
-      "Could not reach the panel. Nothing was changed. Reload this page and try again.",
     copyFailed: "Could not copy. Select the text and copy it yourself.",
     railLabel: "CPU, last 10 minutes",
     railEmpty: "No samples yet",
@@ -277,6 +275,7 @@ export const en = {
       "panel.restart": "Panel restart",
       "panel.stop": "Panel stop",
       "panel.update": "Panel update",
+      "http.request": "Panel request",
       "host.swap": "Swap",
       "host.swap.request": "Swap requested",
       "host.swap.reply": "Swap reply lost",

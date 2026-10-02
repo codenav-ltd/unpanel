@@ -6,8 +6,9 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 import { product } from "@unpanel/shared";
 import { computed, onMounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
-import { couldNotReach, readProblem } from "../http-error.ts";
+import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
+import ChoiceField from "./ChoiceField.vue";
 
 export interface PanelOps {
   pollSec: 2 | 5 | 10 | 30;
@@ -51,6 +52,7 @@ const busy = ref("");
 const passwordError = ref("");
 const passwordNote = ref("");
 const themeNote = ref("");
+const themeError = ref("");
 const urlNote = ref("");
 const urlError = ref("");
 const updateState = ref<"checking" | "current" | "available" | "error" | "working" | "started">(
@@ -64,6 +66,24 @@ const themes: { id: ThemeName; label: string }[] = [
   { id: "dark", label: en.shell.themeDark },
   { id: "light", label: en.shell.themeLight },
   { id: "ultra", label: en.shell.themeUltra },
+];
+const pollOptions: { value: PanelOps["pollSec"]; label: string }[] = [2, 5, 10, 30].map(
+  (value) => ({
+    value: value as PanelOps["pollSec"],
+    label: en.shell.pollSec.replace("{seconds}", String(value)),
+  }),
+);
+const historyOptions: { value: PanelOps["historyDays"]; label: string }[] = [1, 7, 30].map(
+  (value) => ({
+    value: value as PanelOps["historyDays"],
+    label: en.shell.historyDays.replace("{days}", String(value)),
+  }),
+);
+const updateOptions: { value: PanelOps["updateHours"]; label: string }[] = [
+  { value: 0, label: en.shell.updateManual },
+  { value: 1, label: en.shell.updateHour },
+  { value: 6, label: en.shell.updateHours.replace("{hours}", "6") },
+  { value: 24, label: en.shell.updateHours.replace("{hours}", "24") },
 ];
 
 const strength = computed(() => {
@@ -97,20 +117,35 @@ watch(
 );
 
 async function saveTheme(nextTheme: ThemeName): Promise<void> {
+  if (busy.value) return;
+  const previousTheme = theme.value;
+  busy.value = "theme";
   theme.value = nextTheme;
   applyTheme(nextTheme);
   emit("theme", nextTheme);
-  themeNote.value = "";
+  themeNote.value = en.shell.saving;
+  themeError.value = "";
   try {
     const response = await fetch("/api/v1/settings", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ theme: nextTheme }),
     });
-    if (!response.ok) throw new Error(String(response.status));
+    if (!response.ok) {
+      themeError.value = await readProblem(response, "save the theme");
+      theme.value = previousTheme;
+      applyTheme(previousTheme);
+      emit("theme", previousTheme);
+      return;
+    }
     themeNote.value = en.shell.saved;
   } catch {
-    themeNote.value = couldNotReach("save the theme");
+    themeError.value = replyNotReceived(
+      "save the theme",
+      "Reload Settings to check which theme was saved before trying again.",
+    );
+  } finally {
+    busy.value = "";
   }
 }
 
@@ -148,8 +183,10 @@ async function saveOps(): Promise<void> {
     emit("ops", body.data.ops);
     opsNote.value = en.shell.saved;
   } catch {
-    opsError.value = couldNotReach("save these settings");
-    restoreOps();
+    opsError.value = replyNotReceived(
+      "save these settings",
+      "Reload Settings to check the saved values before trying again.",
+    );
   } finally {
     busy.value = "";
   }
@@ -175,7 +212,10 @@ async function savePublicUrl(): Promise<void> {
     emit("publicUrl", body.data.publicUrl);
     urlNote.value = en.shell.saved;
   } catch {
-    urlError.value = couldNotReach("save the panel address");
+    urlError.value = replyNotReceived(
+      "save the panel address",
+      "Reload Settings to check the saved address before trying again.",
+    );
   } finally {
     busy.value = "";
   }
@@ -200,7 +240,10 @@ async function savePassword(): Promise<void> {
     next.value = "";
     passwordNote.value = en.shell.passwordChanged;
   } catch {
-    passwordError.value = couldNotReach("change the password");
+    passwordError.value = replyNotReceived(
+      "change the password",
+      "Try signing in with the new password before repeating the change.",
+    );
   } finally {
     busy.value = "";
   }
@@ -256,7 +299,10 @@ async function applyUpdate(): Promise<void> {
     updateState.value = "started";
   } catch {
     updateState.value = "error";
-    updateError.value = couldNotReach("install the update");
+    updateError.value = replyNotReceived(
+      "install the update",
+      "The update may already be running. Wait a minute, then reload About before trying again.",
+    );
   }
 }
 
@@ -291,12 +337,14 @@ onMounted(() => {
             type="button"
             role="radio"
             :aria-checked="theme === item.id"
+            :disabled="Boolean(busy)"
             @click="saveTheme(item.id)"
           >
             {{ item.label }}
           </button>
         </div>
-        <p v-if="themeNote" class="form-warn" role="status">{{ themeNote }}</p>
+        <p v-if="themeError" class="form-error" role="alert">{{ themeError }}</p>
+        <p v-else-if="themeNote" class="form-warn" role="status">{{ themeNote }}</p>
       </section>
       <section class="wide">
         <span class="vital-kicker">{{ en.shell.publicUrl }}</span>
@@ -324,33 +372,25 @@ onMounted(() => {
         <span class="vital-kicker">{{ en.shell.pollLabel }}</span>
         <p class="hint">{{ en.shell.pollHint }}</p>
         <form @submit.prevent="saveOps">
-          <label class="field">
-            <span>{{ en.shell.pollLabel }}</span>
-            <select v-model.number="pollSec">
-              <option :value="2">{{ en.shell.pollSec.replace("{seconds}", "2") }}</option>
-              <option :value="5">{{ en.shell.pollSec.replace("{seconds}", "5") }}</option>
-              <option :value="10">{{ en.shell.pollSec.replace("{seconds}", "10") }}</option>
-              <option :value="30">{{ en.shell.pollSec.replace("{seconds}", "30") }}</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>{{ en.shell.historyLabel }}</span>
-            <select v-model.number="historyDays">
-              <option :value="1">{{ en.shell.historyDays.replace("{days}", "1") }}</option>
-              <option :value="7">{{ en.shell.historyDays.replace("{days}", "7") }}</option>
-              <option :value="30">{{ en.shell.historyDays.replace("{days}", "30") }}</option>
-            </select>
-          </label>
+          <ChoiceField
+            v-model="pollSec"
+            :label="en.shell.pollLabel"
+            :options="pollOptions"
+            :disabled="Boolean(busy)"
+          />
+          <ChoiceField
+            v-model="historyDays"
+            :label="en.shell.historyLabel"
+            :options="historyOptions"
+            :disabled="Boolean(busy)"
+          />
           <p class="hint">{{ en.shell.historyKeepHint }}</p>
-          <label class="field">
-            <span>{{ en.shell.updateEvery }}</span>
-            <select v-model.number="updateHours">
-              <option :value="0">{{ en.shell.updateManual }}</option>
-              <option :value="1">{{ en.shell.updateHour }}</option>
-              <option :value="6">{{ en.shell.updateHours.replace("{hours}", "6") }}</option>
-              <option :value="24">{{ en.shell.updateHours.replace("{hours}", "24") }}</option>
-            </select>
-          </label>
+          <ChoiceField
+            v-model="updateHours"
+            :label="en.shell.updateEvery"
+            :options="updateOptions"
+            :disabled="Boolean(busy)"
+          />
           <p class="hint">{{ en.shell.updateEveryHint }}</p>
           <div class="switch-row">
             <span id="auto-update-label">{{ en.shell.autoUpdate }}</span>

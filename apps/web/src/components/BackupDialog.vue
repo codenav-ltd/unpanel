@@ -4,6 +4,7 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { ref } from "vue";
+import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import { en } from "../i18n/en.ts";
 
 const emit = defineEmits<{ restart: [] }>();
@@ -17,12 +18,20 @@ async function download(): Promise<void> {
   if (busy.value) return;
   busy.value = "export";
   error.value = "";
+  let response: Response;
   try {
-    const response = await fetch("/api/v1/backup/panel");
-    if (!response.ok) {
-      error.value = await readError(response);
-      return;
-    }
+    response = await fetch("/api/v1/backup/panel");
+  } catch {
+    error.value = couldNotReach("download the backup");
+    busy.value = "";
+    return;
+  }
+  if (!response.ok) {
+    error.value = await readProblem(response, "download the backup");
+    busy.value = "";
+    return;
+  }
+  try {
     const blob = await response.blob();
     const name = filenameOf(response.headers.get("content-disposition")) ?? "unpanel.db";
     const url = URL.createObjectURL(blob);
@@ -32,7 +41,8 @@ async function download(): Promise<void> {
     link.click();
     URL.revokeObjectURL(url);
   } catch {
-    error.value = en.shell.requestFailed;
+    error.value =
+      "The panel returned the backup, but this browser could not save it. Check browser download permissions and try again.";
   } finally {
     busy.value = "";
   }
@@ -43,19 +53,30 @@ async function restore(): Promise<void> {
   if (!chosen || busy.value) return;
   busy.value = "restore";
   error.value = "";
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await chosen.arrayBuffer();
+  } catch {
+    error.value = `Could not read ${chosen.name}. Choose the file again; nothing was sent to the panel.`;
+    busy.value = "";
+    return;
+  }
   try {
     const response = await fetch("/api/v1/backup/panel", {
       method: "POST",
       headers: { "content-type": "application/vnd.sqlite3" },
-      body: await chosen.arrayBuffer(),
+      body: bytes,
     });
     if (!response.ok) {
-      error.value = await readError(response);
+      error.value = await readProblem(response, "stage the restore");
       return;
     }
     staged.value = true;
   } catch {
-    error.value = en.shell.requestFailed;
+    error.value = replyNotReceived(
+      "stage the restore",
+      "Open Logs and check whether a restore is pending before trying again.",
+    );
   } finally {
     busy.value = "";
   }
@@ -72,15 +93,6 @@ function filenameOf(header: string | null): string | null {
   if (!header) return null;
   const match = /filename="([^"]+)"/.exec(header);
   return match?.[1] ?? null;
-}
-
-async function readError(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: { message?: string } };
-    return body.error?.message ?? en.auth.invalidResponse;
-  } catch {
-    return en.auth.invalidResponse;
-  }
 }
 </script>
 

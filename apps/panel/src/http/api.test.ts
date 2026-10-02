@@ -178,12 +178,78 @@ describe("POST /api/v1/nodes/local/restart", () => {
       method: "POST",
       headers: { cookie: "unpanel_sid=tok" },
     });
-    const body = (await response.json()) as { error: { code: string } };
+    const body = (await response.json()) as { error: { code: string; message: string } };
 
     expect(response.status).toBe(501);
     expect(body.error.code).toBe("E_UNSUPPORTED");
-    expect(audit.list(1)[0]?.action).toBe("panel.stop");
-    expect(audit.list(1)[0]?.result).toBe("error");
+    expect(body.error.message).toContain("systemd");
+    const row = audit.list(1)[0];
+    expect(row?.action).toBe("panel.stop");
+    expect(row?.result).toBe("error");
+    expect(row?.params?.["detail"]).toBe(body.error.message);
+  });
+
+  it("records an unexpected control failure instead of dropping the connection", async () => {
+    const audit = createAudit(openDatabase(":memory:"));
+    const app = appWith(audit, "tok", {
+      control: async () => {
+        throw new Error("database is locked");
+      },
+    });
+
+    const response = await app.request("/api/v1/nodes/local/restart", {
+      method: "POST",
+      headers: { cookie: "unpanel_sid=tok" },
+    });
+    const body = (await response.json()) as { error: { code: string; message: string } };
+
+    expect(response.status).toBe(500);
+    expect(body.error.code).toBe("E_INTERNAL");
+    expect(body.error.message).toContain("database is locked");
+    expect(body.error.message).toContain("may already have been scheduled");
+    expect(audit.list(1)[0]?.params?.["detail"]).toBe(body.error.message);
+  });
+});
+
+describe("POST /api/v1/updates", () => {
+  it("keeps the update failure sentence in Logs", async () => {
+    const audit = createAudit(openDatabase(":memory:"));
+    const app = appWith(audit, "tok", {
+      applyUpdate: async () => {
+        throw new HubCallError("E_TIMEOUT", "The agent did not confirm the update in time.");
+      },
+    });
+
+    const response = await app.request("/api/v1/updates", {
+      method: "POST",
+      headers: { cookie: "unpanel_sid=tok" },
+    });
+    const body = (await response.json()) as { error: { code: string; message: string } };
+
+    expect(response.status).toBe(504);
+    expect(body.error.message).toContain("did not confirm");
+    expect(audit.list(1)[0]?.params?.["detail"]).toBe(body.error.message);
+  });
+
+  it("turns an unexpected route failure into a readable response and log row", async () => {
+    const audit = createAudit(openDatabase(":memory:"));
+    const app = appWith(audit, "tok", {
+      checkUpdate: async () => {
+        throw new Error("release index is not valid JSON");
+      },
+    });
+
+    const response = await app.request("/api/v1/updates", {
+      headers: { cookie: "unpanel_sid=tok" },
+    });
+    const body = (await response.json()) as { error: { code: string; message: string } };
+
+    expect(response.status).toBe(500);
+    expect(body.error.message).toContain("release index is not valid JSON");
+    const row = audit.list(1)[0];
+    expect(row?.action).toBe("http.request");
+    expect(row?.target).toBe("/api/v1/updates");
+    expect(row?.params?.["detail"]).toBe(body.error.message);
   });
 });
 

@@ -43,7 +43,7 @@ import { formatBytes, formatRate, formatUptime } from "../format.ts";
 import { copyText } from "../copy.ts";
 import { formatPath, parsePath, type SettingsSection } from "./route.ts";
 import { en } from "../i18n/en.ts";
-import { couldNotReach, readProblem } from "../http-error.ts";
+import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 
 interface LocalInfo {
@@ -245,7 +245,10 @@ async function submitSetup(): Promise<void> {
     copied.value = false;
     view.value = "confirm";
   } catch {
-    error.value = couldNotReach("create the account");
+    error.value = replyNotReceived(
+      "start setup",
+      "Reload this page to check the setup state before trying again.",
+    );
   } finally {
     pending.value = false;
   }
@@ -277,7 +280,10 @@ async function submitConfirm(): Promise<void> {
     stripToken();
     showNode();
   } catch {
-    error.value = couldNotReach("finish setup");
+    error.value = replyNotReceived(
+      "finish setup",
+      "Reload this page to check whether setup completed before trying again.",
+    );
   } finally {
     pending.value = false;
   }
@@ -312,7 +318,10 @@ async function submitLogin(): Promise<void> {
     authenticatorCode.value = "";
     view.value = "mfa";
   } catch {
-    error.value = couldNotReach("sign in");
+    error.value = replyNotReceived(
+      "sign in",
+      "Reload this page to check whether you are signed in before trying again.",
+    );
   } finally {
     pending.value = false;
   }
@@ -336,7 +345,10 @@ async function submitMfa(): Promise<void> {
     authenticatorCode.value = "";
     showNode();
   } catch {
-    error.value = couldNotReach("check the authenticator code");
+    error.value = replyNotReceived(
+      "check the authenticator code",
+      "Reload this page to check whether sign-in completed before trying again.",
+    );
   } finally {
     pending.value = false;
   }
@@ -347,7 +359,11 @@ async function signOut(): Promise<void> {
   pending.value = true;
   error.value = "";
   try {
-    await fetch("/api/v1/auth/logout", { method: "POST" });
+    const response = await fetch("/api/v1/auth/logout", { method: "POST" });
+    if (!response.ok) {
+      error.value = await readProblem(response, "sign out");
+      return;
+    }
     stopWatching();
     info.value = null;
     cpuTrace.value = [];
@@ -379,7 +395,10 @@ async function signOut(): Promise<void> {
     applyingHistory = false;
     if (globalThis.location.pathname !== "/") globalThis.history.pushState(null, "", "/");
   } catch {
-    error.value = couldNotReach("sign out");
+    error.value = replyNotReceived(
+      "sign out",
+      "Reload this page to check whether the session ended before trying again.",
+    );
   } finally {
     pending.value = false;
   }
@@ -919,7 +938,11 @@ async function submitControl(): Promise<void> {
     controlNote.value = action === "restart" ? en.shell.restartScheduled : en.shell.stopScheduled;
     if (action === "restart") void waitForPanel();
   } catch {
-    controlError.value = couldNotReach(action === "stop" ? "stop the panel" : "restart the panel");
+    controlError.value = replyNotReceived(
+      action === "stop" ? "stop the panel" : "restart the panel",
+      "The command may already be scheduled. Check the node and Logs before trying again.",
+    );
+    if (action === "restart") void waitForPanel();
   } finally {
     controlBusy.value = false;
   }

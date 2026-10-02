@@ -5,7 +5,7 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
-import { couldNotReach, readProblem } from "../http-error.ts";
+import { readProblem, replyNotReceived } from "../http-error.ts";
 import EnrollGuide from "./EnrollGuide.vue";
 
 const props = defineProps<{ publicUrl: string }>();
@@ -61,7 +61,10 @@ async function create(): Promise<void> {
     emit("address", body.data.publicUrl);
     emit("created");
   } catch {
-    error.value = couldNotReach("add the node");
+    error.value = replyNotReceived(
+      "add the node",
+      "Close this dialog and check the node list and Logs before trying again.",
+    );
   } finally {
     busy.value = false;
   }
