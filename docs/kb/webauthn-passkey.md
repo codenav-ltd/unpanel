@@ -1,9 +1,11 @@
 # WebAuthn and Passkeys
 
-> Applies to: `apps/panel/src/features/auth/webauthn/`, `apps/web/src/pages/login/`. Verification markers: see [README](./README.md).
+> Applies to: `apps/panel/src/auth/factors.ts`, `apps/web/src/components/MfaChallenge.vue`. Verification markers: see [README](./README.md).
 > References: [WebAuthn Level 3](https://www.w3.org/TR/webauthn-3/), [SimpleWebAuthn docs](https://simplewebauthn.dev/docs/), [passkeys.dev](https://passkeys.dev/)
 
 ## 1. RP ID and origin ✅
+
+Shipped from alpha.23: password plus a named passkey, user verification required, exact public-URL hostname as RP ID, stored origin verification, and a guard against changing that origin while passkeys exist. Usernameless login and conditional UI below remain design guidance. The browser's opaque handle is derived from the random account ID and contains no username or email. Verified with SimpleWebAuthn 14 and a browser virtual authenticator on 2026-10-03.
 
 - The **RP ID** is a registrable domain suffix of the page's origin: on `https://panel.example.com`, valid RP IDs are `panel.example.com` or `example.com` (not `com`).
 - **IP addresses cannot be RP IDs.** On `https://203.0.113.10:28517` passkeys do not work at all.
@@ -21,10 +23,10 @@ const options = await generateRegistrationOptions({
   rpName: "Unpanel",
   rpID,
   userName: user.username,
-  userID: webauthnUserIdBytes,          // random 32 bytes per user, not the DB id
+  userID: webauthnUserIdBytes,          // stable opaque random account identifier; no personal data
   attestationType: "none",
   excludeCredentials: passkeys.map((p) => ({ id: p.id, transports: p.transports })),
-  authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
+  authenticatorSelection: { residentKey: "preferred", userVerification: "required" },
 });
 
 const { verified, registrationInfo } = await verifyRegistrationResponse({
@@ -67,7 +69,7 @@ Browser (`@simplewebauthn/browser`): `startRegistration({ optionsJSON })`, `star
 
 ## 5. User handles ✅
 
-- `userID` (user handle) must not contain personal data; use 32 random bytes per user, stored as `webauthn_user_id`, fixed for the user's lifetime.
+- `userID` (user handle) must not contain personal data. Alpha.23 encodes the opaque random account ID; it stays fixed for that account's lifetime. A separate handle is planned if usernameless login is introduced.
 - With usernameless login, the assertion returns `userHandle`; look the user up by it, then check that the credential belongs to that user.
 
 ## 6. Related Origin Requests ⚠️

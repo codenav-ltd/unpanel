@@ -105,12 +105,78 @@
 }
 
 .certificates-page fieldset,
+.account-form fieldset,
 #password-guide fieldset,
 #turnstile-guide fieldset {
   min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.account-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.account-section-head h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.account-method-list {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0;
+}
+.account-method-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+.account-method-list .actions {
+  margin: 0;
+  flex-wrap: wrap;
+}
+.account-policy {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.account-policy h3 {
+  font-size: 14px;
+}
+.account-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1.5;
+  margin: 12px 0;
+}
+.account-check input {
+  width: auto;
+  flex-shrink: 0;
+}
+.account-qr {
+  display: block;
+  max-width: 100%;
+  margin: 16px auto;
+  border-radius: 8px;
+}
+.account-secret {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: all;
+  font-size: 14px;
+  line-height: 1.8;
+  margin: 12px 0;
 }
 
 .certificate-terms {

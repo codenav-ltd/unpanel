@@ -14,7 +14,7 @@ import {
   ReloadOutlined,
   SlidersOutlined,
 } from "@ant-design/icons-vue";
-import { compareVersions, liveSampleMs, product } from "@unpanel/shared";
+import { compareVersions, liveSampleMs, product, type FactorView } from "@unpanel/shared";
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import AddNodeDialog from "../components/AddNodeDialog.vue";
 import AppDialog from "../components/AppDialog.vue";
@@ -33,6 +33,7 @@ import SettingsPage, { type PanelOps } from "../components/SettingsPage.vue";
 import CertificatesPage from "../components/CertificatesPage.vue";
 import ThroughputCard from "../components/ThroughputCard.vue";
 import TurnstileWidget from "../components/TurnstileWidget.vue";
+import MfaChallenge from "../components/MfaChallenge.vue";
 import VitalTile from "../components/VitalTile.vue";
 import { loadCards, saveCards, type CardVisibility } from "../cards.ts";
 import {
@@ -160,6 +161,7 @@ const setupToken = ref("");
 const draft = ref<SetupDraft | null>(null);
 const totpEnabled = ref(true);
 const authenticatorCode = ref("");
+const factorMethods = ref<FactorView[]>([]);
 const recoveryCode = ref("");
 const ticket = ref("");
 const copied = ref(false);
@@ -350,7 +352,11 @@ async function submitLogin(): Promise<void> {
       resetTurnstile();
       return;
     }
-    const body = (await response.json()) as { status?: string; ticket?: string };
+    const body = (await response.json()) as {
+      status?: string;
+      ticket?: string;
+      methods?: FactorView[];
+    };
     resetTurnstile();
     if (body.status === "ok") {
       password.value = "";
@@ -362,6 +368,7 @@ async function submitLogin(): Promise<void> {
       return;
     }
     ticket.value = body.ticket;
+    factorMethods.value = body.methods ?? [];
     password.value = "";
     authenticatorCode.value = "";
     view.value = "mfa";
@@ -370,33 +377,6 @@ async function submitLogin(): Promise<void> {
     error.value = replyNotReceived(
       "sign in",
       "Reload this page to check whether you are signed in before trying again.",
-    );
-  } finally {
-    pending.value = false;
-  }
-}
-
-async function submitMfa(): Promise<void> {
-  if (pending.value) return;
-  pending.value = true;
-  error.value = "";
-  try {
-    const response = await fetch("/api/v1/auth/mfa/totp", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ticket: ticket.value, code: authenticatorCode.value.trim() }),
-    });
-    if (!response.ok) {
-      error.value = await errorMessage(response);
-      return;
-    }
-    ticket.value = "";
-    authenticatorCode.value = "";
-    showNode();
-  } catch {
-    error.value = replyNotReceived(
-      "check the authenticator code",
-      "Reload this page to check whether sign-in completed before trying again.",
     );
   } finally {
     pending.value = false;
@@ -1954,28 +1934,22 @@ onUnmounted(() => {
               </button>
             </div>
           </form>
-          <form v-else-if="view === 'mfa'" key="mfa" @submit.prevent="submitMfa">
-            <p class="step">{{ en.auth.mfaTitle }}</p>
-            <p class="hint">{{ en.auth.mfaHint }}</p>
-            <label class="field">
-              <span>{{ en.auth.authenticatorCode }}</span>
-              <input
-                v-model="authenticatorCode"
-                name="code"
-                inputmode="numeric"
-                autocomplete="one-time-code"
-                required
-                :aria-invalid="Boolean(error)"
-              />
-            </label>
-            <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-            <div class="actions">
-              <button type="submit" :disabled="pending">
-                <span v-if="pending" class="spinner" aria-hidden="true" />
-                {{ pending ? en.auth.verifying : en.auth.verify }}
-              </button>
-            </div>
-          </form>
+          <div v-else-if="view === 'mfa'" key="mfa">
+            <p class="step">Verify your sign-in</p>
+            <MfaChallenge
+              :ticket="ticket"
+              :methods="factorMethods"
+              @verified="
+                ticket = '';
+                showNode();
+              "
+              @cancel="
+                ticket = '';
+                view = 'login';
+                error = '';
+              "
+            />
+          </div>
         </Transition>
       </div>
     </section>

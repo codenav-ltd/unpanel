@@ -24,6 +24,8 @@ import { createCertificates } from "./tls/store.ts";
 import { createAcmeIssuer } from "./tls/acme.ts";
 import { createPanelListener } from "./tls/listener.ts";
 import { createAlerts } from "./alerts/service.ts";
+import { createEmailMethods } from "./email/store.ts";
+import { createFactors } from "./auth/factors.ts";
 
 export async function startPanel(options: {
   panelKey: KeyObject;
@@ -43,6 +45,15 @@ export async function startPanel(options: {
   close: () => Promise<void>;
 }> {
   const data = openPanelData(options.dataDir);
+  const settings = createSettings(data.db, Date.now, (value) => factors.assertPublicUrl(value));
+  const email = createEmailMethods({ db: data.db, masterKey: data.masterKey });
+  const factors = createFactors({
+    db: data.db,
+    masterKey: data.masterKey,
+    email,
+    publicUrl: () => settings.view().publicUrl,
+  });
+  seedPublicUrl(settings, options.publicUrl);
   const security = createLoginSecurity({ db: data.db, masterKey: data.masterKey });
   const auth = await createAuth({
     db: data.db,
@@ -50,9 +61,8 @@ export async function startPanel(options: {
     setupToken: data.readSetupToken,
     clearSetupToken: data.clearSetupToken,
     security,
+    factors,
   });
-  const settings = createSettings(data.db);
-  seedPublicUrl(settings, options.publicUrl);
   const history = createHistory(
     data.db,
     () => settings.view().ops.historyDays * 24 * 60 * 60 * 1000,
@@ -128,6 +138,8 @@ export async function startPanel(options: {
   });
   let armUpdateWatch = (): void => undefined;
   const app = createApi({
+    factors,
+    email,
     auth,
     audit,
     snapshot: (nodeId) => hub.observe(nodeId),

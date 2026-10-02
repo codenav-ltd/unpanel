@@ -29,6 +29,10 @@ import { CertificateError } from "../tls/material.ts";
 import type { Alerts } from "../alerts/service.ts";
 import { registerAlertApi } from "../alerts/api.ts";
 import { verifyTurnstileToken } from "../auth/turnstile.ts";
+import { AccountError } from "../auth/account-error.ts";
+import type { Factors } from "../auth/factors.ts";
+import type { EmailMethods } from "../email/store.ts";
+import { registerAccountApi } from "../auth/account-api.ts";
 
 const AUDIT_PAGE = 100;
 const HISTORY_WINDOWS = new Set([60, 1440, 10080]);
@@ -51,6 +55,8 @@ export function createApi(options: {
   secureCookie: boolean | (() => boolean);
   certificates?: Certificates;
   alerts?: Alerts;
+  factors?: Factors;
+  email?: EmailMethods;
   checkUpdate: () => Promise<UpdateView>;
   applyUpdate: () => Promise<{ accepted: true; version: string }>;
   applyAgentUpdate: (nodeId: string) => Promise<{ accepted: true; version: string }>;
@@ -77,6 +83,11 @@ export function createApi(options: {
 
   app.onError((error, c) => {
     c.header("cache-control", "no-store");
+    if (error instanceof AccountError)
+      return c.json(
+        { error: { code: "E_SECURITY_REQUEST", message: error.message } },
+        error.status,
+      );
     const reason = error.message.trim() || "unknown internal failure";
     const mutating = c.req.method !== "GET" && c.req.method !== "HEAD";
     const message = mutating
@@ -153,6 +164,56 @@ export function createApi(options: {
           }
         : { initialized: false },
     );
+  });
+
+  if (options.factors && options.email)
+    registerAccountApi(app, {
+      auth: options.auth,
+      factors: options.factors,
+      email: options.email,
+      audit: options.audit,
+      token: sessionToken,
+      publicUrl: () => options.settings.view().publicUrl,
+    });
+
+  app.post("/api/v1/auth/mfa/challenge", async (c) => {
+    const body = await readJson(c);
+    if (!body) return invalid(c);
+    if (!options.auth.challengeMfa)
+      return c.json(
+        { error: { code: "E_NOT_FOUND", message: "This authentication method is unavailable." } },
+        404,
+      );
+    return c.json({
+      data: await options.auth.challengeMfa(field(body, "ticket"), field(body, "methodId")),
+    });
+  });
+  app.post("/api/v1/auth/mfa/verify", async (c) => {
+    const body = await readJson(c);
+    if (!body) return invalid(c);
+    if (!options.auth.confirmMfa)
+      return c.json(
+        { error: { code: "E_NOT_FOUND", message: "This authentication method is unavailable." } },
+        404,
+      );
+    const result = await options.auth.confirmMfa({
+      ticket: field(body, "ticket"),
+      methodId: field(body, "methodId"),
+      code: field(body, "code"),
+      response: body["response"],
+      ip: clientIp(c),
+      userAgent: c.req.header("user-agent") ?? "",
+    });
+    options.audit.record({
+      action: "auth.mfa",
+      result: result.ok ? "ok" : "denied",
+      actorKind: result.ok ? "user" : "anonymous",
+      actorId: result.ok ? (options.auth.sessionUser(result.token)?.username ?? null) : null,
+      ip: clientIp(c),
+    });
+    if (!result.ok) return failure(c, result);
+    c.header("set-cookie", sessionCookie(result.token, secureCookie()));
+    return c.json({ status: "ok" });
   });
 
   app.post("/api/v1/setup/begin", async (c) => {
@@ -250,7 +311,11 @@ export function createApi(options: {
       return c.json({ status: "ok" });
     }
     options.audit.record({ ...base, result: "ok", target: "mfa_required" });
-    return c.json({ status: "mfa_required", ticket: result.ticket, methods: ["totp"] });
+    return c.json({
+      status: "mfa_required",
+      ticket: result.ticket,
+      methods: result.methods ?? ["totp"],
+    });
   });
 
   app.post("/api/v1/auth/mfa/totp", async (c) => {

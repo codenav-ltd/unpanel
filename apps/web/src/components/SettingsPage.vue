@@ -8,11 +8,12 @@ import {
   CloudSyncOutlined,
   DashboardOutlined,
   InfoCircleOutlined,
+  MailOutlined,
   SafetyCertificateOutlined,
   WarningOutlined,
 } from "@ant-design/icons-vue";
 import { compareVersions, product } from "@unpanel/shared";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import type { ReleaseChange } from "../release-details.ts";
@@ -23,6 +24,9 @@ import ReleaseDetailsDialog from "./ReleaseDetailsDialog.vue";
 import SelectField from "./SelectField.vue";
 import AppDialog from "./AppDialog.vue";
 import TurnstileWidget from "./TurnstileWidget.vue";
+import type { SettingsSection } from "../app/route.ts";
+const AccountSecurity = defineAsyncComponent(() => import("./AccountSecurity.vue"));
+const EmailSettings = defineAsyncComponent(() => import("./EmailSettings.vue"));
 
 export interface PanelOps {
   pollSec: 2 | 5 | 10 | 30;
@@ -53,7 +57,7 @@ const props = defineProps<{
   username: string;
   theme: ThemeName;
   publicUrl: string;
-  section: "panel" | "security" | "updates" | "about";
+  section: SettingsSection;
   ops: PanelOps;
   security: LoginSecuritySettings;
   nodes: UpdateNode[];
@@ -61,7 +65,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   theme: [ThemeName];
   publicUrl: [string];
-  section: ["panel" | "security" | "updates" | "about"];
+  section: [SettingsSection];
   ops: [PanelOps];
   security: [LoginSecuritySettings];
   updateFound: [version: string];
@@ -72,6 +76,7 @@ const emit = defineEmits<{
 const sections = [
   { id: "panel" as const, label: en.settings.panel, icon: DashboardOutlined },
   { id: "security" as const, label: en.settings.security, icon: SafetyCertificateOutlined },
+  { id: "email" as const, label: "Email", icon: MailOutlined },
   { id: "updates" as const, label: en.updates.title, icon: CloudSyncOutlined },
   { id: "about" as const, label: en.shell.about, icon: InfoCircleOutlined },
 ];
@@ -976,6 +981,7 @@ onUnmounted(() => {
       </section>
     </div>
     <div v-else-if="section === 'security'" class="page-stack">
+      <AccountSecurity />
       <section class="wide">
         <span class="vital-kicker">{{ en.settings.turnstile }}</span>
         <p class="hint">{{ en.settings.turnstileHint }}</p>
@@ -1193,6 +1199,7 @@ onUnmounted(() => {
         <p v-if="passwordNote" class="form-warn" role="status">{{ passwordNote }}</p>
       </section>
     </div>
+    <div v-else-if="section === 'email'" class="page-stack"><EmailSettings /></div>
     <div v-else-if="section === 'updates'" class="page-stack">
       <Transition name="update-result">
         <div v-if="updateSuccessVersion" class="update-success" role="status">

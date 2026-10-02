@@ -58,7 +58,11 @@ export function defaultOps(): PanelOps {
   return { pollSec: 2, historyDays: 7, updateHours: 6, autoUpdate: false };
 }
 
-export function createSettings(db: DatabaseSync, now: () => number = Date.now): Settings {
+export function createSettings(
+  db: DatabaseSync,
+  now: () => number = Date.now,
+  validatePublicUrl?: (value: string) => void,
+): Settings {
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
@@ -123,7 +127,9 @@ export function createSettings(db: DatabaseSync, now: () => number = Date.now): 
       return view();
     },
     setPublicUrl(publicUrl, updatedBy) {
-      write(KEY_PUBLIC_URL, normalizePublicUrl(publicUrl), updatedBy);
+      const normalized = normalizePublicUrl(publicUrl);
+      validatePublicUrl?.(normalized);
+      write(KEY_PUBLIC_URL, normalized, updatedBy);
       return view();
     },
     setNode(patch, updatedBy) {

@@ -39,5 +39,6 @@ This directory records **behavior details of external systems, formulas, limits,
 | [security-checklist.md](./security-checklist.md) | Pre-release security checklist |
 | [release-process.md](./release-process.md) | Versioning, builds, signing, publishing |
 | [panel-https.md](./panel-https.md) | Panel HTTPS, domain issuance, trust, renewal, and access migration |
+| [account-security.md](./account-security.md) | Managed 2FA methods, policy, shared email delivery, recovery and downgrade compatibility |
 | [troubleshooting.md](./troubleshooting.md) | Troubleshooting index |
 | [runbooks.md](./runbooks.md) | Operational runbooks |

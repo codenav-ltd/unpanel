@@ -3,7 +3,7 @@
 > Status: Draft · Related ADRs: [0004](../adr/0004-self-built-auth.md), [0009](../adr/0009-multi-user-rbac.md), [0010](../adr/0010-https-by-default.md)
 > External details: [kb/webauthn-passkey.md](../kb/webauthn-passkey.md), [kb/totp.md](../kb/totp.md)
 
-Current implementation: one owner, password sign-in, optional TOTP with replay protection, recovery codes, session cookies, password changes, configurable sign-in restrictions and optional Turnstile. Changing a password keeps the calling session and revokes other sessions and pending MFA tickets in one transaction; concurrent password changes cannot overwrite each other. The remainder includes v1 design: passkeys, user-managed session lists, sudo mode, API tokens, team RBAC and the corresponding routes are not shipped. Do not treat this planned route catalog as the current API.
+Current implementation from alpha.23: one owner, password sign-in followed by a configurable second factor (TOTP, passkey or email OTP), named method management, single-use recovery codes, session cookies, password changes, configurable sign-in restrictions and optional Turnstile. Account-security changes require session-bound reauthentication for five minutes; when policy requires 2FA, that verification also requires a factor. Policy or credential changes revoke other sessions and pending logins. Email OTP selects a shared named provider from Settings → Email. See [account security](../kb/account-security.md) for the shipped route and recovery behavior. Usernameless/passwordless passkeys, user-managed session lists, general sudo mode, API tokens and team RBAC remain planned. The route catalog below includes those future capabilities.
 
 ## 1. Principles
 
@@ -31,11 +31,14 @@ Current implementation: one owner, password sign-in, optional TOTP with replay p
 | Credential | Per user | Notes |
 |---|---|---|
 | Password | 0–1 | Argon2id; passkey-only accounts have none |
-| TOTP | 0–1 | Secret encrypted with the master key |
+| TOTP | 0–N | Named methods; secret encrypted with the master key |
+| Email OTP | 0–N | Verified recipient and shared email delivery method |
 | Passkeys | 0–N | Nameable ("MacBook Touch ID", "YubiKey 5") |
 | Recovery codes | 10 | Single use each; stored as SHA-256 |
 
-**Policy** (global setting, owner-editable):
+**Current policy** (per account, after reauthentication): require a second factor after every password sign-in and choose allowed method types. It defaults to the existing setup choice. A required policy must retain at least one verified allowed method. Enrolling a method offers to enable the requirement immediately; first enrollment also asks the user to save recovery codes. Email delivery credentials are stored in shared email methods, while an email factor stores the selected method ID and verified address.
+
+**Future global enforcement**:
 
 - `require2fa`, default `true`: every user must have TOTP or at least one passkey. A user with only a password is forced into enrollment after login and cannot reach anything else.
 - A passkey login with user verification satisfies the 2FA requirement on its own (§5.3).
@@ -72,9 +75,9 @@ sequenceDiagram
 
 ### 5.2 Passkey as a second factor
 
-With a `ticket`, call `/auth/mfa/passkey/options`; `allowCredentials` lists the user's credentials and `userVerification` is `"discouraged"` (the password was already a factor).
+Current alpha.23: with a password-verified `ticket`, call `/auth/mfa/challenge` with the selected `methodId`, then submit the browser response to `/auth/mfa/verify`. `allowCredentials` contains only that account's selected credential, and user verification is required. Challenges are single-use, expire after five minutes, and match the saved public origin and exact hostname. Email uses the same challenge route to send a code; TOTP and recovery codes submit directly to verify. The legacy `/auth/mfa/totp` route remains supported.
 
-### 5.3 Usernameless passkey login (the recommended default)
+### 5.3 Planned: usernameless passkey login
 
 ```mermaid
 sequenceDiagram

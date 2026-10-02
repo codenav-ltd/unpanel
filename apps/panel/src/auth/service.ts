@@ -7,6 +7,9 @@ import { decryptSecret, encryptSecret } from "./secret.ts";
 import { hashPassword, passwordProblem, usernameProblem, verifyPassword } from "./password.ts";
 import type { LoginBlock, LoginSecurity } from "./security.ts";
 import { matchTotp, totpSecret, totpSecretText, totpUri } from "./totp.ts";
+import type { FactorView } from "@unpanel/shared";
+import type { Factors } from "./factors.ts";
+import { AccountError } from "./account-error.ts";
 import {
   TurnstileUnavailableError,
   verifyTurnstileToken,
@@ -71,7 +74,7 @@ export interface Auth {
     ip: string;
     userAgent: string;
   }) => Promise<
-    | { ok: true; status: "mfa_required"; ticket: string }
+    | { ok: true; status: "mfa_required"; ticket: string; methods?: FactorView[] }
     | { ok: true; status: "ok"; token: string }
     | AuthFailure
   >;
@@ -81,6 +84,15 @@ export interface Auth {
     ip: string;
     userAgent: string;
   }) => { ok: true; token: string } | AuthFailure;
+  challengeMfa?: (ticket: string, methodId: string) => Promise<unknown>;
+  confirmMfa?: (input: {
+    ticket: string;
+    methodId: string;
+    code?: string;
+    response?: unknown;
+    ip: string;
+    userAgent: string;
+  }) => Promise<{ ok: true; token: string } | AuthFailure>;
   logout: (token: string | null) => void;
   sessionUser: (token: string | null) => SessionUser | null;
   changePassword: (input: {
@@ -98,6 +110,7 @@ export async function createAuth(options: {
   setupToken: () => string | null;
   clearSetupToken: () => void;
   security: LoginSecurity;
+  factors?: Factors;
   verifyTurnstile?: TurnstileVerifier;
   now?: () => number;
 }): Promise<Auth> {
@@ -113,12 +126,7 @@ export async function createAuth(options: {
     return Number(row?.n ?? 0);
   }
 
-  function issueSession(
-    userId: string,
-    ip: string,
-    userAgent: string,
-    method: "password" | "password+totp",
-  ): string {
+  function issueSession(userId: string, ip: string, userAgent: string, method: string): string {
     const token = randomBytes(32).toString("base64url");
     const now = seconds();
     options.db
@@ -143,6 +151,23 @@ export async function createAuth(options: {
       .prepare("UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?")
       .run(now, now, userId);
     return token;
+  }
+
+  function pendingMfa(ticket: string) {
+    const id = sha256(ticket);
+    const pending = one<{ user_id: string; attempts: number; expires_at: number }>(
+      options.db,
+      "SELECT p.user_id,p.attempts,p.expires_at FROM pending_logins p JOIN users u ON u.id=p.user_id WHERE p.id=? AND u.status='active'",
+      id,
+    );
+    if (!pending || pending.expires_at <= seconds() || pending.attempts >= MAX_ATTEMPTS) {
+      options.db.prepare("DELETE FROM pending_logins WHERE id=?").run(id);
+      throw new AccountError(
+        "This sign-in expired or reached its attempt limit. Start again.",
+        401,
+      );
+    }
+    return { ...pending, id };
   }
 
   return {
@@ -388,7 +413,9 @@ export async function createAuth(options: {
         };
       }
       options.security.resetFailures(input.ip, input.username);
-      if (!row.totp_secret_enc) {
+      if (
+        !(options.factors ? options.factors.policy(row.id).required : Boolean(row.totp_secret_enc))
+      ) {
         return {
           ok: true,
           status: "ok",
@@ -396,15 +423,119 @@ export async function createAuth(options: {
         };
       }
       const ticket = randomBytes(32).toString("base64url");
+      options.db.prepare("DELETE FROM pending_logins WHERE expires_at <= ?").run(seconds());
+      options.db
+        .prepare(
+          "DELETE FROM pending_logins WHERE user_id = ? AND id NOT IN (SELECT id FROM pending_logins WHERE user_id = ? ORDER BY rowid DESC LIMIT 4)",
+        )
+        .run(row.id, row.id);
       options.db
         .prepare(
           "INSERT INTO pending_logins (id, user_id, attempts, expires_at) VALUES (?, ?, 0, ?)",
         )
         .run(sha256(ticket), row.id, seconds() + TICKET_SEC);
-      return { ok: true, status: "mfa_required", ticket };
+      return {
+        ok: true,
+        status: "mfa_required",
+        ticket,
+        ...(options.factors ? { methods: options.factors.allowed(row.id) } : {}),
+      };
+    },
+
+    async challengeMfa(ticket, methodId) {
+      if (!options.factors)
+        throw new AccountError("This authentication method is unavailable.", 404);
+      const pending = pendingMfa(ticket);
+      const result = await options.factors.challenge(
+        pending.user_id,
+        `login:${pending.id}`,
+        methodId,
+      );
+      pendingMfa(ticket);
+      return result;
+    },
+
+    async confirmMfa(input) {
+      if (!options.factors)
+        return {
+          ok: false,
+          status: 404,
+          code: "E_NOT_FOUND",
+          message: "This authentication method is unavailable.",
+        };
+      try {
+        const pending = pendingMfa(input.ticket);
+        options.db
+          .prepare("UPDATE pending_logins SET attempts=attempts+1 WHERE id=?")
+          .run(pending.id);
+        if (
+          !(await options.factors.verify(pending.user_id, `login:${pending.id}`, input.methodId, {
+            code: input.code,
+            response: input.response,
+          }))
+        )
+          return {
+            ok: false,
+            status: 401,
+            code: "E_UNAUTHENTICATED",
+            message: "Verification failed. Check the code or choose another method.",
+          };
+        const consumed = options.db
+          .prepare(
+            "DELETE FROM pending_logins WHERE id=? AND expires_at>? AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')",
+          )
+          .run(pending.id, seconds(), pending.user_id);
+        if (!consumed.changes)
+          return {
+            ok: false,
+            status: 401,
+            code: "E_UNAUTHENTICATED",
+            message: "This sign-in expired. Start again.",
+          };
+        return {
+          ok: true,
+          token: issueSession(pending.user_id, input.ip, input.userAgent, "password+mfa"),
+        };
+      } catch (error) {
+        if (error instanceof AccountError)
+          return {
+            ok: false,
+            status: error.status,
+            code: "E_UNAUTHENTICATED",
+            message: error.message,
+          };
+        throw error;
+      }
     },
 
     confirmTotp(input) {
+      if (options.factors) {
+        try {
+          const pending = pendingMfa(input.ticket);
+          options.db
+            .prepare("UPDATE pending_logins SET attempts=attempts+1 WHERE id=?")
+            .run(pending.id);
+          const totp = options.factors
+            .allowed(pending.user_id)
+            .find((method) => method.kind === "totp");
+          if (!totp || !options.factors.verifyTotp(pending.user_id, totp.id, input.code))
+            return { ok: false, status: 401, code: "E_UNAUTHENTICATED", message: "Invalid code." };
+          options.db.prepare("DELETE FROM pending_logins WHERE id=?").run(pending.id);
+          return {
+            ok: true,
+            token: issueSession(pending.user_id, input.ip, input.userAgent, "password+totp"),
+          };
+        } catch (error) {
+          if (error instanceof AccountError)
+            return {
+              ok: false,
+              status: error.status,
+              code: "E_UNAUTHENTICATED",
+              message: error.message,
+            };
+          throw error;
+        }
+      }
       const id = sha256(input.ticket);
       const pending = one<{ user_id: string; attempts: number; expires_at: number }>(
         options.db,
@@ -433,7 +564,7 @@ export async function createAuth(options: {
       options.db.prepare("UPDATE pending_logins SET attempts = ? WHERE id = ?").run(attempts, id);
       const user = one<{ totp_secret_enc: string | null; totp_last_step: number | null }>(
         options.db,
-        "SELECT totp_secret_enc, totp_last_step FROM users WHERE id = ?",
+        "SELECT totp_secret_enc, totp_last_step FROM users WHERE id = ? AND status = 'active'",
         pending.user_id,
       );
       const secret = user?.totp_secret_enc

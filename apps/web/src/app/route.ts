@@ -3,7 +3,7 @@
 
 import type { ShellPage } from "../components/AppSidebar.vue";
 
-export type SettingsSection = "panel" | "security" | "updates" | "about";
+export type SettingsSection = "panel" | "security" | "email" | "updates" | "about";
 
 export interface ShellLocation {
   page: ShellPage;
@@ -24,7 +24,10 @@ export function parsePath(path: string): ShellLocation {
   }
   if (parts[0] === "settings") {
     const settings: SettingsSection =
-      parts[1] === "security" || parts[1] === "updates" || parts[1] === "about"
+      parts[1] === "security" ||
+      parts[1] === "email" ||
+      parts[1] === "updates" ||
+      parts[1] === "about"
         ? parts[1]
         : "panel";
     return { page: "settings", nodeId: "local", settings, unknown: null };

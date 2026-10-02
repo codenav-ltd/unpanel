@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.23] - 2026-10-03
+
+### Added
+
+- Security now manages named TOTP, passkey and verified email OTP methods, with a configurable per-account requirement and allowed method types. Users can add, rename, replace and remove methods through guided dialogs.
+- Sign-in offers a choice of allowed methods and single-use recovery codes. TOTP setup includes a QR code; initial enrollment helps users save recovery codes. Account-security changes require recent password and, when required, second-factor verification.
+- Settings → Email stores named SMTP, Resend and Postmark delivery methods for email OTP. Credentials are encrypted, test delivery is available, and referenced methods cannot be removed or disabled. Alert migration to shared methods follows in the next release.
+
+### Security
+
+- Existing TOTP accounts retain replay protection and required verification on upgrade. Removing the last allowed method is blocked; policy and credential changes end other sessions and pending sign-ins.
+- Email and passkey challenges are short-lived, single-use and bound to their account and purpose. Email sends and verification attempts are bounded. Passkey verification checks the signature, origin, RP ID, counter and user verification; changing the panel origin is blocked while passkeys exist.
+- Managed 2FA accounts fail closed in older binaries instead of falling back to password-only sign-in. Deliberate downgrades require a matching pre-upgrade database and master key; see the account-security runbook.
+
 ## [0.1.0-alpha.22] - 2026-10-03
 
 ### Changed

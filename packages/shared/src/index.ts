@@ -6,6 +6,13 @@ export { product } from "./product.ts";
 export { allowedReleaseHost, assertReleaseUrl } from "./release-host.ts";
 export { compareVersions } from "./version.ts";
 export type {
+  FactorKind,
+  FactorView,
+  FactorPolicy,
+  AccountSecurityView,
+  EmailMethodView,
+} from "./security.ts";
+export type {
   AlertSeverity,
   AlertMetric,
   AlertRule,
