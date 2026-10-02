@@ -1,0 +1,73 @@
+name: Deploy website
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag to deploy (for example v0.1.0-alpha.19)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unpanel-website
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: website
+      url: https://unpanel.codenav.dev
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tooling
+          persist-credentials: false
+      - name: Validate release tag
+        run: '[[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$ ]]'
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          path: source
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: source/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+      - run: pnpm --dir source install --frozen-lockfile
+      - run: pnpm --dir source --filter @unpanel/site build
+      - name: Download published release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
+          --pattern channels.json --pattern SHA256SUMS --dir metadata
+      - name: Prepare and validate website
+        run: |
+          node tooling/scripts/site-release.mjs prepare "$RELEASE_TAG" source/apps/site/dist metadata
+          tar -czf site.tar.gz -C source/apps/site/dist .
+      - name: Deploy and verify public files
+        env:
+          SITE_SSH_HOST: ${{ vars.SITE_SSH_HOST }}
+          SITE_SSH_USER: ${{ vars.SITE_SSH_USER }}
+          SITE_SSH_PORT: ${{ vars.SITE_SSH_PORT || '22' }}
+          SITE_PATH: ${{ vars.SITE_PATH || '/web/unpanel' }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://unpanel.codenav.dev' }}
+          SITE_SSH_KEY: ${{ secrets.SITE_SSH_KEY }}
+          SITE_SSH_KNOWN_HOSTS: ${{ secrets.SITE_SSH_KNOWN_HOSTS }}
+        run: bash tooling/scripts/deploy-site.sh site.tar.gz "$RELEASE_TAG"

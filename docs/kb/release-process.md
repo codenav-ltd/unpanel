@@ -32,6 +32,25 @@ The update check reads a signed manifest (`channels.json` + `channels.json.minis
 - **Moving domains.** Installed panels keep the manifest URL they shipped with. If the domain changes, keep the old one serving or redirecting `channels.json` for at least one major version. The release that switches the default URL must ship while the old URL still works.
 - **Trust.** The manifest's minisign signature, not TLS, is the trust anchor. A compromised web host can withhold updates but cannot push a malicious one to existing installs.
 
+### Automated website deployment
+
+`.github/workflows/release.yml` calls the reusable `deploy-site.yml` workflow after the release assets are uploaded. This is a direct workflow call: it does not depend on a `release` event, which a release created by `GITHUB_TOKEN` would not trigger in another workflow.
+
+Configure the GitHub `website` environment once:
+
+- Variables: `SITE_SSH_HOST`, `SITE_SSH_USER`; optional `SITE_SSH_PORT` (default `22`), `SITE_PATH` (default `/web/unpanel`), and `SITE_URL` (default `https://unpanel.codenav.dev`).
+- Secrets: `SITE_SSH_KEY`, a dedicated deployment private key, and `SITE_SSH_KNOWN_HOSTS`, the verified SSH host-key entry. Host-key checking stays enabled. Never put these credentials in the repository.
+- The SSH user needs write access to the existing static website and its parent directory. The server needs Bash, curl, tar, sha256sum, realpath, and flock. Deployment does not use sudo or restart the panel.
+- Allow release tags to use the environment. Leave required reviewers disabled if deployments should run without manual approval; GitHub environment protection rules still apply.
+
+The workflow checks out the requested tag, builds `@unpanel/site`, downloads that published release's `channels.json` and `SHA256SUMS`, and checks the manifest hash and installer version pins. It packages the website, both installers, and manifest together. SSH credentials exist only in a private temporary directory on the runner and are removed on exit.
+
+Deployments are serialized. A version check rejects an older release and the host takes a lock and checks that the current version has not changed. Files are extracted and verified before the existing website is moved aside. The directory replacement can cause a brief interruption; no web-server configuration changes are needed. Every public file is then downloaded through the normal site URL and compared with its expected SHA-256. Failure restores the previous directory and fails the workflow; a successful deployment retains a backup at `<SITE_PATH>.previous.<id>`. Remove old backups separately when they are no longer needed.
+
+To repair a missed deployment without rebuilding or replacing release packages, run **Actions → Deploy website → Run workflow** from `main`, with the existing release tag (for example `v0.1.0-alpha.19`). This also deploys tags created before the automatic website job existed. A GitHub Release can remain available even if website deployment fails; rerun the deployment, and do not equate the uploaded release with a successful website deployment.
+
+The website must serve ordinary static files without rewriting their contents. Keep `install.sh`, `install-agent.sh`, `channels.json`, and `VERSION` uncached (`Cache-Control: no-store`). SHA-256 verification of public responses detects stale caching instead of reporting success.
+
 ## 3. Build matrix
 
 | Artifact | Architectures | Build environment |

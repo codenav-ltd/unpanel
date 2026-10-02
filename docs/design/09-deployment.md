@@ -10,6 +10,8 @@ curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 
 `pnpm --filter @unpanel/site build` writes `apps/site/dist`, including `install.sh` and `install-agent.sh`. Point `unpanel.codenav.dev` at that directory. Serve those scripts as `text/plain` with `Cache-Control: no-store`, and fall back other paths to `index.html`. The panel installer downloads the pinned release package and checks its SHA-256.
 
+The Release workflow calls Deploy website after GitHub artifacts are published. It builds the site from the same tag, verifies the published `channels.json` checksum and both installer versions, and deploys them together over SSH. Public file checks must pass before the deployment succeeds; a failed check restores the previous website. An older deployment cannot overwrite a newer version. See [website deployment setup](../kb/release-process.md#automated-website-deployment) for the one-time GitHub configuration and manual recovery of an existing release.
+
 A machine that should only run the agent uses the command the panel fills in:
 
 ```bash

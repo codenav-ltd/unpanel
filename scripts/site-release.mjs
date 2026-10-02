@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 CodeNav Ltd and contributors
+
+import { createHash } from "node:crypto";
+import { readdir, readFile, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { compareVersions } from "../packages/shared/src/version.ts";
+
+export function releaseVersion(tag) {
+  if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/.test(tag)) {
+    throw new Error("Expected a release tag such as v0.1.0-alpha.19.");
+  }
+  return tag.slice(1);
+}
+
+export function assertForwardVersion(tag, current) {
+  const version = releaseVersion(tag);
+  const order = compareVersions(version, current.trim());
+  if (order === null) throw new Error("The current website version could not be determined.");
+  if (order < 0) throw new Error(`Refusing to replace website ${current.trim()} with ${version}.`);
+}
+
+export function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/** Uses the exact manifest published with the release, never a locally regenerated one. */
+export async function prepareSite(tag, siteDir, metadataDir) {
+  const version = releaseVersion(tag);
+  const manifest = await readFile(join(metadataDir, "channels.json"));
+  const sums = await readFile(join(metadataDir, "SHA256SUMS"), "utf8");
+  const expected = sums.match(/^([a-f0-9]{64}) [ *]channels\.json\r?$/m)?.[1];
+  if (!expected || sha256(manifest) !== expected) {
+    throw new Error("The release channels.json does not match its published SHA-256.");
+  }
+  const channels = JSON.parse(manifest.toString("utf8"));
+  const release = version.includes("-") ? channels.beta : channels.stable;
+  if (release?.version !== version)
+    throw new Error("The release manifest has a different version.");
+  for (const name of ["install.sh", "install-agent.sh"]) {
+    const script = await readFile(join(siteDir, name), "utf8");
+    if (script.match(/^VERSION="([^"]+)"\r?$/m)?.[1] !== version) {
+      throw new Error(`${name} is not pinned to ${version}. The website was not prepared.`);
+    }
+  }
+  await readFile(join(siteDir, "index.html"));
+  await writeFile(join(siteDir, "channels.json"), manifest);
+  await writeFile(join(siteDir, "VERSION"), `${version}\n`);
+  const files = await siteFiles(siteDir);
+  const checksums = await Promise.all(
+    files.map(async (name) => `${sha256(await readFile(join(siteDir, name)))}  ${name}\n`),
+  );
+  await writeFile(join(siteDir, "SITE_SHA256SUMS"), checksums.join(""));
+  return files;
+}
+
+async function siteFiles(root, dir = "") {
+  const files = [];
+  for (const entry of await readdir(join(root, dir), { withFileTypes: true })) {
+    const name = dir ? `${dir}/${entry.name}` : entry.name;
+    if (!/^[A-Za-z0-9._/-]+$/.test(name)) throw new Error(`Unsupported website filename: ${name}`);
+    if (entry.isDirectory()) files.push(...(await siteFiles(root, name)));
+    else if (entry.isFile() && name !== "SITE_SHA256SUMS") files.push(name);
+    else if (!entry.isFile()) throw new Error(`Website contains a non-regular file: ${name}`);
+  }
+  return files.sort();
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  try {
+    const [command, ...args] = process.argv.slice(2);
+    if (command === "tag") releaseVersion(args[0]);
+    else if (command === "forward") assertForwardVersion(args[0], args[1] ?? "");
+    else if (command === "prepare") await prepareSite(...args);
+    else
+      throw new Error(
+        "Usage: site-release.mjs tag|forward|prepare <tag> [paths or current version]",
+      );
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+  }
+}

@@ -29,3 +29,10 @@ jobs:
           files: build/release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  website:
+    needs: package
+    uses: ./.github/workflows/deploy-site.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
