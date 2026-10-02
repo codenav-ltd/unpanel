@@ -16,11 +16,12 @@ A **lightweight, good-looking, secure, and practical** multi-server management p
 1. **Uniform node abstraction**: the local machine is also a node. Every feature is implemented once, in the agent; the panel only authenticates, routes, and aggregates. ([ADR-0001](../adr/0001-uniform-node-abstraction.md))
 2. **Least privilege**: the internet-facing panel process does not run as root. Privileged operations are only reachable through named, schema-validated agent RPCs. There is no generic "run this command" endpoint; the web terminal is an explicit exception that each node can disable locally.
 3. **Secure by default**: HTTPS from the first visit (self-signed), no default password, mandatory first-run setup, step-up authentication for dangerous actions, full audit log.
-4. **Pay only for what is watched**: no live data is pushed when nobody is looking; subscribe instead of polling wherever possible; modules that are not used do not stay resident.
+4. **Pay only for what is watched**: no browser stream stays active when nobody is looking; lightweight background checks continue for monitoring; subscribe instead of polling wherever possible; modules that are not used do not stay resident.
 5. **Recoverable**: every configuration change can be rolled back (Nginx, firewall, cron); lost 2FA can be recovered with a local CLI on the server; the panel itself can be backed up and migrated.
 6. **Non-invasive**: never rewrite configuration the user already has; everything the panel manages lives in clearly marked, separate files or blocks.
 7. **Docs first**: see [docs/README.md](../README.md).
-8. **The interface is part of the product.** A small process and a quiet agent do not mean a static screen. Motion, empty and error states, and the response to every action are designed with the feature. See [design/08](./08-frontend.md) §3.
+8. **Professional without unnecessary complexity.** Configuration follows the user's task: guided discovery, understandable provider choices, explicit confirmation of destinations, and useful defaults. A Telegram user must not need to find a chat ID.
+9. **The interface is part of the product.** A small process and a quiet agent do not mean a static screen. Motion, empty and error states, and the response to every action are designed with the feature. See [design/08](./08-frontend.md) §3.
 
 ## 3. Goals and non-goals
 
@@ -34,7 +35,7 @@ A **lightweight, good-looking, secure, and practical** multi-server management p
 - systemd services: status, start/stop, enable on boot, journal logs
 - Certificates: ACME (HTTP-01 and DNS-01), automatic renewal, distribution to many nodes, expiry monitoring for external certificates
 - Alerting: threshold rules, event rules, silences, maintenance mode, recovery notifications
-- Notifications: Telegram bot (including interactive commands), a channel abstraction (webhooks, etc.)
+- Notifications: Telegram bot (including interactive commands), email via selectable SMTP/API providers, and an extensible channel abstraction (webhooks, etc.)
 - Authentication: password + TOTP + passkeys, recovery codes, session management, API tokens; single-user mode by default, switchable to team mode with node-scoped RBAC
 - Web terminal and file manager
 - Firewall (ufw / nftables): read-only view plus changes with automatic rollback
@@ -92,7 +93,7 @@ P0 = required for the first usable build; P1 = required for v1.0; P2 = v1.x.
 | systemd services + journal | P0 | M3 | [modules/services.md](../modules/services.md) |
 | Nginx sites | P0 | M3 | [modules/nginx.md](../modules/nginx.md) |
 | Certificate issuance and distribution | P0 | M3 | [modules/certificates.md](../modules/certificates.md) |
-| Alert engine + Telegram | P0 | M4 | [modules/alerting.md](../modules/alerting.md) |
+| Alert engine + Telegram and email | P0 | M4 | [modules/alerting.md](../modules/alerting.md) |
 | Team mode (users, roles, scoped bindings), API tokens | P1 | M4 | [design/04](./04-auth.md) §12.5 |
 | PM2 | P1 | M5 | [modules/pm2.md](../modules/pm2.md) |
 | Compose stacks | P1 | M5 | [modules/docker.md](../modules/docker.md) |

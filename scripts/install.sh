@@ -6,7 +6,7 @@
 #   curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 set -eu
 
-VERSION="0.1.0-alpha.19"
+VERSION="0.1.0-alpha.20"
 REF="v${VERSION}"
 RELEASE="https://github.com/codenav-ltd/unpanel/releases/download/${REF}"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"

@@ -16,9 +16,11 @@
     "@unpanel/shared": "workspace:*",
     "acme-client": "5.4.0",
     "hono": "^4.13.12",
+    "nodemailer": "^10.0.13",
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@types/nodemailer": "^8.0.2",
     "@types/ws": "^8.18.2"
   }
 }

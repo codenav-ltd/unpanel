@@ -23,6 +23,7 @@ import { handleHttp } from "./http/node.ts";
 import { createCertificates } from "./tls/store.ts";
 import { createAcmeIssuer } from "./tls/acme.ts";
 import { createPanelListener } from "./tls/listener.ts";
+import { createAlerts } from "./alerts/service.ts";
 
 export async function startPanel(options: {
   panelKey: KeyObject;
@@ -68,6 +69,7 @@ export async function startPanel(options: {
     maintenance: legacy.maintenance,
   });
   const audit = createAudit(data.db);
+  const sampledAt = new Map<string, number>();
   const hub = createHub({
     panelKey: options.panelKey,
     agentKey: (agentId) =>
@@ -78,7 +80,10 @@ export async function startPanel(options: {
       return state;
     },
     panelVersion: product.version,
-    record: (nodeId, sample, at) => history.record(nodeId, at, sample),
+    record: (nodeId, sample, at) => {
+      history.record(nodeId, at, sample);
+      sampledAt.set(nodeId, at);
+    },
     history: (nodeId, at, minutes) => history.series(nodeId, at, minutes),
     onPresence: (event, agentId) => {
       audit.record({
@@ -112,6 +117,15 @@ export async function startPanel(options: {
   });
   const secureCookie = (): boolean =>
     certificates.view().activeId !== null || (options.secureCookie ?? false);
+  const alerts = createAlerts({
+    db: data.db,
+    masterKey: data.masterKey,
+    nodes: () => nodes.list(),
+    live: () => hub.live(),
+    sampledAt: (id) => sampledAt.get(id) ?? 0,
+    certificates: () => certificates.view().certificates,
+    publicUrl: () => settings.view().publicUrl,
+  });
   let armUpdateWatch = (): void => undefined;
   const app = createApi({
     auth,
@@ -130,6 +144,7 @@ export async function startPanel(options: {
     history: (nodeId, minutes) => history.series(nodeId, Date.now(), minutes),
     secureCookie,
     certificates,
+    alerts,
     checkUpdate: async () => {
       const status = await findUpdate({
         current: product.version,
@@ -235,6 +250,33 @@ export async function startPanel(options: {
   const renewalTimer = setInterval(() => certificates.checkRenewals(), 60 * 60_000);
   renewalTimer.unref();
   certificates.checkRenewals();
+  // Monitoring must continue with every browser closed. live() requests fresh
+  // samples; evaluation refuses stale readings and never substitutes zero.
+  const alertTimer = setInterval(() => {
+    try {
+      alerts.engine.tick();
+    } catch {
+      audit.record({
+        action: "alert.evaluate",
+        result: "error",
+        params: {
+          detail:
+            "Alert evaluation failed. Check the database and restart the panel if this persists.",
+        },
+      });
+    }
+  }, 15_000);
+  const deliveryTimer = setInterval(() => {
+    void alerts.channels.flush().catch(() =>
+      audit.record({
+        action: "alert.deliver",
+        result: "error",
+        params: { detail: "The notification queue could not be processed." },
+      }),
+    );
+  }, 1000);
+  alertTimer.unref();
+  deliveryTimer.unref();
 
   let updateTimer: ReturnType<typeof setInterval> | undefined;
   armUpdateWatch = (): void => {
@@ -280,6 +322,9 @@ export async function startPanel(options: {
     async close() {
       if (updateTimer) clearInterval(updateTimer);
       clearInterval(renewalTimer);
+      clearInterval(alertTimer);
+      clearInterval(deliveryTimer);
+      await alerts.close();
       hub.close();
       for (const socket of sockets) socket.close();
       await listener.close();

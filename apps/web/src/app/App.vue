@@ -15,7 +15,7 @@ import {
   SlidersOutlined,
 } from "@ant-design/icons-vue";
 import { compareVersions, liveSampleMs, product } from "@unpanel/shared";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import AddNodeDialog from "../components/AddNodeDialog.vue";
 import AppDialog from "../components/AppDialog.vue";
 import AppSidebar, { type ShellPage } from "../components/AppSidebar.vue";
@@ -48,6 +48,7 @@ import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 import { defaultLoginSecurity, type LoginSecuritySettings } from "../security.ts";
+const AlertsPage = defineAsyncComponent(() => import("../components/AlertsPage.vue"));
 
 interface LocalInfo {
   hostname: string;
@@ -982,6 +983,7 @@ const nodeLabel = computed(
 
 const pageTitle = computed(() => {
   if (page.value === "certificates") return en.nav.certificates;
+  if (page.value === "alerts") return en.nav.alerts;
   if (page.value === "overview") return en.nav.overview;
   if (page.value === "settings") return en.nav.settings;
   const section = page.value === "host" ? en.nav.host : en.nav.dashboard;
@@ -1385,6 +1387,7 @@ onUnmounted(() => {
           @removed="onRemoved"
         />
         <CertificatesPage v-else-if="page === 'certificates'" @public-url="publicUrl = $event" />
+        <AlertsPage v-else-if="page === 'alerts'" />
         <SettingsPage
           v-else-if="page === 'settings'"
           :username="username"

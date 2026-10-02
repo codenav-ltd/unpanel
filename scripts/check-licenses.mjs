@@ -5,6 +5,8 @@ import { execFileSync } from "node:child_process";
 
 const allowed = new Set([
   "MIT",
+  // Nodemailer's MIT No Attribution license grants the same distribution rights.
+  "MIT-0",
   "ISC",
   "BSD-2-Clause",
   "BSD-3-Clause",

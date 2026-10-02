@@ -1,140 +1,50 @@
 # Module · Notification Channels and the Telegram Bot
 
-> Status: Draft · Panel component: `notify/` · External details: [kb/telegram-bot-api.md](../kb/telegram-bot-api.md)
+> Implemented in alpha.20: independently enabled Telegram and email channels, guided Telegram setup, SMTP, Resend API, Postmark API, encrypted credentials, persistent delivery queue, tests and delivery logs. Panel component: `apps/panel/src/alerts/`.
 
-## 1. Channel abstraction
+## Channels and routing
 
-```ts
-interface NotificationMessage {
-  kind: "incident.firing" | "incident.resolved" | "incident.repeat" | "digest" | "system" | "test";
-  severity: "info" | "warning" | "critical";
-  title: string;                       // "Low disk space"
-  node?: { id: string; name: string };
-  target?: string;                     // "/data"
-  summary: string;                     // "Usage 93.4% (threshold 90%) for 5 minutes"
-  fields?: { label: string; value: string }[];
-  link?: string;                       // deep link into the panel (requires public_url)
-  incidentId?: string;
-  at: number;
-}
+Telegram **and email are first-priority channels**. Users may connect several destinations and enable any combination. Each rule chooses explicit channels or all enabled channels; each channel accepts warning and critical notifications, or critical only. Editing a rule's destination never changes another rule's routing.
 
-interface Channel {
-  kind: string;
-  send(msg: NotificationMessage, signal: AbortSignal): Promise<void>;   // throws NotifyError (retryable vs. permanent)
-  test(): Promise<void>;
-}
-```
+The provider boundary accepts a small plain-text notification with a title, body and delivery key. SMTP uses Nodemailer; HTTP providers and Telegram use native fetch. No bot framework or provider SDK stays resident. New drivers belong behind this boundary, not inside the evaluator. Browser/API payloads use shared TypeScript contracts.
 
-- Messages are rendered in the channel's configured locale (`notification_channels.locale`, default `en`).
-- The send queue lives in panel memory, one queue per channel, with token-bucket rate limiting.
-- Retryable errors (network errors, 429, 5xx) back off at 5 s, 30 s, 2 min, up to 3 retries. Final failures are written to `notifications_log` and highlighted in the UI.
-- Unsent messages in the queue are lost on panel restart. Alert state is in the database, so firing notifications are not re-sent after a restart, but resolution notices are still sent. This is an acceptable trade-off.
+Credentials are encrypted with the panel master key using AES-256-GCM. API responses expose settings and a credential-present flag, never the credential. An empty credential on an email edit keeps the saved value only for the same provider. Changing providers requires a new credential. Provider response bodies and credential-bearing URLs never enter user-visible errors or audit logs.
 
-| Channel | Priority | Notes |
-|---|---|---|
-| Telegram | P0 | See §2 |
-| Webhook | P1 | Generic JSON POST with an HMAC signature |
-| Bark | P2 | iOS push |
-| Email (SMTP) | P2 | |
-| WeCom / DingTalk / Lark bots | P2 | All webhook variants |
+## Telegram setup guide
 
-## 2. Telegram bot
+1. Choose **Open Telegram setup guide**. Create a dedicated bot with [BotFather](https://t.me/BotFather), then enter its token.
+2. The panel calls `getMe` to identify the bot and `getWebhookInfo` to check availability. An existing webhook is reported with instructions; Unpanel never deletes another application's webhook.
+3. The guide generates a random single-use binding code, valid for 10 minutes. Open its `t.me` link and press Start. For a group, add the bot and send the displayed `/bind@BotUsername <code>` command. Group privacy can stay enabled.
+4. The open guide polls for matching messages. Old messages, random text and commands addressed to another bot cannot identify a destination. Concurrent guides for the same token are rejected; another application's poller produces an actionable conflict.
+5. The UI shows the conversation name, username where available, type, numeric ID, and message sender. **The user must confirm the intended conversation.** Discovery alone never saves a chat ID.
+6. Confirmation saves the discovered chat ID and encrypted token, then consumes the setup session. Send a test from the channel card and inspect its delivery result.
 
-### 2.1 Configuration
+Setup sessions are owned by the signed-in panel user, remain in memory, and expire on timeout or restart. There is no incoming command worker after setup. The public Telegram API must be reachable from the panel; custom API roots and HTTP/SOCKS proxies are future options. Dedicated bot use avoids consuming another application's updates.
 
-| Item | Notes |
-|---|---|
-| Bot token | From @BotFather; stored encrypted |
-| API base | Defaults to `https://api.telegram.org`; can point to a self-hosted Bot API server or a reverse proxy (for panels on networks without direct access to Telegram) |
-| Proxy | Optional HTTP/HTTPS/SOCKS5 proxy |
-| Updates | Long polling (`getUpdates`); **no** public webhook URL needed, so it works behind NAT |
+Notifications use plain text, with link previews disabled, so node names cannot inject Telegram formatting. Permanent errors explain revoked tokens, blocked bots, missing conversations, or sender permissions. A migrated supergroup must be connected again through the guide. The current UI removes/recreates a Telegram channel to rotate its token or destination; rules selecting it must be updated before removal.
 
-Library: grammY in long-polling mode.
+## Email setup
 
-### 2.2 Binding chats
+Choose a delivery method, sender and up to 10 recipients:
 
-Only bound chats receive messages or can run commands.
+- **SMTP** works with any provider that accepts username/password authentication over verified TLS. Choose a custom hostname/port or a Gmail/Resend SMTP preset. TLS usually uses port 465; STARTTLS usually uses 587. STARTTLS is required, with no fallback to plaintext. Gmail generally needs an [app password](https://support.google.com/accounts/answer/185833).
+- **Resend API** uses a send-capable API key and a verified sender domain. Each delivery uses a stable idempotency key. See [Send Email](https://resend.com/docs/api-reference/emails/send-email).
+- **Postmark API** uses a Server API token, verified sender, and the `outbound` transactional message stream. See [Email API](https://postmarkapp.com/developer/api/email-api).
 
-1. In the UI, click "Bind Telegram"; the panel generates an 8-character bind code (valid for 10 minutes, single use).
-2. The user sends `/bind <code>` to the bot in a private chat or a group.
-3. The panel records the `chat_id`, title, and type, and links them to the panel user who started the binding (commands run with that user's permissions).
-4. Messages from unbound chats are ignored, except `/start`, which gets a fixed explanatory reply (revealing nothing).
+SMTP authentication restrictions vary by provider. OAuth-only SMTP accounts are not currently supported; use an appropriate API provider or an SMTP account with an approved app credential. Save first, then send a test. Disabling a channel stops pending deliveries; a message already in flight can still arrive. Sent means accepted by the provider, not confirmed inbox placement.
 
-### 2.3 Message format
+## Queue and delivery history
 
-`parse_mode: "HTML"`. Only `&`, `<`, and `>` need escaping, which is far simpler and more reliable than MarkdownV2's dozen-plus special characters.
+SQLite stores queued notifications and retries, so pending work survives a normal restart. A worker processes up to four channels concurrently, one message at a time per channel, with at least 3.1 seconds between messages to the same Telegram bot/conversation. Requests have bounded timeouts. Temporary network/server failures retry after 5 seconds, 30 seconds and 2 minutes, for four attempts total. Provider retry-after extends the cooldown. Permanent credential/destination failures stop immediately.
 
-```
-🔴 <b>[CRITICAL] Node offline</b>
-<b>Node</b> hk-01 (203.0.113.10)
-<b>For</b> 2m 15s
-<b>Last seen</b> 2026-10-01 20:31:05
+The queue holds at most 1,000 pending messages. Overflow is recorded as a failed delivery with an explanation. The UI shows the latest 100 delivery records; non-pending records are retained for 30 days. A manual test is limited to once every 30 seconds per channel. Disabled or removed channels cancel unsent work.
 
-<a href="https://panel.example.com/x8Kp2Q/nodes/01J9.../">Open in panel</a>
-```
+There is no exactly-once guarantee: if a provider accepts a message but its reply is lost, SMTP, Telegram or Postmark retries can duplicate it. Resend's idempotency key helps with this case. This is shown in the delivery UI. Delivery failures stay visible in the channel card and log; this release does not automatically alert another channel about them.
 
-With an inline keyboard: `[Acknowledge]` `[Mute 1h]` `[Mute 1d]`.
+## Planned extensions
 
-Resolution:
+Future drivers include signed webhooks, Bark and WeCom/DingTalk/Lark. Webhooks should sign timestamp + body with HMAC-SHA256 and support replay protection; custom templates must never execute code. Future system notifications include update, renewal and backup failures, with explicit subscriptions.
 
-```
-✅ <b>[RESOLVED] Node offline</b>
-<b>Node</b> hk-01
-<b>Duration</b> 7m 42s
-```
+Bot commands (`/status`, `/node`, `/alerts`, `/ack`, `/mute`, `/unbind`) and inline actions remain planned. Any implementation must authorize the bound chat and panel user. Remediation commands remain off by default, require the relevant node permission, private-chat use, a fresh TOTP confirmation for every action, and a durable audit trail. Notification delivery must not silently become remote administration.
 
-Severity markers: 🔴 critical, 🟠 warning, 🔵 info, ✅ resolved.
-
-### 2.4 Commands
-
-| Command | Action | Permission |
-|---|---|---|
-| `/start` | Help text | None |
-| `/bind <code>` | Bind this chat | Bind code |
-| `/status` | All nodes: online count, alert count, one line per node (CPU/memory/disk) | `node:read` |
-| `/node <name>` | Single node details | `node:read` |
-| `/alerts` | Active alerts (with acknowledge/mute buttons) | `alert:read` |
-| `/ack <id>` | Acknowledge an incident | `alert:write` |
-| `/mute <id> <duration>` | Silence, e.g. `/mute 12 2h` | `alert:write` |
-| `/unbind` | Unbind this chat | None |
-| `/restart <node> <container\|service>` (P2) | Restart a container or service | See below |
-
-**Remediation commands (P2) are off by default.** A stolen Telegram account would mean control over servers, so when enabled they additionally require:
-
-- `allow_commands = true` on the chat, and the bound panel user has the permission;
-- private chats only (never groups);
-- the current TOTP code for every execution: the bot first replies "Send your 6-digit code within 60 seconds to confirm restarting hk-01 / nginx", and only acts on a correct code;
-- every action audited, with `actor` = `telegram:<chat_id>→<user>`.
-
-### 2.5 Rate limits
-
-Telegram limits bot send rates (roughly 1 message/s per chat, about 20/minute per group, about 30/s overall; the official docs are authoritative). Implementation:
-
-- One token bucket per chat: 1/s for private chats, 20/minute for groups;
-- On `429`, wait for the response's `retry_after`, then retry;
-- During alert storms, the grouping in [alerting.md](./alerting.md) §5 is the backstop.
-
-### 2.6 Inline button callbacks
-
-`callback_data` is limited to 64 bytes. Formats: `a:<incidentShortId>` (acknowledge), `m:<incidentShortId>:<seconds>` (mute). `incidentShortId` is the incident's auto-incrementing short number, not the UUID. Callbacks also check that the chat is bound and the user has permission.
-
-## 3. Webhook
-
-```http
-POST <url>
-Content-Type: application/json
-User-Agent: Panel/1.3.0
-X-Panel-Event: incident.firing
-X-Panel-Signature: t=1696161065,v1=5f2b...   (hex of HMAC-SHA256(secret, t + "." + body))
-
-{ "kind": "incident.firing", "severity": "critical", "title": "...", "node": {...}, ... }
-```
-
-- Receivers verify authenticity with the signature and timestamp (±5 minutes) to prevent replay.
-- Custom headers and body templates (P2) use simple `{{field}}` interpolation, never an executable template engine.
-
-## 4. Subscriptions and routing
-
-- Each alert rule chooses its channels;
-- Each channel has a minimum severity;
-- System notifications (panel upgrade finished, certificate renewal failed, backup failed, login from a new device) can be toggled per type in settings, with a channel choice.
+External API details and verification references are in [Telegram Bot API](../kb/telegram-bot-api.md). Interface acceptance criteria are in [alerting](./alerting.md).

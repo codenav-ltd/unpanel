@@ -2,6 +2,10 @@
 
 > Status: Draft · Related ADR: [0007](../adr/0007-ant-design-vue.md) · Reference: [kb/ui-reference-3x-ui.md](../kb/ui-reference-3x-ui.md)
 
+## Current implementation and interaction contract
+
+The alpha uses Vue 3, custom accessible dialogs/selects, Ant Design icons, and shared CSS tokens. The broader stack below is a design target, not an installed dependency list. Alerts is a lazy-loaded route with guided Telegram discovery and explicit identity confirmation; email progressively exposes SMTP or provider API settings. All asynchronous actions retain their control with a spinner, prevent duplicate submissions, and explain failures and the next action. Channels remain independently configurable. The product should feel professional without requiring users to know internal identifiers.
+
 ## 1. Stack
 
 | Item | Choice | Notes |

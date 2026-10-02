@@ -30,7 +30,7 @@ import { product } from "@unpanel/shared";
 import { computed, onMounted, onUnmounted, ref, type Component } from "vue";
 import { en } from "../i18n/en.ts";
 
-export type ShellPage = "overview" | "dashboard" | "host" | "settings" | "certificates";
+export type ShellPage = "overview" | "dashboard" | "host" | "settings" | "certificates" | "alerts";
 
 export interface SideNode {
   id: string;
@@ -167,7 +167,7 @@ const items: Item[] = [
     id: "alerts",
     label: en.nav.alerts,
     group: "global",
-    enabled: false,
+    enabled: true,
     icon: BellOutlined,
   },
   {

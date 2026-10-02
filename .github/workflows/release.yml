@@ -25,6 +25,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           prerelease: true
+          body_path: build/RELEASE_NOTES.md
           files: build/release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

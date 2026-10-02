@@ -26,6 +26,8 @@ import { UpdateError, type UpdateView } from "../updates/check.ts";
 import type { Certificates } from "../tls/store.ts";
 import { registerCertificateApi } from "../tls/api.ts";
 import { CertificateError } from "../tls/material.ts";
+import type { Alerts } from "../alerts/service.ts";
+import { registerAlertApi } from "../alerts/api.ts";
 
 const AUDIT_PAGE = 100;
 const HISTORY_WINDOWS = new Set([60, 1440, 10080]);
@@ -47,6 +49,7 @@ export function createApi(options: {
   disconnect: (nodeId: string, code: number) => void;
   secureCookie: boolean | (() => boolean);
   certificates?: Certificates;
+  alerts?: Alerts;
   checkUpdate: () => Promise<UpdateView>;
   applyUpdate: () => Promise<{ accepted: true; version: string }>;
   applyAgentUpdate: (nodeId: string) => Promise<{ accepted: true; version: string }>;
@@ -122,6 +125,14 @@ export function createApi(options: {
   if (options.certificates)
     registerCertificateApi(app, {
       certificates: options.certificates,
+      audit: options.audit,
+      username: (c) => options.auth.sessionUser(sessionToken(c))?.username ?? null,
+      publicUrl: () => options.settings.view().publicUrl,
+    });
+
+  if (options.alerts)
+    registerAlertApi(app, {
+      alerts: options.alerts,
       audit: options.audit,
       username: (c) => options.auth.sessionUser(sessionToken(c))?.username ?? null,
       publicUrl: () => options.settings.view().publicUrl,

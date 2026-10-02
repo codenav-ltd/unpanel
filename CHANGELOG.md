@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.20] - 2026-10-03
+
+### Added
+
+- Alerts now watches CPU, memory, system disk, swap, offline nodes and active panel certificate expiry, with configurable rules, persistent incidents, recovery notifications, acknowledgement, reminders and timed incident silences.
+- Notification channels can be enabled independently and selected per rule. Email supports verified SMTP with provider presets, Resend API and Postmark API, with encrypted credentials, send tests and visible delivery results.
+- Telegram setup guides users from a BotFather token to a one-time message, displays the detected user or group for confirmation, and saves the chat ID automatically after approval.
+- A bounded SQLite notification queue preserves pending deliveries across restart, retries temporary provider failures, respects cooldowns and keeps a delivery log.
+
+### Fixed
+
+- Background monitoring now requests metrics even with every browser closed. Stale or missing readings cannot falsely resolve an incident, and maintenance mode suppresses notifications without erasing incident history.
+
+### Security
+
+- Telegram setup is owner-bound, expires after ten minutes, ignores unrelated messages and never removes another application's webhook. Notification credentials and credential-bearing provider responses are not returned to the browser or audit log.
+
 ## [0.1.0-alpha.19] - 2026-10-03
 
 ### Added

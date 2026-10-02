@@ -2,7 +2,7 @@
 
 **The server panel that doesn't act like one.** Simple, modern, and lightweight: one web UI for the load, alerts, containers, processes, sites, and certificates of all your servers — without turning any of them into a "panel server".
 
-> **Status: 0.1.0-alpha.19 pre-alpha.** First-run setup creates the owner account with a password and TOTP. Settings includes configurable sign-in restrictions and optional Cloudflare Turnstile. Updates keeps the panel ahead of its remote agents, shows every agent version, and rolls back an agent update that does not stay active. Automatic install stays off until it is turned on. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
+> **Status: 0.1.0-alpha.20 pre-alpha.** Alerts now monitors resource thresholds, offline nodes and panel certificate expiry, with guided Telegram setup and SMTP/Resend/Postmark email notifications. First-run setup creates the owner account with a password and TOTP. Settings includes configurable sign-in restrictions and optional Cloudflare Turnstile. Updates keeps the panel ahead of its remote agents, shows every agent version, and rolls back an agent update that does not stay active. Automatic install stays off until it is turned on. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
 
 ## Install
 
@@ -20,7 +20,7 @@ A later release is installed from Settings → Updates, or with `sudo bash /opt/
 
 Most server panels are heavy: they install their own stacks, rewrite system configuration, run as root on the internet, and treat multiple servers as an afterthought. Unpanel is the opposite, hence the name:
 
-- **Lightweight** — the agent idles under 50 MB of RAM and 0.5% of one CPU core; nothing is streamed when nobody is watching.
+- **Lightweight** — the agent idles under 50 MB of RAM and 0.5% of one CPU core; live views use shared sampling; background alert checks continue every 15 seconds.
 - **Multi-node from day one** — the local machine is just another node, so every feature works the same on 1 or 100 servers.
 - **Secure by default** — HTTPS from the first visit, no default password, passkeys and TOTP, step-up authentication for dangerous actions, an unprivileged web process, and node-local policies the panel cannot override.
 - **Non-invasive** — it manages what you already run, keeps its own configuration in clearly marked files, and can roll back every change it makes.

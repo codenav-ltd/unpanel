@@ -16,6 +16,9 @@ export interface ShellLocation {
 /** The shell used to keep its page in memory, so a refresh always opened the overview. */
 export function parsePath(path: string): ShellLocation {
   const parts = path.split("/").filter(Boolean);
+  if (parts.length === 1 && parts[0] === "alerts") {
+    return { page: "alerts", nodeId: "local", settings: "panel", unknown: null };
+  }
   if (parts.length === 1 && parts[0] === "certificates") {
     return { page: "certificates", nodeId: "local", settings: "panel", unknown: null };
   }
@@ -41,6 +44,7 @@ export function parsePath(path: string): ShellLocation {
 }
 
 export function formatPath(location: ShellLocation): string {
+  if (location.page === "alerts") return "/alerts";
   if (location.page === "certificates") return "/certificates";
   if (location.page === "settings") {
     return location.settings === "panel" ? "/settings" : `/settings/${location.settings}`;

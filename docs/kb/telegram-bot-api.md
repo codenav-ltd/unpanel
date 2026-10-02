@@ -1,7 +1,9 @@
 # Telegram Bot API
 
-> Applies to: `apps/panel/src/features/notify/telegram/`. Verification markers: see [README](./README.md).
+> Applies to: `apps/panel/src/alerts/telegram.ts`. Verification markers: see [README](./README.md).
 > References: [Bot API](https://core.telegram.org/bots/api), [Bots FAQ](https://core.telegram.org/bots/faq), [grammY docs](https://grammy.dev/)
+
+Current implementation verified against the official API references on 2026-10-03: native fetch, plain-text notifications, random one-time `/start` or addressed `/bind` discovery, and explicit panel confirmation. HTML rendering and interactive commands below are guidance for future extensions. Custom API roots and proxies are not implemented yet.
 
 ## 1. Limits
 
@@ -27,8 +29,8 @@ Exceeding limits returns `429 Too Many Requests` with `parameters.retry_after` (
 
 ## 3. Receiving updates
 
-- **Long polling** (`getUpdates` with `timeout`): no public URL needed; works behind NAT. Used by default.
-- **Webhook** (`setWebhook`): requires a public HTTPS URL. While a webhook is set, `getUpdates` fails with `409 Conflict: can't use getUpdates method while webhook is active` ✅. On startup, call `deleteWebhook` (without dropping pending updates) when using polling.
+- **Long polling** (`getUpdates` with `timeout`): no public URL needed; works behind NAT. The current setup guide uses bounded short polls while open; a permanent command worker remains planned.
+- **Webhook** (`setWebhook`): requires a public HTTPS URL. While a webhook is set, `getUpdates` fails with `409 Conflict: can't use getUpdates method while webhook is active` ✅. Unpanel checks `getWebhookInfo` during setup and refuses to take over an existing webhook. Use a dedicated bot or remove the webhook in its owning application. Never delete it silently.
 - Only **one** poller per bot token: a second process polling the same token gets `409 Conflict: terminated by other getUpdates request` ✅. Common cause: the same bot token used by another panel or script. Show this clearly in the UI.
 - Acknowledge updates by passing `offset = last update_id + 1`.
 
@@ -39,7 +41,7 @@ Exceeding limits returns `429 Too Many Requests` with `parameters.retry_after` (
 | `403 Forbidden: bot was blocked by the user` | User blocked the bot | Mark the chat inactive; stop sending; show in UI |
 | `403 Forbidden: bot was kicked from the group chat` | Removed from group | Same |
 | `400 Bad Request: chat not found` | Wrong id or the user never started the bot | Ask the user to send `/start` and re-bind |
-| `400 Bad Request: group chat was upgraded to a supergroup chat` with `parameters.migrate_to_chat_id` | Group became a supergroup; the chat id changed | Update the stored `chat_id` to `migrate_to_chat_id` and resend |
+| `400 Bad Request: group chat was upgraded to a supergroup chat` with `parameters.migrate_to_chat_id` | Group became a supergroup; the chat id changed | Show a reconnect instruction; confirm the new destination through the setup guide |
 | `429` | Rate limited | Respect `retry_after` |
 | `401 Unauthorized` | Token revoked | Mark channel failed; notify via other channels |
 
