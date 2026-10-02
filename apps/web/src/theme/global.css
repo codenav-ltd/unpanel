@@ -104,7 +104,9 @@
   gap: 16px;
 }
 
-.certificates-page fieldset {
+.certificates-page fieldset,
+#password-guide fieldset,
+#turnstile-guide fieldset {
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -820,8 +822,9 @@ button.settings-tab[aria-current="true"] {
   background: color-mix(in srgb, var(--primary) 10%, var(--raised));
 }
 
-.panel-update-loader .anticon {
-  animation: spin var(--dur-spin) linear infinite;
+.panel-update-loader .spinner {
+  width: 18px;
+  height: 18px;
 }
 
 .panel-update-progress strong {

@@ -28,6 +28,7 @@ import { registerCertificateApi } from "../tls/api.ts";
 import { CertificateError } from "../tls/material.ts";
 import type { Alerts } from "../alerts/service.ts";
 import { registerAlertApi } from "../alerts/api.ts";
+import { verifyTurnstileToken } from "../auth/turnstile.ts";
 
 const AUDIT_PAGE = 100;
 const HISTORY_WINDOWS = new Set([60, 1440, 10080]);
@@ -608,6 +609,50 @@ export function createApi(options: {
       },
     });
     return c.json({ data: settingsView() });
+  });
+
+  app.post("/api/v1/security/turnstile/test", async (c) => {
+    const user = options.auth.sessionUser(sessionToken(c));
+    if (!user) return unauthenticated(c);
+    const origin = c.req.header("origin");
+    if (
+      origin &&
+      origin !== new URL(c.req.url).origin &&
+      origin !== options.settings.view().publicUrl
+    )
+      return c.json(
+        { error: { code: "E_FORBIDDEN", message: "Open the panel directly to test Turnstile." } },
+        403,
+      );
+    const body = await readJson(c);
+    if (!body) return invalid(c);
+    const secret = field(body, "secret").trim() || options.security.runtime().turnstile.secret;
+    const token = field(body, "token");
+    if (!secret || secret.length > 500 || !token || token.length > 2048) return invalid(c);
+    try {
+      if (!(await verifyTurnstileToken({ secret, token, ip: clientIp(c) })))
+        return c.json(
+          {
+            error: {
+              code: "E_INVALID_PARAMS",
+              message:
+                "The challenge did not match these keys. Check the allowed hostname and try again.",
+            },
+          },
+          400,
+        );
+      return c.json({ data: { verified: true } });
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "E_UNAVAILABLE",
+            message: "Cloudflare could not verify the test. Retry before enabling Turnstile.",
+          },
+        },
+        503,
+      );
+    }
   });
 
   app.get("/api/v1/security/bans", (c) => {

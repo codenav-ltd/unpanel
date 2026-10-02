@@ -21,6 +21,8 @@ import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 import { updateResultVersion, waitForPanelUpdate } from "../update-flow.ts";
 import ReleaseDetailsDialog from "./ReleaseDetailsDialog.vue";
 import SelectField from "./SelectField.vue";
+import AppDialog from "./AppDialog.vue";
+import TurnstileWidget from "./TurnstileWidget.vue";
 
 export interface PanelOps {
   pollSec: 2 | 5 | 10 | 30;
@@ -82,6 +84,14 @@ const updateHours = ref<PanelOps["updateHours"]>(props.ops.updateHours);
 const autoUpdate = ref(props.ops.autoUpdate);
 const opsNote = ref("");
 const opsError = ref("");
+const passwordOpen = ref(false);
+const passwordStep = ref(1);
+const confirmation = ref("");
+const turnstileOpen = ref(false);
+const turnstileStep = ref(1);
+const challengeToken = ref("");
+const challengeVersion = ref(0);
+const challengeVerified = ref(false);
 const current = ref("");
 const next = ref("");
 const busy = ref("");
@@ -298,6 +308,7 @@ async function saveRestrictions(): Promise<void> {
 
 async function saveTurnstile(): Promise<void> {
   if (busy.value) return;
+  if (turnstileEnabled.value && !challengeVerified.value) return;
   busy.value = "turnstile";
   turnstileError.value = "";
   turnstileNote.value = "";
@@ -323,6 +334,7 @@ async function saveTurnstile(): Promise<void> {
     applySecurity(body.data.security);
     emit("security", body.data.security);
     turnstileNote.value = en.settings.securitySaved;
+    turnstileOpen.value = false;
   } catch {
     turnstileError.value = replyNotReceived(
       "save Turnstile settings",
@@ -333,6 +345,77 @@ async function saveTurnstile(): Promise<void> {
   }
 }
 
+function openPassword(): void {
+  current.value = "";
+  next.value = "";
+  confirmation.value = "";
+  passwordStep.value = 1;
+  passwordError.value = "";
+  passwordNote.value = "";
+  passwordOpen.value = true;
+}
+function closePassword(): void {
+  if (busy.value) return;
+  passwordOpen.value = false;
+  current.value = "";
+  next.value = "";
+  confirmation.value = "";
+}
+function advancePassword(): void {
+  if (passwordStep.value === 2 && (next.value !== confirmation.value || next.value.length < 10))
+    return;
+  if (passwordStep.value < 3) passwordStep.value++;
+  else void savePassword();
+}
+function openTurnstile(): void {
+  applySecurity(props.security);
+  if (!props.security.turnstile.secretConfigured) turnstileEnabled.value = true;
+  turnstileSecret.value = "";
+  clearTurnstileSecret.value = false;
+  turnstileError.value = "";
+  turnstileNote.value = "";
+  turnstileStep.value = 1;
+  challengeToken.value = "";
+  challengeVerified.value = false;
+  turnstileOpen.value = true;
+}
+function closeTurnstile(): void {
+  if (busy.value) return;
+  turnstileOpen.value = false;
+  turnstileSecret.value = "";
+  challengeToken.value = "";
+}
+function nextTurnstile(): void {
+  turnstileError.value = "";
+  challengeVerified.value = false;
+  challengeToken.value = "";
+  challengeVersion.value++;
+  turnstileStep.value = turnstileEnabled.value ? 2 : 3;
+}
+async function testTurnstile(): Promise<void> {
+  if (busy.value || !challengeToken.value) return;
+  busy.value = "test-turnstile";
+  turnstileError.value = "";
+  try {
+    const response = await fetch("/api/v1/security/turnstile/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: challengeToken.value, secret: turnstileSecret.value }),
+    });
+    if (!response.ok) {
+      turnstileError.value = await readProblem(response, "test Turnstile");
+      return;
+    }
+    challengeVerified.value = true;
+    turnstileStep.value = 3;
+  } catch {
+    turnstileError.value = couldNotReach("test Turnstile");
+  } finally {
+    busy.value = "";
+    challengeToken.value = "";
+    challengeVersion.value++;
+  }
+}
 function removeTurnstileSecret(): void {
   turnstileEnabled.value = false;
   turnstileSecret.value = "";
@@ -503,7 +586,7 @@ async function savePublicUrl(): Promise<void> {
 }
 
 async function savePassword(): Promise<void> {
-  if (busy.value) return;
+  if (busy.value || next.value !== confirmation.value || next.value.length < 10) return;
   busy.value = "password";
   passwordError.value = "";
   passwordNote.value = "";
@@ -520,6 +603,8 @@ async function savePassword(): Promise<void> {
     current.value = "";
     next.value = "";
     passwordNote.value = en.shell.passwordChanged;
+    confirmation.value = "";
+    passwordOpen.value = false;
   } catch {
     passwordError.value = replyNotReceived(
       "change the password",
@@ -832,6 +917,7 @@ onUnmounted(() => {
               placeholder="https://panel.example.com"
             />
           </label>
+          <p class="hint"><a href="/certificates">Manage HTTPS and certificates →</a></p>
           <p v-if="urlError" class="form-error" role="alert">{{ urlError }}</p>
           <p v-else-if="urlNote" class="form-warn" role="status">{{ urlNote }}</p>
           <div class="actions">
@@ -888,80 +974,16 @@ onUnmounted(() => {
           </div>
         </form>
       </section>
-      <section class="wide">
-        <span class="vital-kicker">{{ en.shell.httpsTitle }}</span>
-        <p class="hint">{{ en.shell.httpsHint }}</p>
-      </section>
     </div>
     <div v-else-if="section === 'security'" class="page-stack">
       <section class="wide">
         <span class="vital-kicker">{{ en.settings.turnstile }}</span>
         <p class="hint">{{ en.settings.turnstileHint }}</p>
-        <form @submit.prevent="saveTurnstile">
-          <div class="switch-row">
-            <span id="turnstile-label">{{ en.settings.turnstileEnable }}</span>
-            <button
-              type="button"
-              class="switch"
-              role="switch"
-              :aria-checked="turnstileEnabled"
-              aria-labelledby="turnstile-label"
-              :disabled="Boolean(busy)"
-              @click="turnstileEnabled = !turnstileEnabled"
-            >
-              <span class="switch-thumb" />
-            </button>
-          </div>
-          <div class="security-fields">
-            <label class="field">
-              <span>{{ en.settings.turnstileSiteKey }}</span>
-              <input
-                v-model="turnstileSiteKey"
-                autocomplete="off"
-                maxlength="200"
-                placeholder="0x4AAAAAAA…"
-              />
-            </label>
-            <label class="field">
-              <span>{{ en.settings.turnstileSecretKey }}</span>
-              <input
-                v-model="turnstileSecret"
-                type="password"
-                autocomplete="new-password"
-                maxlength="500"
-                placeholder="0x4AAAAAAA…"
-                @input="clearTurnstileSecret = false"
-              />
-            </label>
-          </div>
-          <p class="hint">
-            {{
-              turnstileSecretConfigured && !clearTurnstileSecret
-                ? en.settings.turnstileSecretStored
-                : en.settings.turnstileSecretMissing
-            }}
-          </p>
-          <p v-if="clearTurnstileSecret" class="security-warning" role="status">
-            <WarningOutlined aria-hidden="true" />
-            <span>{{ en.settings.turnstileSecretWillRemove }}</span>
-          </p>
-          <p v-if="turnstileError" class="form-error" role="alert">{{ turnstileError }}</p>
-          <p v-else-if="turnstileNote" class="form-warn" role="status">{{ turnstileNote }}</p>
-          <div class="actions">
-            <button type="submit" :disabled="Boolean(busy)">
-              {{ busy === "turnstile" ? en.shell.saving : en.settings.saveTurnstile }}
-            </button>
-            <button
-              v-if="turnstileSecretConfigured && !clearTurnstileSecret"
-              type="button"
-              class="quiet"
-              :disabled="Boolean(busy)"
-              @click="removeTurnstileSecret"
-            >
-              {{ en.settings.turnstileRemoveSecret }}
-            </button>
-          </div>
-        </form>
+        <p class="hint">{{ security.turnstile.enabled ? "Enabled on sign-in" : "Not enabled" }}</p>
+        <button type="button" @click="openTurnstile">
+          {{ security.turnstile.secretConfigured ? "Manage Turnstile" : "Set up Turnstile" }}
+        </button>
+        <p v-if="turnstileNote" class="form-warn" role="status">{{ turnstileNote }}</p>
       </section>
       <section class="wide">
         <span class="vital-kicker">{{ en.settings.restrictions }}</span>
@@ -1167,24 +1189,8 @@ onUnmounted(() => {
       <section class="wide">
         <span class="vital-kicker">{{ en.shell.account }}</span>
         <p class="hint">{{ username }}</p>
-        <form @submit.prevent="savePassword">
-          <label class="field">
-            <span>{{ en.shell.currentPassword }}</span>
-            <input v-model="current" type="password" autocomplete="current-password" required />
-          </label>
-          <label class="field">
-            <span>{{ en.shell.newPassword }}</span>
-            <input v-model="next" type="password" autocomplete="new-password" required />
-          </label>
-          <p v-if="strength" class="meter-label">{{ strength }}</p>
-          <p v-if="passwordError" class="form-error" role="alert">{{ passwordError }}</p>
-          <p v-else-if="passwordNote" class="form-warn" role="status">{{ passwordNote }}</p>
-          <div class="actions">
-            <button type="submit" :disabled="Boolean(busy)">
-              {{ busy === "password" ? en.shell.saving : en.shell.changePassword }}
-            </button>
-          </div>
-        </form>
+        <button type="button" @click="openPassword">Change password</button>
+        <p v-if="passwordNote" class="form-warn" role="status">{{ passwordNote }}</p>
       </section>
     </div>
     <div v-else-if="section === 'updates'" class="page-stack">
@@ -1261,7 +1267,7 @@ onUnmounted(() => {
           aria-busy="true"
         >
           <span class="panel-update-loader" aria-hidden="true">
-            <CloudSyncOutlined />
+            <span class="spinner" />
           </span>
           <div>
             <strong>{{ en.updates.waitingForRestart }}</strong>
@@ -1442,6 +1448,217 @@ onUnmounted(() => {
       </section>
     </div>
 
+    <AppDialog :open="passwordOpen" title="Change password" narrow @close="closePassword">
+      <p class="hint" role="status">
+        Step {{ passwordStep }} of 3 ·
+        {{ passwordStep === 1 ? "Current access" : passwordStep === 2 ? "New password" : "Review" }}
+      </p>
+      <form id="password-guide" @submit.prevent="advancePassword">
+        <fieldset :disabled="Boolean(busy)">
+          <template v-if="passwordStep === 1">
+            <p>Enter your current password. It will be verified when you save the change.</p>
+            <label class="field"
+              ><span>Current password</span
+              ><input
+                v-model="current"
+                type="password"
+                autocomplete="current-password"
+                required
+                maxlength="128"
+            /></label>
+          </template>
+          <template v-else-if="passwordStep === 2">
+            <label class="field"
+              ><span>New password</span
+              ><input
+                v-model="next"
+                type="password"
+                autocomplete="new-password"
+                required
+                minlength="10"
+                maxlength="128"
+            /></label>
+            <label class="field"
+              ><span>Confirm new password</span
+              ><input
+                v-model="confirmation"
+                type="password"
+                autocomplete="new-password"
+                required
+                minlength="10"
+                maxlength="128"
+            /></label>
+            <p v-if="strength" class="hint">{{ strength }}</p>
+            <p v-if="confirmation && confirmation !== next" class="form-error">
+              The passwords do not match.
+            </p>
+          </template>
+          <template v-else>
+            <p>
+              Your password will change for <strong>{{ username }}</strong
+              >. This browser stays signed in. Other sessions and unfinished sign-ins will end.
+            </p>
+            <p class="hint">Save the new password in your password manager before continuing.</p>
+          </template>
+        </fieldset>
+        <p v-if="passwordError" class="form-error" role="alert">{{ passwordError }}</p>
+      </form>
+      <template #footer>
+        <button
+          class="quiet"
+          :disabled="Boolean(busy)"
+          @click="passwordStep > 1 ? passwordStep-- : closePassword()"
+        >
+          {{ passwordStep > 1 ? "Back" : "Cancel" }}
+        </button>
+        <button
+          form="password-guide"
+          class="primary"
+          type="submit"
+          :disabled="Boolean(busy) || (passwordStep === 2 && (!next || confirmation !== next))"
+        >
+          <span v-if="busy === 'password'" class="spinner" aria-hidden="true" />{{
+            passwordStep < 3 ? "Continue" : "Change password"
+          }}
+        </button>
+      </template>
+    </AppDialog>
+    <AppDialog :open="turnstileOpen" title="Turnstile setup guide" @close="closeTurnstile">
+      <p class="hint" role="status">
+        Step {{ turnstileStep }} of 3 ·
+        {{
+          turnstileStep === 1
+            ? "Connect Cloudflare"
+            : turnstileStep === 2
+              ? "Test this browser"
+              : "Review and save"
+        }}
+      </p>
+      <form
+        id="turnstile-guide"
+        @submit.prevent="
+          turnstileStep === 1
+            ? nextTurnstile()
+            : turnstileStep === 2
+              ? testTurnstile()
+              : saveTurnstile()
+        "
+      >
+        <fieldset :disabled="Boolean(busy)">
+          <template v-if="turnstileStep === 1">
+            <p>
+              Create a widget in
+              <a
+                href="https://dash.cloudflare.com/?to=/:account/turnstile"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Cloudflare Turnstile ↗</a
+              >. Choose Managed mode and add the hostname you use to open this panel.
+            </p>
+            <label class="field"
+              ><span
+                ><input v-model="turnstileEnabled" type="checkbox" /> Enable verification on
+                sign-in</span
+              ></label
+            >
+            <label class="field"
+              ><span>Site key</span
+              ><input
+                v-model="turnstileSiteKey"
+                :required="turnstileEnabled"
+                maxlength="200"
+                autocomplete="off"
+            /></label>
+            <label class="field"
+              ><span>Secret key</span
+              ><input
+                v-model="turnstileSecret"
+                type="password"
+                :required="turnstileEnabled && (!turnstileSecretConfigured || clearTurnstileSecret)"
+                maxlength="500"
+                autocomplete="new-password"
+                @input="clearTurnstileSecret = false"
+            /></label>
+            <p class="hint">
+              {{
+                turnstileSecretConfigured && !clearTurnstileSecret
+                  ? "Leave the secret blank to keep the saved key."
+                  : "Both keys come from the same Cloudflare widget."
+              }}
+            </p>
+            <button
+              v-if="turnstileSecretConfigured && !clearTurnstileSecret"
+              class="quiet"
+              type="button"
+              @click="removeTurnstileSecret"
+            >
+              Remove saved secret and disable
+            </button>
+          </template>
+          <template v-else-if="turnstileStep === 2">
+            <p>
+              Complete this challenge to check your site key, allowed hostname and secret before
+              enabling sign-in verification.
+            </p>
+            <TurnstileWidget
+              :key="challengeVersion"
+              v-model="challengeToken"
+              :site-key="turnstileSiteKey.trim()"
+              :theme="theme === 'light' ? 'light' : 'dark'"
+              @error="turnstileError = $event"
+            />
+            <button
+              class="quiet"
+              type="button"
+              @click="
+                challengeToken = '';
+                challengeVersion++;
+                turnstileError = '';
+              "
+            >
+              Reload challenge
+            </button>
+          </template>
+          <template v-else>
+            <p v-if="turnstileEnabled">
+              The server verified your test. Turnstile will be required on the next sign-in.
+            </p>
+            <p v-else class="security-warning">
+              Turnstile verification will be disabled. Your password and authentication methods
+              still apply.
+            </p>
+            <p v-if="clearTurnstileSecret" class="hint">The saved secret will also be removed.</p>
+            <p class="hint">
+              Keep this browser signed in while you test a new sign-in in another browser.
+            </p>
+          </template>
+        </fieldset>
+        <p v-if="turnstileError" class="form-error" role="alert">{{ turnstileError }}</p>
+      </form>
+      <template #footer>
+        <button
+          class="quiet"
+          :disabled="Boolean(busy)"
+          @click="turnstileStep > 1 ? (turnstileStep = 1) : closeTurnstile()"
+        >
+          {{ turnstileStep > 1 ? "Back" : "Cancel" }}
+        </button>
+        <button
+          form="turnstile-guide"
+          type="submit"
+          class="primary"
+          :disabled="Boolean(busy) || (turnstileStep === 2 && !challengeToken)"
+        >
+          <span v-if="busy" class="spinner" aria-hidden="true" />{{
+            turnstileStep === 1
+              ? "Continue"
+              : turnstileStep === 2
+                ? "Verify test"
+                : "Save Turnstile settings"
+          }}
+        </button>
+      </template>
+    </AppDialog>
     <ReleaseDetailsDialog
       :open="releaseDetailsOpen"
       :current-version="product.version"

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 import { randomBytes } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import { createApi } from "./api.ts";
 import { createAudit, type Audit } from "../audit/log.ts";
@@ -115,6 +115,63 @@ function appWith(
       }),
   });
 }
+
+describe("Turnstile setup verification", () => {
+  it("verifies candidate keys without saving them and rejects anonymous or foreign-origin tests", async () => {
+    const db = openDatabase(":memory:");
+    const security = createLoginSecurity({ db, masterKey: randomBytes(32) });
+    const app = appWith(createAudit(db), "tok", { security });
+    const fetcher = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ success: true, action: "login" }));
+    const payload = {
+      method: "POST",
+      body: JSON.stringify({ secret: "fixture-private-key", token: "fixture-response" }),
+    };
+    try {
+      expect((await app.request("/api/v1/security/turnstile/test", payload)).status).toBe(401);
+      expect(
+        (
+          await app.request("/api/v1/security/turnstile/test", {
+            ...payload,
+            headers: { cookie: "unpanel_sid=tok", origin: "https://foreign.example" },
+          })
+        ).status,
+      ).toBe(403);
+      expect(fetcher).not.toHaveBeenCalled();
+      const response = await app.request("/api/v1/security/turnstile/test", {
+        ...payload,
+        headers: { cookie: "unpanel_sid=tok" },
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ data: { verified: true } });
+      expect(security.view().turnstile).toEqual({
+        enabled: false,
+        siteKey: "",
+        secretConfigured: false,
+      });
+      fetcher.mockResolvedValue(Response.json({ success: false }));
+      expect(
+        (
+          await app.request("/api/v1/security/turnstile/test", {
+            ...payload,
+            headers: { cookie: "unpanel_sid=tok" },
+          })
+        ).status,
+      ).toBe(400);
+      fetcher.mockRejectedValue(new Error("upstream secret-bearing failure"));
+      const failed = await app.request("/api/v1/security/turnstile/test", {
+        ...payload,
+        headers: { cookie: "unpanel_sid=tok" },
+      });
+      expect(failed.status).toBe(503);
+      expect(await failed.text()).not.toContain("secret-bearing");
+    } finally {
+      fetcher.mockRestore();
+      db.close();
+    }
+  });
+});
 
 describe("GET /api/v1/audit", () => {
   it("refuses a request without a session", async () => {
@@ -268,7 +325,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const app = appWith(audit, "tok", {
       applyAgentUpdate: async (nodeId) => ({
         accepted: true,
-        version: nodeId === "nd_1" ? "0.1.0-alpha.21" : "unexpected",
+        version: nodeId === "nd_1" ? "0.1.0-alpha.22" : "unexpected",
       }),
     });
 
@@ -279,7 +336,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const body = (await response.json()) as { data: { version: string } };
 
     expect(response.status).toBe(200);
-    expect(body.data.version).toBe("0.1.0-alpha.21");
+    expect(body.data.version).toBe("0.1.0-alpha.22");
     expect(audit.list(1)[0]).toMatchObject({ action: "agent.update", nodeId: "nd_1" });
   });
 

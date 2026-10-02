@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.22] - 2026-10-03
+
+### Changed
+
+- Password changes use a three-step dialog with confirmation of the new password and a clear explanation of which sessions will end.
+- Cloudflare Turnstile setup guides administrators through connecting a widget, verifying a real browser challenge on the server, and reviewing the change before saving. Failed script loads can be retried.
+- Panel access settings link directly to certificate management beside the public address, replacing the empty HTTPS section.
+
+### Fixed
+
+- Waiting for the panel to restart after an update uses the standard loading spinner instead of rotating the cloud update icon.
+
 ## [0.1.0-alpha.21] - 2026-10-03
 
 ### Fixed

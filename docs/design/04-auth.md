@@ -175,6 +175,8 @@ The owner can configure these controls independently in **Settings → Security*
 - Expired temporary bans are removed automatically. IP bans can also be removed from Settings.
 - A whole-panel lock can be cleared from an SSH session with `sudo unpanel-manage unlock`.
 - The Turnstile secret is encrypted with the panel master key. Settings responses expose only the site key and whether a secret exists.
+- From alpha.22, Security opens a three-step Turnstile guide: enter the widget keys, complete a browser challenge that the panel verifies with Cloudflare, then review and save. Testing does not persist settings. Existing secrets can be retained without returning them to the browser. Keep the current session open while checking a fresh sign-in. Tokens expire after five minutes and are single-use; the test consumes its token, so sign-in needs a new challenge. Verified 2026-10-03 against [Cloudflare's Siteverify documentation](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/).
+- Password changes use a dialog for the current password, new password confirmation, and review. Verification happens on final save; a failed request keeps the dialog open. The caller stays signed in and other sessions and pending logins are revoked.
 - The client IP is taken from `X-Forwarded-For` (rightmost untrusted address) only when the request comes from one of `server.trusted_proxies`.
 - Successful/failed logins and new-device logins can trigger notifications (configurable).
 

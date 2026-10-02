@@ -6,6 +6,8 @@ The Certificates page manages the panel's own HTTPS listener. It can generate a 
 
 ## Enable HTTPS with an IP address
 
+Settings → Panel also links to Certificates beside the public address. Changing that address alone does not enable HTTPS.
+
 1. Open **Certificates → Self-signed**.
 2. Enter the IP address or hostname used to open the panel, without a scheme or port.
 3. Select **Generate certificate**, then **Use for panel HTTPS**.
