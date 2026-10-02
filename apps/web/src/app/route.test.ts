@@ -14,6 +14,7 @@ describe("shell routes", () => {
       { page: "settings" as const, nodeId: "local", settings: "updates" as const, unknown: null },
       { page: "settings" as const, nodeId: "local", settings: "about" as const, unknown: null },
       { page: "certificates" as const, nodeId: "local", settings: "panel" as const, unknown: null },
+      { page: "alerts" as const, nodeId: "local", settings: "panel" as const, unknown: null },
     ];
     for (const location of locations) {
       expect(parsePath(formatPath(location))).toEqual(location);

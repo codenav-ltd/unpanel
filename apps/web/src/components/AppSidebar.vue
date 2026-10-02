@@ -83,13 +83,11 @@ function dotState(node: SideNode): "online" | "wait" | "off" | "disabled" {
   return node.online ? "online" : "off";
 }
 
-interface Item {
-  id: string;
+type Item = {
   label: string;
   group: "node" | "global";
-  enabled: boolean;
   icon: Component;
-}
+} & ({ id: ShellPage; enabled: true } | { id: string; enabled: false });
 
 const items: Item[] = [
   {
@@ -236,19 +234,11 @@ function onMenu(event: MouseEvent, id: string): void {
 
 function onItem(item: Item): void {
   if (!item.enabled) {
-    if (item.id === "alerts") laterNote.value = en.nav.laterAlerts;
-    else laterNote.value = `${item.label}. ${en.nav.laterDetail}`;
+    laterNote.value = `${item.label}. ${en.nav.laterDetail}`;
     return;
   }
   laterNote.value = "";
-  if (
-    item.id === "dashboard" ||
-    item.id === "host" ||
-    item.id === "settings" ||
-    item.id === "certificates"
-  ) {
-    go(item.id);
-  }
+  go(item.id);
 }
 </script>
 
