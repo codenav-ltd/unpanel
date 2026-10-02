@@ -648,6 +648,7 @@ export function createApi(options: {
     if (!body) return invalid(c);
     const result = await options.auth.changePassword({
       userId: user.id,
+      currentToken: sessionToken(c),
       current: field(body, "current"),
       next: field(body, "next"),
     });
@@ -1021,7 +1022,10 @@ function cookieName(secure: boolean): string {
 }
 
 function readSessionToken(c: Context, secure: boolean): string | null {
-  const header = c.req.header("cookie");
+  return sessionTokenFromCookie(c.req.header("cookie"), secure);
+}
+
+export function sessionTokenFromCookie(header: string | undefined, secure: boolean): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
     const eq = part.indexOf("=");

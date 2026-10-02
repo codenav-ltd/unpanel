@@ -62,9 +62,11 @@ A **lightweight, good-looking, secure, and practical** multi-server management p
 | Init | systemd (required) |
 | Kernel | ≥ 4.18 (both cgroup v1 and v2 handled; v2 preferred) |
 | Browsers | Last two major versions of Chrome, Edge, Firefox, Safari |
-| Node runtime | Node 24 LTS, bundled (no dependency on the system Node) |
+| Node runtime | Node 24 LTS; bundling is planned. Current installers require a separately installed Node 24 runtime. |
 
-## 5. Resource budgets (hard targets, regression-tested in CI)
+## 5. Resource budgets (v1 targets)
+
+These are design targets, not certified measurements of the current pre-alpha. CI runs lint, type checks and functional tests; it does not yet enforce a fleet RSS/CPU, database-growth or bundle-size budget. A Linux VM and node-simulator benchmark is still required before claiming these limits. Current history stores minute data for the configured retention period; hourly/yearly compaction is not implemented.
 
 | Metric | Target | Notes |
 |---|---|---|
@@ -105,7 +107,7 @@ P0 = required for the first usable build; P1 = required for v1.0; P2 = v1.x.
 | Backup and restore | P1 | M6 | [modules/backup.md](../modules/backup.md) |
 | Interactive Telegram remediation commands | P2 | — | [modules/notifications.md](../modules/notifications.md) |
 | Terminal session recording | P2 | — | [modules/terminal-files.md](../modules/terminal-files.md) |
-| Webhook / Bark / email channels | P2 | — | [modules/notifications.md](../modules/notifications.md) |
+| Webhook / Bark channels | P2 | — | [modules/notifications.md](../modules/notifications.md) |
 
 ## 7. Milestones and exit criteria
 

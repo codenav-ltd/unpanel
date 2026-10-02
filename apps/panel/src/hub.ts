@@ -206,7 +206,10 @@ interface Link {
   rateUdp: number[];
   sample: HostSample | null;
   pending: Map<number, Pending>;
+  readTimeouts: Map<number, ReturnType<typeof setTimeout>>;
 }
+
+const HEARTBEAT_MS = 15_000;
 
 const emptyHistory = (): HistorySeries => ({
   start: 0,
@@ -247,6 +250,7 @@ export function createHub(options: {
 } {
   const now = options.now ?? Date.now;
   const links = new Map<string, Link>();
+  const connections = new Map<WebSocket, () => void>();
 
   function usageRatio(used: number | null, total: number | null): number | null {
     if (used == null || total == null) return null;
@@ -288,6 +292,7 @@ export function createHub(options: {
       rateUdp: [],
       sample: null,
       pending: new Map(),
+      readTimeouts: new Map(),
     };
   }
 
@@ -327,6 +332,17 @@ export function createHub(options: {
     const id = link.nextId;
     link.nextId += 1;
     link.pending.set(id, wait);
+    if (wait.kind === "cpu" || wait.kind === "info") {
+      const timer = setTimeout(() => {
+        link.readTimeouts.delete(id);
+        if (link.pending.get(id) !== wait) return;
+        link.pending.delete(id);
+        if (wait.kind === "cpu") link.cpuInflight = false;
+        else link.error = "The agent did not answer system.info. Check its connection and Logs.";
+      }, timeoutMs);
+      timer.unref();
+      link.readTimeouts.set(id, timer);
+    }
     link.socket.send(
       encodeTextFrame({
         t: "req",
@@ -340,6 +356,9 @@ export function createHub(options: {
   }
 
   function dropPending(link: Link): void {
+    for (const timer of link.readTimeouts.values()) clearTimeout(timer);
+    link.readTimeouts.clear();
+    link.cpuInflight = false;
     for (const wait of link.pending.values()) {
       if (wait.kind === "challenge") {
         wait.reject(
@@ -658,16 +677,30 @@ export function createHub(options: {
     let nonceA = "";
     let agentVersion = "";
     let link: Link | null = null;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    let alive = true;
     const nonceM = randomNonce();
     const timer = setTimeout(() => {
-      if (phase !== "open") socket.close(closeCode.authFailed, "handshake timeout");
+      if (phase !== "open") socket.terminate();
     }, HANDSHAKE_TIMEOUT_MS);
+    timer.unref();
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      if (heartbeat) clearInterval(heartbeat);
+      connections.delete(socket);
+    };
+    connections.set(socket, cleanup);
+    socket.on("pong", () => {
+      alive = true;
+    });
 
     const fail = (code: number): void => {
       socket.close(code);
     };
 
     socket.on("message", (data, isBinary) => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      if (phase === "open" && link?.socket !== socket) return;
       if (phase === "open" && isBinary) return;
       if (isBinary) {
         fail(closeCode.malformed);
@@ -730,7 +763,11 @@ export function createHub(options: {
         }
         const current = links.get(agentId) ?? openLink();
         const superseded = current.socket !== null && current.socket !== socket;
-        if (superseded) current.socket?.close(closeCode.replaced, "replaced");
+        if (superseded) {
+          dropPending(current);
+          current.socket?.close(closeCode.replaced, "replaced");
+        }
+        current.cpuAt = 0;
         current.socket = socket;
         current.agentVersion = agentVersion;
         current.canUpdateAgent = frame.caps.some(
@@ -741,11 +778,21 @@ export function createHub(options: {
         link = current;
         phase = "open";
         clearTimeout(timer);
+        heartbeat = setInterval(() => {
+          if (!alive) {
+            socket.terminate();
+            return;
+          }
+          if (socket.readyState !== WebSocket.OPEN) return;
+          alive = false;
+          socket.ping();
+        }, HEARTBEAT_MS);
+        heartbeat.unref();
         socket.send(
           encodeTextFrame({
             t: "ready",
             sessionId: randomNonce(),
-            heartbeatSec: 15,
+            heartbeatSec: HEARTBEAT_MS / 1000,
             metricsMode: "idle",
           }),
         );
@@ -757,6 +804,8 @@ export function createHub(options: {
       if (!link || frame.t !== "res") return;
       const wait = link.pending.get(frame.id);
       link.pending.delete(frame.id);
+      clearTimeout(link.readTimeouts.get(frame.id));
+      link.readTimeouts.delete(frame.id);
       if (!wait) return;
       try {
         deliverResult(wait, frame, link, agentId);
@@ -905,7 +954,7 @@ export function createHub(options: {
     }
 
     socket.on("close", () => {
-      clearTimeout(timer);
+      cleanup();
       if (link && link.socket === socket) {
         link.socket = null;
         link.cpuInflight = false;
@@ -975,8 +1024,11 @@ export function createHub(options: {
     close() {
       for (const link of links.values()) {
         dropPending(link);
-        link.socket?.close();
         link.socket = null;
+      }
+      for (const [socket, cleanup] of connections) {
+        cleanup();
+        socket.terminate();
       }
     },
   };

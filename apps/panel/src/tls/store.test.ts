@@ -184,6 +184,21 @@ describe("panel certificate lifecycle", () => {
       f.db.close();
     }
   });
+  it("preserves disabled automatic renewal after a successful manual renewal", async () => {
+    const f = await fixture();
+    try {
+      f.store.issue(request);
+      await f.store.settled();
+      const id = firstId(f.store);
+      f.store.autoRenew(id, false);
+      f.store.renew(id);
+      await f.store.settled();
+      expect(f.store.view().job.state).toBe("success");
+      expect(f.store.view().certificates[0]?.autoRenew).toBe(false);
+    } finally {
+      f.db.close();
+    }
+  });
   it("restores the listener when a database transaction cannot start", async () => {
     const f = await fixture();
     try {

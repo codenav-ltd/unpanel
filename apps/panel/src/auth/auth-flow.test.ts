@@ -10,6 +10,96 @@ import { createLoginSecurity } from "./security.ts";
 import { openDatabase } from "../db/open.ts";
 
 describe("setup and login", () => {
+  it("ends other sessions and pending MFA sign-ins when a password changes, keeping the caller signed in", async () => {
+    const db = openDatabase(":memory:");
+    const masterKey = randomBytes(32);
+    let now = 1_700_000_030_000;
+    const auth = await createAuth({
+      db,
+      masterKey,
+      setupToken: () => "st_fixture",
+      clearSetupToken: () => undefined,
+      security: createLoginSecurity({ db, masterKey, now: () => now }),
+      now: () => now,
+    });
+    try {
+      const begun = await auth.beginSetup({
+        token: "st_fixture",
+        username: "ada",
+        password: "correct-horse",
+      });
+      if (!begun.ok) throw new Error("Fixture setup failed");
+      const secret = decodeBase32IgnorePadding(begun.secret);
+      const current = auth.confirmSetup({
+        ticket: begun.ticket,
+        totp: true,
+        code: codeAt(secret, now),
+        recoveryCode: begun.recoveryCodes[0] ?? "",
+        ip: "127.0.0.1",
+        userAgent: "first browser",
+      });
+      if (!current.ok) throw new Error("Fixture confirmation failed");
+      const login = {
+        username: "ada",
+        password: "correct-horse",
+        turnstileToken: "",
+        ip: "127.0.0.1",
+        userAgent: "other browser",
+      };
+      const other = await auth.login(login);
+      if (!other.ok || other.status !== "mfa_required") throw new Error("Expected MFA");
+      now += 30_000;
+      const confirmed = auth.confirmTotp({
+        ticket: other.ticket,
+        code: codeAt(secret, now),
+        ip: login.ip,
+        userAgent: login.userAgent,
+      });
+      if (!confirmed.ok) throw new Error("Second browser failed");
+      const pending = await auth.login(login);
+      if (!pending.ok || pending.status !== "mfa_required") throw new Error("Expected pending MFA");
+      const user = auth.sessionUser(current.token);
+      if (!user) throw new Error("Missing fixture owner");
+      expect(
+        await auth.changePassword({
+          userId: user.id,
+          current: "correct-horse",
+          next: "new-correct-horse",
+          currentToken: current.token,
+        }),
+      ).toEqual({ ok: true });
+      expect(auth.sessionUser(current.token)?.id).toBe(user.id);
+      expect(auth.sessionUser(confirmed.token)).toBeNull();
+      now += 30_000;
+      expect(
+        auth.confirmTotp({
+          ticket: pending.ticket,
+          code: codeAt(secret, now),
+          ip: login.ip,
+          userAgent: login.userAgent,
+        }).ok,
+      ).toBe(false);
+      expect((await auth.login(login)).ok).toBe(false);
+      const results = await Promise.all([
+        auth.changePassword({
+          userId: user.id,
+          current: "new-correct-horse",
+          next: "next-correct-horse-one",
+          currentToken: current.token,
+        }),
+        auth.changePassword({
+          userId: user.id,
+          current: "new-correct-horse",
+          next: "next-correct-horse-two",
+          currentToken: current.token,
+        }),
+      ]);
+      expect(results.filter((result) => result.ok)).toHaveLength(1);
+      expect(results.filter((result) => !result.ok)).toHaveLength(1);
+    } finally {
+      auth.close();
+    }
+  });
   it("enrolls TOTP, then requires a fresh code on the next sign-in", async () => {
     let now = 1_700_000_030_000;
     let token: string | null = "st_test";

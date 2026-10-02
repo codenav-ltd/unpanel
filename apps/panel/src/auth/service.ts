@@ -87,6 +87,7 @@ export interface Auth {
     userId: string;
     current: string;
     next: string;
+    currentToken?: string | null;
   }) => Promise<{ ok: true } | AuthFailure>;
   close: () => void;
 }
@@ -355,7 +356,12 @@ export async function createAuth(options: {
       );
       const hash = row?.password_hash ?? dummy;
       const valid = await verifyPassword(hash, input.password);
-      if (!row || !row.password_hash || row.status !== "active" || !valid) {
+      const unchanged =
+        row &&
+        options.db
+          .prepare("SELECT 1 FROM users WHERE id = ? AND password_hash = ? AND status = 'active'")
+          .get(row.id, hash);
+      if (!row || !row.password_hash || row.status !== "active" || !valid || !unchanged) {
         const failure = options.security.noteFailure(input.ip, input.username);
         if (failure.block) {
           return {
@@ -473,9 +479,34 @@ export async function createAuth(options: {
       }
       const problem = passwordProblem(input.next, row.username);
       if (problem) return { ok: false, status: 400, code: "E_INVALID_PARAMS", message: problem };
-      options.db
-        .prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
-        .run(await hashPassword(input.next), seconds(), input.userId);
+      const nextHash = await hashPassword(input.next);
+      options.db.exec("BEGIN IMMEDIATE");
+      try {
+        // A concurrent password change must not be overwritten after the async hash.
+        const result = options.db
+          .prepare(
+            "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ? AND password_hash = ?",
+          )
+          .run(nextHash, seconds(), input.userId, row.password_hash);
+        if (!result.changes) {
+          options.db.exec("ROLLBACK");
+          return {
+            ok: false,
+            status: 409,
+            code: "E_CONFLICT",
+            message: "Your password changed in another session. Sign in again before updating it.",
+          };
+        }
+        const keep = input.currentToken ? sha256(input.currentToken) : "";
+        options.db
+          .prepare("DELETE FROM sessions WHERE user_id = ? AND id != ?")
+          .run(input.userId, keep);
+        options.db.prepare("DELETE FROM pending_logins WHERE user_id = ?").run(input.userId);
+        options.db.exec("COMMIT");
+      } catch (error) {
+        options.db.exec("ROLLBACK");
+        throw error;
+      }
       return { ok: true };
     },
 

@@ -2,6 +2,22 @@
 
 > Status: Draft
 
+This is the v1 API design, including routes and conventions not yet shipped (team permissions, API tokens, sudo mode, generic streams and several modules). Current handlers are in `apps/panel/src/http/api.ts`, `tls/api.ts` and `alerts/api.ts`; use their shared contracts when implementing a client.
+
+## Current alert API
+
+All routes below are prefixed with `/api/v1/alerts`, require the owner session, and return `{ data: ... }` or `{ error: { code, message } }`. Mutating requests check a supplied Origin against the panel's allowed origin. Credentials never appear in response objects.
+
+- `GET` at the base path: rules, incidents, redacted channels and the latest delivery records.
+- `POST /rules`, `PUT /rules/:id`, `DELETE /rules/:id`: configure or remove rules.
+- `POST /incidents/:id/acknowledge`, `POST /incidents/:id/silence`: acknowledgement or a bounded silence in seconds; zero resumes notifications.
+- `POST /channels/email`, `PUT /channels/:id/email`: create/edit SMTP, Resend or Postmark settings. An empty secret preserves the saved credential only for the same provider.
+- `PUT /channels/:id/telegram`: edit a Telegram channel's name, enabled state and severity filter.
+- `PATCH /channels/:id`, `DELETE /channels/:id`, `POST /channels/:id/test`: enable/disable, remove or enqueue a rate-limited delivery test. Explicit rule references must be changed before removing their channel.
+- `POST /telegram/setup`: start owner-bound discovery from a bot token. `POST /telegram/:id/poll` and `/restart` discover or reset conversation candidates. `POST /telegram/:id/confirm` saves an explicitly selected candidate; optional `channelId` reconnects an existing channel. `DELETE /telegram/:id` cancels the temporary session.
+
+Payload and response types are in `packages/shared/src/alerts.ts`. Setup sessions expire after ten minutes and are never persisted. All alert settings mutations and setup lifecycle actions are audited; routine polling is omitted from success logs.
+
 ## 1. Conventions
 
 | Item | Convention |

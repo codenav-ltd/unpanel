@@ -2,7 +2,7 @@
 
 **The server panel that doesn't act like one.** Simple, modern, and lightweight: one web UI for the load, alerts, containers, processes, sites, and certificates of all your servers — without turning any of them into a "panel server".
 
-> **Status: 0.1.0-alpha.20 pre-alpha.** Alerts now monitors resource thresholds, offline nodes and panel certificate expiry, with guided Telegram setup and SMTP/Resend/Postmark email notifications. First-run setup creates the owner account with a password and TOTP. Settings includes configurable sign-in restrictions and optional Cloudflare Turnstile. Updates keeps the panel ahead of its remote agents, shows every agent version, and rolls back an agent update that does not stay active. Automatic install stays off until it is turned on. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
+> **Status: 0.1.0-alpha.21 pre-alpha.** Alerts now monitors resource thresholds, offline nodes and panel certificate expiry, with guided Telegram setup and SMTP/Resend/Postmark email notifications. First-run setup creates the owner account with a password and TOTP. Settings includes configurable sign-in restrictions and optional Cloudflare Turnstile. Updates keeps the panel ahead of its remote agents, shows every agent version, and rolls back an agent update that does not stay active. Automatic install stays off until it is turned on. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
 
 ## Install
 
@@ -20,13 +20,15 @@ A later release is installed from Settings → Updates, or with `sudo bash /opt/
 
 Most server panels are heavy: they install their own stacks, rewrite system configuration, run as root on the internet, and treat multiple servers as an afterthought. Unpanel is the opposite, hence the name:
 
-- **Lightweight** — the agent idles under 50 MB of RAM and 0.5% of one CPU core; live views use shared sampling; background alert checks continue every 15 seconds.
-- **Multi-node from day one** — the local machine is just another node, so every feature works the same on 1 or 100 servers.
-- **Secure by default** — HTTPS from the first visit, no default password, passkeys and TOTP, step-up authentication for dangerous actions, an unprivileged web process, and node-local policies the panel cannot override.
-- **Non-invasive** — it manages what you already run, keeps its own configuration in clearly marked files, and can roll back every change it makes.
+- **Lightweight by design** — live views share sampling; background alert checks run every 15 seconds; notification drivers use native HTTP or a focused SMTP library. The [resource budgets](./docs/design/00-overview.md#5-resource-budgets-v1-targets) are targets, with Linux fleet measurements still pending.
+- **Multi-node from day one** — the local machine uses the same monitoring and agent protocol as remote nodes.
+- **Secure defaults** — self-signed HTTPS on new direct installs, no default password, optional TOTP enabled during setup by default, encrypted credentials, an unprivileged web process, and signed agent handshakes. Passkeys, team permissions and step-up authentication remain planned.
+- **Recoverable operations** — panel and supported remote-agent updates check the replacement process and roll back failed updates. Certificate activation verifies the served certificate before accepting the change.
 - **Pleasant to use** — a dense, dark-first dashboard inspired by [3x-ui](https://github.com/MHSanaei/3x-ui), with live charts and a signature "pulse rail" per node.
 
-## Planned features
+## Roadmap
+
+This table describes the broader v1 scope, including extensions to already shipped monitoring, alerts, certificates and updates. It is not a list of available controls. The module documents distinguish current behavior from planned work.
 
 | Area | Highlights |
 |---|---|
@@ -79,9 +81,9 @@ Details: [docs/design/01-architecture.md](./docs/design/01-architecture.md) and 
 - [Knowledge base](./docs/kb/README.md) — external-system facts, pitfalls, runbooks
 - [Open questions](./docs/open-questions.md) — decisions still pending
 
-## Supported platforms (planned)
+## Platforms
 
-Debian 11–13, Ubuntu 22.04/24.04, AlmaLinux/Rocky 9 (best effort); x86_64 and aarch64; systemd required. The Node.js runtime is bundled.
+Current release packages target Linux `x86_64` and `aarch64` with systemd. Install Node.js 24 before running the installer; it is not bundled yet. The planned distribution matrix is Debian 11–13, Ubuntu 22.04/24.04 and AlmaLinux/Rocky 9 (best effort). Full VM coverage of that matrix remains a release-readiness task.
 
 ## Contributing
 

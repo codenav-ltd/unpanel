@@ -3,6 +3,8 @@
 > Status: Draft · Related ADRs: [0004](../adr/0004-self-built-auth.md), [0009](../adr/0009-multi-user-rbac.md), [0010](../adr/0010-https-by-default.md)
 > External details: [kb/webauthn-passkey.md](../kb/webauthn-passkey.md), [kb/totp.md](../kb/totp.md)
 
+Current implementation: one owner, password sign-in, optional TOTP with replay protection, recovery codes, session cookies, password changes, configurable sign-in restrictions and optional Turnstile. Changing a password keeps the calling session and revokes other sessions and pending MFA tickets in one transaction; concurrent password changes cannot overwrite each other. The remainder includes v1 design: passkeys, user-managed session lists, sudo mode, API tokens, team RBAC and the corresponding routes are not shipped. Do not treat this planned route catalog as the current API.
+
 ## 1. Principles
 
 - **No auth framework.** Auth is assembled from focused low-level libraries, and every endpoint is defined by us. Nothing is exposed automatically.

@@ -60,6 +60,8 @@ const dialog = ref<"apply" | "remove" | "renewal" | "">("");
 const address = ref("");
 let timer: ReturnType<typeof setTimeout> | undefined;
 let disposed = false;
+let generation = 0;
+let refreshRequest: AbortController | null = null;
 const controller = new AbortController();
 const running = computed(() => Boolean(busy.value) || data.value?.job.state === "running");
 const modes = [
@@ -73,18 +75,29 @@ const environments = [
 ];
 function schedule(): void {
   if (timer) clearTimeout(timer);
+  timer = undefined;
   if (!disposed && data.value?.job.state === "running")
     timer = setTimeout(() => {
       void refresh();
     }, 2000);
 }
 async function refresh(): Promise<void> {
+  if (disposed || busy.value || refreshRequest) return;
+  const request = new AbortController();
+  refreshRequest = request;
+  const currentGeneration = ++generation;
+  const current = () => !disposed && generation === currentGeneration;
   try {
-    const response = await fetch("/api/v1/certificates", { signal: controller.signal });
+    const response = await fetch("/api/v1/certificates", {
+      signal: AbortSignal.any([controller.signal, request.signal, AbortSignal.timeout(15_000)]),
+    });
+    if (!current()) return;
     if (!response.ok) throw new Error(await readProblem(response, "load certificates"));
-    data.value = ((await response.json()) as { data: CertificateView }).data;
-    if (!data.value?.certificates || !data.value.job)
+    const next = ((await response.json()) as { data: CertificateView }).data;
+    if (!current()) return;
+    if (!next?.certificates || !next.job)
       throw new Error("The panel returned an invalid certificate response.");
+    data.value = next;
     error.value = "";
     if (!host.value && data.value.publicUrl) {
       const candidate = new URL(data.value.publicUrl).hostname.replace(/^\[|\]$/g, "");
@@ -92,14 +105,17 @@ async function refresh(): Promise<void> {
         host.value = candidate;
     }
   } catch (failure) {
-    if (disposed) return;
+    if (!current()) return;
     error.value =
       failure instanceof Error && failure.message !== "Failed to fetch"
         ? failure.message
         : couldNotReach("load certificates");
   } finally {
-    loading.value = false;
-    schedule();
+    if (current()) {
+      refreshRequest = null;
+      loading.value = false;
+      schedule();
+    }
   }
 }
 async function action(
@@ -108,6 +124,13 @@ async function action(
   body: unknown,
   success: string,
 ): Promise<boolean> {
+  if (disposed || busy.value) return false;
+  generation += 1;
+  refreshRequest?.abort();
+  refreshRequest = null;
+  if (timer) clearTimeout(timer);
+  timer = undefined;
+  loading.value = false;
   busy.value = path;
   error.value = "";
   note.value = "";
@@ -124,15 +147,19 @@ async function action(
       throw new Error(replyNotReceived(copy.failedAction, copy.missingReply));
     }
     if (!response.ok) throw new Error(await readProblem(response, copy.failedAction));
-    data.value = ((await response.json()) as { data: CertificateView }).data;
+    const next = ((await response.json()) as { data: CertificateView }).data;
+    if (disposed) return false;
+    if (!next?.certificates || !next.job)
+      throw new Error("The panel returned an invalid certificate response.");
+    data.value = next;
     note.value = success;
-    schedule();
     return true;
   } catch (failure) {
     if (!disposed) error.value = failure instanceof Error ? failure.message : copy.missingReply;
     return false;
   } finally {
     busy.value = "";
+    schedule();
   }
 }
 async function add(): Promise<void> {
@@ -201,6 +228,8 @@ onMounted(() => {
 onUnmounted(() => {
   disposed = true;
   controller.abort();
+  refreshRequest?.abort();
+  refreshRequest = null;
   if (timer) clearTimeout(timer);
   key.value = "";
 });

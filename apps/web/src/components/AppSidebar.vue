@@ -27,7 +27,7 @@ import {
   UnorderedListOutlined,
 } from "@ant-design/icons-vue";
 import { product } from "@unpanel/shared";
-import { computed, onMounted, onUnmounted, ref, type Component } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch, type Component } from "vue";
 import { en } from "../i18n/en.ts";
 
 export type ShellPage = "overview" | "dashboard" | "host" | "settings" | "certificates" | "alerts";
@@ -192,6 +192,21 @@ const items: Item[] = [
 ];
 
 const drawer = ref(false);
+const sidebarId = useId();
+const menuHandle = ref<HTMLButtonElement | null>(null);
+const sidebar = ref<HTMLElement | null>(null);
+const mobileQuery = window.matchMedia("(max-width: 768px)");
+const mobile = ref(mobileQuery.matches);
+function updateMobile(): void {
+  mobile.value = mobileQuery.matches;
+}
+watch(drawer, (open) => {
+  if (!mobile.value) return;
+  void nextTick(() => {
+    if (open) sidebar.value?.querySelector<HTMLButtonElement>("button")?.focus();
+    else menuHandle.value?.focus();
+  });
+});
 const laterNote = ref("");
 const nodesOpen = ref(true);
 const nodeItems = computed(() => items.filter((item) => item.group === "node"));
@@ -203,10 +218,12 @@ function onKey(event: Event): void {
 
 onMounted(() => {
   globalThis.addEventListener("keydown", onKey);
+  mobileQuery.addEventListener("change", updateMobile);
 });
 
 onUnmounted(() => {
   globalThis.removeEventListener("keydown", onKey);
+  mobileQuery.removeEventListener("change", updateMobile);
 });
 
 function closeDrawer(): void {
@@ -251,15 +268,24 @@ function onItem(item: Item): void {
     @click="closeDrawer"
   />
   <button
+    ref="menuHandle"
     class="menu-handle"
     :class="{ 'is-hidden': drawer }"
     type="button"
     :aria-label="en.nav.openMenu"
+    :aria-expanded="drawer"
+    :aria-controls="sidebarId"
     @click="drawer = true"
   >
     <MenuOutlined aria-hidden="true" />
   </button>
-  <aside class="sider" :class="{ 'drawer-open': drawer }">
+  <aside
+    :id="sidebarId"
+    ref="sidebar"
+    class="sider"
+    :class="{ 'drawer-open': drawer }"
+    :inert="mobile && !drawer"
+  >
     <div class="sider-brand">
       <span class="brand-text">{{ product.name }}</span>
       <span class="sider-version">{{ product.version }}</span>
@@ -287,7 +313,7 @@ function onItem(item: Item): void {
           aria-hidden="true"
         />
       </button>
-      <div class="node-fold" :data-open="nodesOpen ? 'true' : 'false'">
+      <div class="node-fold" :data-open="nodesOpen ? 'true' : 'false'" :inert="!nodesOpen">
         <div class="node-fold-inner">
           <div class="node-list">
             <button

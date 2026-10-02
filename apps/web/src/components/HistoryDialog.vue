@@ -3,7 +3,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { formatHistoryTime } from "../history-time.ts";
 import { en } from "../i18n/en.ts";
 import { couldNotReach } from "../http-error.ts";
@@ -34,6 +34,7 @@ const series = ref<Series>({ start: 0, stepMs: 60_000, cpu: [], mem: [], disk: [
 const failed = ref("");
 const loading = ref(false);
 const cursor = ref<number | null>(null);
+let activeRequest: AbortController | null = null;
 
 const labels: Record<Tab, string> = {
   cpu: en.shell.cpu,
@@ -72,19 +73,33 @@ const tip = computed(() => {
 });
 
 async function load(): Promise<void> {
+  activeRequest?.abort();
+  const request = new AbortController();
+  activeRequest = request;
+  const nodeId = props.nodeId;
+  const windowMinutes = minutes.value;
+  const current = () =>
+    activeRequest === request &&
+    props.open &&
+    props.nodeId === nodeId &&
+    minutes.value === windowMinutes;
   loading.value = true;
   failed.value = "";
   cursor.value = null;
+  series.value = { start: 0, stepMs: 60_000, cpu: [], mem: [], disk: [] };
   try {
     const response = await fetch(
-      `/api/v1/nodes/${encodeURIComponent(props.nodeId)}/history?minutes=${minutes.value}`,
+      `/api/v1/nodes/${encodeURIComponent(nodeId)}/history?minutes=${windowMinutes}`,
+      { signal: AbortSignal.any([request.signal, AbortSignal.timeout(15_000)]) },
     );
+    if (!current()) return;
     if (!response.ok) {
       failed.value = `${en.shell.historyFailed} (HTTP ${response.status}). The chart was not updated.`;
       series.value = { start: 0, stepMs: 60_000, cpu: [], mem: [], disk: [] };
       return;
     }
     const body = (await response.json()) as { data: Series };
+    if (!current()) return;
     series.value = {
       start: body.data.start,
       stepMs: body.data.stepMs,
@@ -93,10 +108,14 @@ async function load(): Promise<void> {
       disk: percents(body.data.disk),
     };
   } catch {
+    if (!current()) return;
     failed.value = couldNotReach("load system history");
     series.value = { start: 0, stepMs: 60_000, cpu: [], mem: [], disk: [] };
   } finally {
-    loading.value = false;
+    if (current()) {
+      activeRequest = null;
+      loading.value = false;
+    }
   }
 }
 
@@ -108,9 +127,19 @@ watch(
   () => [props.open, props.nodeId, minutes.value] as const,
   ([open]) => {
     if (open) void load();
+    else {
+      activeRequest?.abort();
+      activeRequest = null;
+      loading.value = false;
+    }
   },
   { immediate: true },
 );
+
+onBeforeUnmount(() => {
+  activeRequest?.abort();
+  activeRequest = null;
+});
 
 watch(tab, () => {
   cursor.value = null;
@@ -147,8 +176,11 @@ watch(tab, () => {
         </button>
       </div>
     </div>
-    <p v-if="failed" class="form-error" role="alert">{{ failed }}</p>
-    <p v-else-if="loading && samples.length === 0" class="history-empty">
+    <div v-if="failed" role="alert">
+      <p class="form-error">{{ failed }}</p>
+      <button type="button" @click="load">{{ en.audit.retry }}</button>
+    </div>
+    <p v-else-if="loading && samples.length === 0" class="history-empty" role="status">
       <span class="spinner" aria-hidden="true" />
       {{ en.shell.connecting }}
     </p>

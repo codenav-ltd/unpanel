@@ -4,6 +4,8 @@ This directory is the single source of truth for the project's design and operat
 
 > Product name: **Unpanel**. Binaries: `unpanel` (control plane) and `unpanel-agent` (node agent). In prose, "the panel" means the control-plane role and "the agent" the node daemon ([glossary](./kb/glossary.md)).
 
+Design documents with a Draft status include future v1 requirements. They do not establish that a feature is shipped or a quality gate is enforced. Consult the current-behavior notes, [changelog](../CHANGELOG.md), and [implemented validation](./design/10-testing.md#1-current-validation) before relying on a capability. Alerts, notification channels and certificates have explicit shipped-versus-planned module descriptions.
+
 ## Layout
 
 ```
@@ -54,7 +56,7 @@ docs/
 
 ## Conventions
 
-- **Language**: English, for code, docs, commit messages, issues, and UI strings (the UI ships with additional locales; see [design/08](./design/08-frontend.md)).
+- **Language**: English, for code, docs, commit messages, issues, and current UI strings. Additional locales are planned; see [design/08](./design/08-frontend.md).
 - **Status header**: every design doc starts with `Status: Draft | Review | Accepted | Superseded`.
 - **ADRs are append-only**: when a decision changes, write a new ADR and mark the old one `Superseded by NNNN`.
 - **The KB records facts and pitfalls**: behavior of external systems (Docker, Nginx, ACME, Telegram, ...) goes into `kb/` with a source link and a verification date. External behavior changes; always cite where a number came from.

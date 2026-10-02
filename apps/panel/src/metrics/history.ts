@@ -55,6 +55,7 @@ export function createHistory(
       disk_n INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (node_id, ts)
     );
+    CREATE INDEX IF NOT EXISTS metrics_1m_time ON metrics_1m(ts);
   `);
   const readOne = db.prepare(
     `SELECT ts, cpu_sum, cpu_n, cpu_max, mem_sum, mem_n, disk_sum, disk_n
@@ -77,6 +78,8 @@ export function createHistory(
      FROM metrics_1m WHERE node_id = ? AND ts >= ? AND ts <= ? ORDER BY ts`,
   );
   const prune = db.prepare(`DELETE FROM metrics_1m WHERE ts < ?`);
+  let lastPrunedMinute: number | undefined;
+  let lastRetention: number | undefined;
 
   function record(nodeId: string, at: number, sample: HistorySample): void {
     const ts = Math.floor(at / MINUTE_MS) * MINUTE_MS;
@@ -104,7 +107,12 @@ export function createHistory(
       current.disk_sum + (disk ?? 0),
       diskN,
     );
-    prune.run(ts - retainMs());
+    const retention = retainMs();
+    if (lastPrunedMinute !== ts || lastRetention !== retention) {
+      prune.run(ts - retention);
+      lastPrunedMinute = ts;
+      lastRetention = retention;
+    }
   }
 
   function series(nodeId: string, at: number, minutes: number): HistorySeries {

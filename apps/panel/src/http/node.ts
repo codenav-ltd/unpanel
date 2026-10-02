@@ -3,6 +3,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Hono } from "hono";
+import { MAX_BACKUP_BYTES } from "../backup/panel.ts";
 import { staticResponse } from "./static.ts";
 
 const MAX_BODY = 64 * 1024;
@@ -11,6 +12,7 @@ const MAX_BODY = 64 * 1024;
 export function handleHttp(
   app: Hono,
   webRoot?: string,
+  options: { authorizeBackup?: (cookie: string | undefined) => boolean } = {},
 ): (request: IncomingMessage, response: ServerResponse) => void {
   return (request, response) => {
     if (request.headers.upgrade?.toLowerCase() === "websocket") return;
@@ -24,12 +26,58 @@ export function handleHttp(
     }
     const chunks: Buffer[] = [];
     let size = 0;
+    let rejected = false;
+    const rejectBody = (status: 401 | 413 | 500, code: string, message: string): void => {
+      rejected = true;
+      chunks.length = 0;
+      response.writeHead(status, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      response.end(JSON.stringify({ error: { code, message } }));
+      // Drain without retaining any more bytes so the client receives the error,
+      // rather than resetting the TCP connection while it is still uploading.
+      request.resume();
+    };
+    request.on("error", () => {
+      chunks.length = 0;
+      if (!response.writableEnded) response.destroy();
+    });
+    let backup = false;
+    try {
+      backup =
+        request.method === "POST" &&
+        new URL(request.url ?? "/", "http://panel.local").pathname === "/api/v1/backup/panel";
+    } catch {
+      // dispatch() reports a malformed URL through the normal error response.
+    }
+    if (backup) {
+      try {
+        if (!options.authorizeBackup?.(request.headers.cookie)) {
+          rejectBody(401, "E_UNAUTHENTICATED", "Sign in to restore a backup.");
+          return;
+        }
+      } catch {
+        rejectBody(
+          500,
+          "E_INTERNAL",
+          "The backup session could not be verified. Open Logs and try again.",
+        );
+        return;
+      }
+    }
+    const limit = backup ? MAX_BACKUP_BYTES : MAX_BODY;
+    const tooLarge = (): void =>
+      rejectBody(413, "E_PAYLOAD_TOO_LARGE", `Request body exceeds the ${limit}-byte limit.`);
+    if (Number(request.headers["content-length"] ?? 0) > limit) {
+      tooLarge();
+      return;
+    }
     request.on("data", (chunk: Buffer) => {
+      if (rejected) return;
       size += chunk.length;
-      if (size > MAX_BODY) {
-        response.writeHead(413, { "content-type": "text/plain; charset=utf-8" });
-        response.end("payload too large");
-        request.destroy();
+      if (size > limit) {
+        tooLarge();
         return;
       }
       chunks.push(chunk);

@@ -27,4 +27,24 @@ describe("shell routes", () => {
       unknown: "/unknown-page",
     });
   });
+
+  it.each(["/nodes/%", "/nodes/%E0%A4%A", "/nodes/%GG/host"])(
+    "handles malformed node encoding in %s without crashing the shell",
+    (path) => {
+      expect(parsePath(path)).toEqual({
+        page: "overview",
+        nodeId: "local",
+        settings: "panel",
+        unknown: path,
+      });
+    },
+  );
+
+  it("decodes valid node identifiers once", () => {
+    expect(parsePath("/nodes/nd%20one%25/host")).toMatchObject({
+      page: "host",
+      nodeId: "nd one%",
+      unknown: null,
+    });
+  });
 });

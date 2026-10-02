@@ -195,7 +195,7 @@ export function createCertificates(options: {
       id: input.id ?? randomUUID(),
       source,
       host,
-      autoRenew: source === "acme",
+      autoRenew: input.id ? read(input.id).record.autoRenew : source === "acme",
       staging: input.staging ?? false,
       email: input.email ?? "",
       active: false,

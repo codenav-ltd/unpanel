@@ -179,6 +179,9 @@ const turnstileVersion = ref(0);
 const loginWarnings = ref<string[]>([]);
 const prefs = ref<NodePrefs>({ name: "", tags: [], maintenance: false });
 const catalog = ref<NodeCard[]>([]);
+const catalogLoading = ref(false);
+const catalogLoaded = ref(false);
+const catalogError = ref("");
 const tagFilter = ref("");
 const overviewLayout = ref<OverviewLayout>(loadOverviewLayout());
 const showAdd = ref(false);
@@ -201,7 +204,10 @@ const swapTrace = ref<number[]>([]);
 const rates = ref<Rates>({ up: [], down: [], tcp: [], udp: [] });
 const panelProcess = ref<{ rss: number; uptime: number } | null>(null);
 const sample = ref<LiveSample | null>(null);
+const snapshotNodeId = ref("");
 const detail = ref<string>(en.shell.connecting);
+let listRequest: AbortController | null = null;
+let detailRequest: AbortController | null = null;
 let timer: ReturnType<typeof setInterval> | undefined;
 let updateTimer: ReturnType<typeof setInterval> | undefined;
 let applyingHistory = false;
@@ -418,6 +424,9 @@ async function signOut(): Promise<void> {
     sample.value = null;
     prefs.value = { name: "", tags: [], maintenance: false };
     catalog.value = [];
+    catalogLoaded.value = false;
+    catalogError.value = "";
+    snapshotNodeId.value = "";
     tagFilter.value = "";
     showAdd.value = false;
     showHistory.value = false;
@@ -428,6 +437,7 @@ async function signOut(): Promise<void> {
     controlBusy.value = false;
     controlError.value = "";
     controlNote.value = "";
+    actionNote.value = "";
     showAddresses.value = false;
     password.value = "";
     loginWarnings.value = [];
@@ -468,8 +478,9 @@ function showNode(): void {
 function startWatching(): void {
   if (timer) clearInterval(timer);
   timer = setInterval(() => {
-    if (page.value === "overview") void refreshList();
-    else void refresh();
+    if (page.value === "overview") {
+      if (!listRequest) void refreshList();
+    } else if (!detailRequest) void refresh();
   }, pollMs.value);
 }
 
@@ -536,6 +547,11 @@ async function loadTheme(): Promise<void> {
 }
 
 function stopWatching(): void {
+  listRequest?.abort();
+  listRequest = null;
+  detailRequest?.abort();
+  detailRequest = null;
+  catalogLoading.value = false;
   if (timer) clearInterval(timer);
   timer = undefined;
   if (updateTimer) clearInterval(updateTimer);
@@ -544,18 +560,39 @@ function stopWatching(): void {
 }
 
 async function refreshList(): Promise<void> {
+  if (view.value !== "node") return;
+  listRequest?.abort();
+  const request = new AbortController();
+  listRequest = request;
+  catalogLoading.value = true;
+  const current = () => listRequest === request && view.value === "node";
   try {
-    const response = await fetch("/api/v1/nodes");
+    const response = await fetch("/api/v1/nodes", {
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(15_000)]),
+    });
+    if (!current()) return;
     if (response.status === 401) {
       stopWatching();
       view.value = "login";
       return;
     }
-    if (!response.ok) return;
+    if (!response.ok) {
+      const problem = await readProblem(response, "refresh the node list");
+      if (current()) catalogError.value = problem;
+      return;
+    }
     const body = (await response.json()) as { data: NodeCard[] };
+    if (!current()) return;
     catalog.value = body.data;
+    catalogLoaded.value = true;
+    catalogError.value = "";
   } catch {
-    // The detail poll reports the failure on the open node.
+    if (current()) catalogError.value = couldNotReach("refresh the node list");
+  } finally {
+    if (current()) {
+      listRequest = null;
+      catalogLoading.value = false;
+    }
   }
 }
 
@@ -566,8 +603,17 @@ function openNode(id: string): void {
 }
 
 async function refresh(): Promise<void> {
+  if (view.value !== "node") return;
+  detailRequest?.abort();
+  const request = new AbortController();
+  detailRequest = request;
+  const id = nodeId.value;
+  const current = () => detailRequest === request && nodeId.value === id && view.value === "node";
   try {
-    const response = await fetch(`/api/v1/nodes/${encodeURIComponent(nodeId.value)}`);
+    const response = await fetch(`/api/v1/nodes/${encodeURIComponent(id)}`, {
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(15_000)]),
+    });
+    if (!current()) return;
     if (response.status === 401) {
       stopWatching();
       view.value = "login";
@@ -575,6 +621,8 @@ async function refresh(): Promise<void> {
     }
     if (!response.ok) throw new Error(String(response.status));
     const body = (await response.json()) as LocalSnapshot;
+    if (!current()) return;
+    snapshotNodeId.value = id;
     info.value = body.info;
     cpuTrace.value = body.trace?.cpu ?? [];
     memTrace.value = body.trace?.mem ?? [];
@@ -592,10 +640,21 @@ async function refresh(): Promise<void> {
     phase.value = "offline";
     detail.value = body.error ?? en.shell.offline;
   } catch {
+    if (!current()) return;
     phase.value = "error";
     info.value = null;
     detail.value = couldNotReach("refresh this node");
+  } finally {
+    if (current()) detailRequest = null;
   }
+}
+
+function onNodeSaved(next: NodePrefs): void {
+  // A read that began before the save must not replace its confirmed values.
+  detailRequest?.abort();
+  detailRequest = null;
+  prefs.value = next;
+  void refreshList();
 }
 
 async function errorMessage(response: Response): Promise<string> {
@@ -886,12 +945,15 @@ const removeBusy = ref(false);
 const removeError = ref("");
 const enrollView = ref<{ installed: string; fresh: string } | null>(null);
 const actionError = ref("");
+const actionBusy = ref(false);
+const actionNote = ref("");
 
 const menuNode = computed(
   () => catalog.value.find((node) => node.id === nodeMenu.value?.id) ?? null,
 );
 
 function openNodeMenu(payload: { id: string; x: number; y: number }): void {
+  if (actionBusy.value) return;
   nodeMenu.value = payload;
 }
 
@@ -911,6 +973,7 @@ async function failureText(response: Response): Promise<string> {
 async function onMenuAction(
   action: "dashboard" | "edit" | "toggle" | "reenroll" | "remove",
 ): Promise<void> {
+  if (actionBusy.value) return;
   const node = menuNode.value;
   nodeMenu.value = null;
   if (!node) return;
@@ -924,38 +987,57 @@ async function onMenuAction(
     void refresh();
     return;
   }
-  if (action === "toggle") {
-    const path = node.status === "disabled" ? "enable" : "disable";
-    const response = await fetch(`/api/v1/nodes/${encodeURIComponent(node.id)}/${path}`, {
-      method: "POST",
-    });
-    if (!response.ok) {
-      actionError.value = await failureText(response);
-      return;
-    }
-    await refreshList();
-    if (nodeId.value === node.id) await refresh();
+  if (action === "remove") {
+    removeError.value = "";
+    removeId.value = node.id;
     return;
   }
-  if (action === "reenroll") {
-    const response = await fetch(`/api/v1/nodes/${encodeURIComponent(node.id)}/enrollment-token`, {
-      method: "POST",
-    });
-    if (!response.ok) {
-      actionError.value = await failureText(response);
+  actionBusy.value = true;
+  actionError.value = "";
+  actionNote.value = "";
+  try {
+    if (action === "toggle") {
+      const path = node.status === "disabled" ? "enable" : "disable";
+      const response = await fetch(`/api/v1/nodes/${encodeURIComponent(node.id)}/${path}`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        actionError.value = await failureText(response);
+        return;
+      }
+      await refreshList();
+      if (nodeId.value === node.id) await refresh();
+      actionNote.value = `${menuLabel(node)}: ${en.shell.saved}`;
       return;
     }
-    const body = (await response.json()) as { data?: { installed?: string; fresh?: string } };
-    if (!body.data?.installed || !body.data.fresh) {
-      actionError.value = en.auth.invalidResponse;
+    if (action === "reenroll") {
+      const response = await fetch(
+        `/api/v1/nodes/${encodeURIComponent(node.id)}/enrollment-token`,
+        {
+          method: "POST",
+        },
+      );
+      if (!response.ok) {
+        actionError.value = await failureText(response);
+        return;
+      }
+      const body = (await response.json()) as { data?: { installed?: string; fresh?: string } };
+      if (!body.data?.installed || !body.data.fresh) {
+        actionError.value = en.auth.invalidResponse;
+        return;
+      }
+      enrollView.value = { installed: body.data.installed, fresh: body.data.fresh };
+      await refreshList();
       return;
     }
-    enrollView.value = { installed: body.data.installed, fresh: body.data.fresh };
-    await refreshList();
-    return;
+  } catch {
+    actionError.value = replyNotReceived(
+      action === "reenroll" ? "create an enrollment command" : "change this node",
+      "Refresh the node list and check Logs before trying again.",
+    );
+  } finally {
+    actionBusy.value = false;
   }
-  removeError.value = "";
-  removeId.value = node.id;
 }
 
 async function confirmRemove(): Promise<void> {
@@ -972,6 +1054,11 @@ async function confirmRemove(): Promise<void> {
     removeId.value = null;
     if (nodeId.value === id) onRemoved();
     else await refreshList();
+  } catch {
+    removeError.value = replyNotReceived(
+      "remove this node",
+      "Close this dialog, refresh the node list and check Logs before trying again.",
+    );
   } finally {
     removeBusy.value = false;
   }
@@ -1087,6 +1174,27 @@ function askRestartFromBackup(): void {
 watch(cards, (value) => saveCards(value), { deep: true });
 watch(overviewLayout, (value) => saveOverviewLayout(value));
 
+watch(
+  nodeId,
+  () => {
+    detailRequest?.abort();
+    detailRequest = null;
+    snapshotNodeId.value = "";
+    info.value = null;
+    sample.value = null;
+    cpuTrace.value = [];
+    memTrace.value = [];
+    diskTrace.value = [];
+    swapTrace.value = [];
+    rates.value = { up: [], down: [], tcp: [], udp: [] };
+    panelProcess.value = null;
+    prefs.value = { name: "", tags: [], maintenance: false };
+    phase.value = "loading";
+    detail.value = en.shell.statusConnecting;
+  },
+  { flush: "sync" },
+);
+
 watch(page, (next) => {
   if (view.value !== "node") return;
   if (next === "overview") void refreshList();
@@ -1172,7 +1280,12 @@ onUnmounted(() => {
             {{ layoutLabel(size) }}
           </button>
         </div>
-        <p class="app-status" aria-live="polite">
+        <p v-if="page === 'overview'" class="app-status" aria-live="polite">
+          <span v-if="catalogError" class="status-bad">{{ en.shell.nodesRefreshFailed }}</span>
+          <span v-else-if="catalogLoaded" class="status-ok">{{ en.shell.panelConnected }}</span>
+          <span v-else>{{ en.shell.nodesLoading }}</span>
+        </p>
+        <p v-else class="app-status" aria-live="polite">
           <span :class="phase === 'online' ? 'status-ok' : 'status-bad'">{{ statusLabel }}</span>
           <template v-if="detail"> · {{ detail }}</template>
         </p>
@@ -1240,12 +1353,29 @@ onUnmounted(() => {
         </div>
       </header>
       <div class="app-content">
+        <p v-if="actionBusy" class="hint" role="status">
+          <span class="spinner" aria-hidden="true" /> {{ en.shell.saving }}
+        </p>
+        <p v-else-if="actionNote" class="form-warn" role="status">{{ actionNote }}</p>
         <p v-if="routeNotice" class="form-warn" role="status">{{ routeNotice }}</p>
         <p v-if="prefs.maintenance" class="maint-banner" role="status">
           {{ en.shell.maintenanceOn }}
         </p>
         <div v-if="page === 'overview'" class="overview">
-          <p class="overview-summary">
+          <div v-if="catalogError" role="alert">
+            <p class="form-error">{{ catalogError }}</p>
+            <p v-if="catalogLoaded" class="hint">
+              {{ en.shell.nodesStale }}
+            </p>
+            <button type="button" :disabled="catalogLoading" @click="refreshList">
+              <span v-if="catalogLoading" class="spinner" aria-hidden="true" />
+              {{ catalogLoading ? en.shell.nodesRefreshing : en.audit.retry }}
+            </button>
+          </div>
+          <p v-else-if="!catalogLoaded" class="hint" role="status">
+            <span class="spinner" aria-hidden="true" /> {{ en.shell.nodesLoading }}
+          </p>
+          <p v-if="catalogLoaded" class="overview-summary">
             {{ catalog.length === 1 ? en.shell.oneNode : `${catalog.length} ${en.shell.nodes}` }}
             · {{ catalog.filter((node) => node.online).length }} {{ en.shell.onlineCount }}
           </p>
@@ -1363,7 +1493,8 @@ onUnmounted(() => {
           </div>
         </div>
         <NodePage
-          v-else-if="page === 'host'"
+          v-else-if="page === 'host' && snapshotNodeId === nodeId"
+          :key="nodeId"
           :hostname="info?.hostname ?? ''"
           :os="info?.os.pretty ?? ''"
           :kernel="info?.kernel ?? ''"
@@ -1382,10 +1513,17 @@ onUnmounted(() => {
           :swap-used="sample?.swapUsed ?? null"
           :swap-total="sample?.swapTotal ?? null"
           :agent-version="selectedNode?.agentVersion ?? ''"
-          @saved="prefs = $event"
+          @saved="onNodeSaved"
           @changed="refreshList"
           @removed="onRemoved"
         />
+        <p
+          v-else-if="page === 'host'"
+          :class="phase === 'error' ? 'form-error' : 'hint'"
+          role="status"
+        >
+          {{ detail }}
+        </p>
         <CertificatesPage v-else-if="page === 'certificates'" @public-url="publicUrl = $event" />
         <AlertsPage v-else-if="page === 'alerts'" />
         <SettingsPage

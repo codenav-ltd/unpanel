@@ -18,7 +18,7 @@ import { createHistory } from "./metrics/history.ts";
 import { createNodes } from "./nodes/store.ts";
 import { createSettings, seedPublicUrl } from "./settings/store.ts";
 import { findUpdate, releaseForVersion, releaseToApply, UpdateError } from "./updates/check.ts";
-import { createApi } from "./http/api.ts";
+import { createApi, sessionTokenFromCookie } from "./http/api.ts";
 import { handleHttp } from "./http/node.ts";
 import { createCertificates } from "./tls/store.ts";
 import { createAcmeIssuer } from "./tls/acme.ts";
@@ -198,7 +198,10 @@ export async function startPanel(options: {
     },
     onSettings: () => armUpdateWatch(),
   });
-  const onRequest = handleHttp(app, options.webRoot);
+  const onRequest = handleHttp(app, options.webRoot, {
+    authorizeBackup: (cookie) =>
+      auth.sessionUser(sessionTokenFromCookie(cookie, secureCookie())) !== null,
+  });
 
   const listener = createPanelListener({
     request: onRequest,

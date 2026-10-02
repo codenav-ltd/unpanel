@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.21] - 2026-10-03
+
+### Fixed
+
+- Background refresh preserves unsaved host settings and ignores responses for a previously selected node or history window. Overview shows stale-data failures with a retry action, and node menu actions report lost replies.
+- Backups exported by the panel can be restored through the HTTP server up to the documented 64 MiB limit. Anonymous uploads are rejected before buffering; oversized requests return a readable error.
+- Missed agent heartbeats and unanswered monitoring requests no longer leave nodes permanently online or sampling stuck. Replacing a connection clears old requests and ignores late replies from the replaced socket.
+- Manual certificate renewal preserves a disabled automatic-renewal setting. A stale certificate reload cannot overwrite a newly started issuance job or stop its progress polling.
+- Dialogs expose their visible title to assistive technology. Closed mobile menus and collapsed node lists no longer receive keyboard focus, and malformed client-side routes recover safely.
+
+### Changed
+
+- Metric retention uses a time index and prunes at most once per minute instead of scanning all retained history after every node sample. A repeatable million-row benchmark is included without claiming unmeasured Linux fleet budgets.
+- Documentation clarifies current features, validation and runtime requirements separately from the v1 roadmap, with alert API, provider/setup lifecycle, retention benchmark and backup scope details.
+
+### Security
+
+- Password changes revoke other sessions and pending MFA sign-ins atomically while keeping the caller signed in. Concurrent changes cannot overwrite a newer password, and an in-flight old-password login cannot create a fresh session afterward.
+
 ## [0.1.0-alpha.20] - 2026-10-03
 
 ### Added

@@ -2,6 +2,8 @@
 
 > Status: Draft · Agent module: `backup` · Panel component: `jobs/backup`
 
+Current implementation is a panel database export/restore in `apps/panel/src/backup/panel.ts`. It exports a consistent SQLite snapshot. An authenticated upload of up to 64 MiB is validated and staged for the next process restart; the previous database and WAL files are retained in `backups/`. Ordinary JSON requests remain limited to 64 KiB. This database export does not include the master key, panel/agent identity keys or environment configuration: retain those separately to restore encrypted notification/TOTP/certificate material and existing agent trust. It is not a self-contained migration archive. The encrypted archives, schedules and remote storage described below are planned.
+
 ## 1. What gets backed up
 
 | Source | Method |

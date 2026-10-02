@@ -4,7 +4,7 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { CloseOutlined } from "@ant-design/icons-vue";
-import { onBeforeUnmount, ref, watch } from "vue";
+import { onBeforeUnmount, ref, useId, watch } from "vue";
 import { en } from "../i18n/en.ts";
 
 const props = withDefaults(defineProps<{ open: boolean; title: string; narrow?: boolean }>(), {
@@ -14,6 +14,7 @@ const props = withDefaults(defineProps<{ open: boolean; title: string; narrow?: 
 const emit = defineEmits<{ close: [] }>();
 
 const root = ref<HTMLDialogElement | null>(null);
+const titleId = useId();
 
 watch(
   () => props.open,
@@ -40,13 +41,14 @@ function onClick(event: Event): void {
   <dialog
     ref="root"
     class="dialog"
+    :aria-labelledby="titleId"
     :class="{ 'dialog-narrow': narrow }"
     @cancel.prevent="emit('close')"
     @click="onClick"
   >
     <div class="dialog-panel">
       <header class="dialog-head">
-        <h2 class="dialog-title">{{ title }}</h2>
+        <h2 :id="titleId" class="dialog-title">{{ title }}</h2>
         <button
           class="dialog-close"
           type="button"

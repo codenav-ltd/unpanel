@@ -30,9 +30,15 @@ export function parsePath(path: string): ShellLocation {
     return { page: "settings", nodeId: "local", settings, unknown: null };
   }
   if (parts[0] === "nodes" && parts[1]) {
+    let nodeId: string;
+    try {
+      nodeId = decodeURIComponent(parts[1]);
+    } catch {
+      return { page: "overview", nodeId: "local", settings: "panel", unknown: path };
+    }
     return {
       page: parts[2] === "host" ? "host" : "dashboard",
-      nodeId: decodeURIComponent(parts[1]),
+      nodeId,
       settings: "panel",
       unknown: null,
     };

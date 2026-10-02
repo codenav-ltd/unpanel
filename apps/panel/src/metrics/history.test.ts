@@ -2,7 +2,7 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHistory } from "./history.ts";
 
 const sample = {
@@ -76,5 +76,41 @@ describe("createHistory", () => {
     const series = history.series("local", 180_000, 3);
     expect(series.cpu[0]).toBeNull();
     expect(series.cpu[2]).toBeCloseTo(0.4);
+  });
+
+  it("uses a timestamp index and prunes once per minute across all nodes", () => {
+    const db = new DatabaseSync(":memory:");
+    const prepare = db.prepare.bind(db);
+    const prune = vi.fn();
+    vi.spyOn(db, "prepare").mockImplementation((sql) => {
+      const statement = prepare(sql);
+      if (sql.startsWith("DELETE FROM metrics_1m")) {
+        const run = statement.run.bind(statement);
+        vi.spyOn(statement, "run").mockImplementation((...params) => {
+          prune();
+          return run(...params);
+        });
+      }
+      return statement;
+    });
+    let retention = 120_000;
+    try {
+      const history = createHistory(db, () => retention);
+      const plan = db.prepare("EXPLAIN QUERY PLAN DELETE FROM metrics_1m WHERE ts < ?").all(0);
+      expect(plan.some((row) => String(row["detail"]).includes("metrics_1m_time"))).toBe(true);
+      history.record("first", 60_000, sample);
+      history.record("second", 60_000, sample);
+      history.record("first", 90_000, sample);
+      expect(prune).toHaveBeenCalledTimes(1);
+      history.record("first", 180_000, sample);
+      expect(prune).toHaveBeenCalledTimes(2);
+      retention = 60_000;
+      history.record("second", 180_000, sample);
+      expect(prune).toHaveBeenCalledTimes(3);
+      expect(history.series("first", 180_000, 3).cpu).toEqual([null, null, 0.4]);
+    } finally {
+      vi.restoreAllMocks();
+      db.close();
+    }
   });
 });

@@ -8,6 +8,7 @@ import { compareVersions, product } from "@unpanel/shared";
 import { formatBytes } from "../format.ts";
 import { en } from "../i18n/en.ts";
 import { readProblem, replyNotReceived } from "../http-error.ts";
+import { useNodeDraft } from "../node-draft.ts";
 import SelectField from "./SelectField.vue";
 import EnrollGuide from "./EnrollGuide.vue";
 
@@ -55,9 +56,7 @@ const swapGib = ref<1 | 2 | 4 | 8>(1);
 const swapError = ref("");
 const swapNote = ref("");
 const swapOptions = ([1, 2, 4, 8] as const).map((value) => ({ value, label: `${value} GiB` }));
-const name = ref(props.name);
-const tagText = ref(props.tags.join(", "));
-const maintenance = ref(props.maintenance);
+const { name, tagText, maintenance, acceptSaved } = useNodeDraft(props);
 const busy = ref(false);
 const error = ref("");
 const note = ref("");
@@ -73,15 +72,6 @@ watch(
     accessNote.value = "";
     swapError.value = "";
     swapNote.value = "";
-  },
-);
-
-watch(
-  () => [props.name, props.tags, props.maintenance] as const,
-  ([nextName, nextTags, nextMaint]) => {
-    name.value = nextName;
-    tagText.value = nextTags.join(", ");
-    maintenance.value = nextMaint;
   },
 );
 
@@ -107,6 +97,7 @@ async function save(): Promise<void> {
     const body = (await response.json()) as {
       data: { name: string; tags: string[]; maintenance: boolean };
     };
+    acceptSaved(body.data);
     emit("saved", body.data);
     note.value = en.shell.saved;
   } catch {
@@ -227,11 +218,16 @@ async function remove(): Promise<void> {
       <span class="vital-kicker">{{ en.shell.hostIdentity }}</span>
       <label class="field">
         <span>{{ en.shell.displayName }}</span>
-        <input v-model="name" :placeholder="hostname || en.shell.localNode" maxlength="64" />
+        <input
+          v-model="name"
+          :disabled="busy"
+          :placeholder="hostname || en.shell.localNode"
+          maxlength="64"
+        />
       </label>
       <label class="field">
         <span>{{ en.shell.tags }}</span>
-        <input v-model="tagText" :placeholder="en.shell.tagsHint" />
+        <input v-model="tagText" :disabled="busy" :placeholder="en.shell.tagsHint" />
       </label>
       <div class="switch-row">
         <span id="maint-label">{{ en.shell.maintenance }}</span>
@@ -240,6 +236,7 @@ async function remove(): Promise<void> {
           class="switch"
           role="switch"
           :aria-checked="maintenance"
+          :disabled="busy"
           aria-labelledby="maint-label"
           @click="maintenance = !maintenance"
         >
