@@ -52,7 +52,19 @@ try {
   const entry = join(fixture, "manage.cjs");
   const require = createRequire(join(root, "apps/panel/package.json"));
   const scope = dirname(dirname(require.resolve("@node-rs/argon2/package.json")));
-  cpSync(scope, join(fixture, "node_modules/@node-rs"), { recursive: true, dereference: true });
+  const modules = join(fixture, "node_modules/@node-rs");
+  cpSync(scope, modules, { recursive: true, dereference: true });
+  // pnpm's store directories may be private to the runner. The installed
+  // package is readable by service/unprivileged users; reproduce that layout.
+  function makeReadable(path) {
+    chmodSync(path, 0o755);
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      const child = join(path, entry.name);
+      if (entry.isDirectory()) makeReadable(child);
+      else chmodSync(child, 0o644);
+    }
+  }
+  makeReadable(join(fixture, "node_modules"));
   await build({
     entryPoints: [join(root, "apps/panel/src/manage.ts")],
     bundle: true,
