@@ -41,6 +41,7 @@
 | Certificate issuance fails (HTTP-01) | AAAA record, port 80, CAA | [acme-letsencrypt.md](./acme-letsencrypt.md) §6 |
 | `rateLimited` from Let's Encrypt | Too many attempts | [acme-letsencrypt.md](./acme-letsencrypt.md) §4 |
 | Telegram `409 Conflict` | Another poller or a webhook on the same token | [telegram-bot-api.md](./telegram-bot-api.md) §3 |
+| Telegram setup times out in Node while `curl -4` succeeds | Address-family connection attempt expires before a usable route connects | [Telegram connection diagnostics](./telegram-bot-api.md#node-times-out-while-ipv4-curl-succeeds); alpha.27 uses a two-second default and reports safe network error codes |
 | Telegram messages stop to a group | Group upgraded to supergroup | [telegram-bot-api.md](./telegram-bot-api.md) §4 |
 | `sudo` fails in the web terminal | `NoNewPrivileges` set on the agent unit | [systemd-journald.md](./systemd-journald.md) §6 |
 | Processes started in the terminal die on agent upgrade | Not in a separate scope | [systemd-journald.md](./systemd-journald.md) §4 |

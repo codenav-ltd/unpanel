@@ -50,7 +50,9 @@ Official Node binaries include full ICU ✅, so `Intl.DateTimeFormat` works for 
 
 ## 7. Proxy support
 
-Node 24 can honor `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` for the built-in `fetch` when `NODE_USE_ENV_PROXY=1` is set ⚠️ (re-check availability and behavior per version). We do not rely on it: the agent's `proxy` setting and the Telegram proxy are implemented explicitly with an `undici` dispatcher / `ws` agent.
+Node 24 honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` for native fetch when `NODE_USE_ENV_PROXY=1` is set in the process environment at startup. Verified 2026-10-03: [Node 24 documentation](https://nodejs.org/docs/latest-v24.x/api/cli.html#node_use_env_proxy1). The panel does not implement a per-channel Telegram proxy or custom undici dispatcher. An interactive shell's proxy variables do not automatically configure the systemd service.
+
+From alpha.27, the packaged panel raises Node's default address-family connection attempt timeout to 2000 ms unless the operator explicitly sets `--network-family-autoselection-attempt-timeout` via CLI or `NODE_OPTIONS`. This accommodates a working but slower route when another address is unreachable, while preserving dual-stack selection, TLS verification and overall request deadlines. See the [Telegram network runbook](./telegram-bot-api.md#node-times-out-while-ipv4-curl-succeeds) for the verified failure pattern and token-free checks.
 
 ## 8. Useful flags
 

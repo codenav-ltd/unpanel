@@ -33,33 +33,120 @@ export class DeliveryError extends Error {
 }
 export type Fetch = typeof globalThis.fetch;
 
+interface RequestContext {
+  provider: "Telegram" | "Resend" | "Postmark";
+  host: string;
+  sending: boolean;
+}
+
+/** Never expose error.message, request URLs, or arbitrary error codes: they can contain tokens. */
+function transportFailure(error: unknown, context: RequestContext): DeliveryError {
+  const codes = new Set<string>();
+  const pending = [error],
+    seen = new Set<unknown>();
+  for (let i = 0; i < pending.length && i < 16; i++) {
+    const item = pending[i];
+    if (!item || typeof item !== "object" || seen.has(item)) continue;
+    seen.add(item);
+    const value = item as { code?: unknown; name?: unknown; cause?: unknown; errors?: unknown };
+    if (typeof value.code === "string") codes.add(value.code);
+    if (value.name === "TimeoutError") codes.add("TIMEOUT");
+    if (value.cause) pending.push(value.cause);
+    if (Array.isArray(value.errors)) pending.push(...value.errors.slice(0, 8));
+  }
+  const matches = (list: string[]) => list.filter((code) => codes.has(code));
+  const dns = matches(["ENOTFOUND", "EAI_AGAIN"]);
+  if (dns.length)
+    return new DeliveryError(
+      `The panel server could not resolve ${context.host} (${dns.join(", ")}). Check the server's DNS settings.`,
+      true,
+    );
+  const tls = matches([
+    "CERT_HAS_EXPIRED",
+    "CERT_NOT_YET_VALID",
+    "DEPTH_ZERO_SELF_SIGNED_CERT",
+    "SELF_SIGNED_CERT_IN_CHAIN",
+    "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+    "ERR_TLS_CERT_ALTNAME_INVALID",
+  ]);
+  if (tls.length)
+    return new DeliveryError(
+      `The panel server could not verify the HTTPS certificate for ${context.host} (${tls.join(", ")}). Check the server clock, trusted CA certificates and HTTPS proxy configuration.`,
+    );
+  const network = matches([
+    "UND_ERR_CONNECT_TIMEOUT",
+    "ETIMEDOUT",
+    "ENETUNREACH",
+    "EHOSTUNREACH",
+    "ECONNREFUSED",
+  ]);
+  if (network.length)
+    return new DeliveryError(
+      `The panel server could not connect to ${context.host} (${network.join(", ")}). Check outbound HTTPS access, IPv4/IPv6 routing and the panel service's proxy settings.`,
+      true,
+    );
+  const timeout = matches(["TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
+  const reason = timeout.length
+    ? `The panel server timed out waiting for ${context.provider}'s response.`
+    : `The panel server lost its connection to ${context.provider} or could not complete the request.`;
+  return new DeliveryError(
+    `${reason} Check outbound HTTPS access to ${context.host} and the panel service's proxy settings.${context.sending ? " Delivery was not confirmed; the message may already have arrived." : ""}`,
+    true,
+  );
+}
+
+function invalidReply(context: RequestContext, status: number): DeliveryError {
+  return new DeliveryError(
+    `${context.provider} returned an invalid API response (HTTP ${status}). Check for a proxy or network filter between the panel server and ${context.host}.${context.sending ? " Delivery was not confirmed; the message may already have arrived." : ""}`,
+    true,
+  );
+}
+
 /** Provider bodies and URLs can echo credentials. Only stable, actionable errors leave this boundary. */
 async function jsonRequest(
   url: string,
   init: RequestInit,
   fetcher: Fetch,
+  context: RequestContext,
 ): Promise<{ response: Response; data: Record<string, unknown> }> {
+  let response: Response;
   try {
-    const response = await fetcher(url, {
+    response = await fetcher(url, {
       ...init,
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
-    const body: unknown = await response.json();
-    const data =
-      body && typeof body === "object" && !Array.isArray(body)
-        ? (body as Record<string, unknown>)
-        : {};
-    return { response, data };
-  } catch {
-    throw new DeliveryError(
-      "The provider did not return a valid reply. Check outbound connectivity. Delivery may already have occurred.",
-      true,
-    );
+  } catch (error) {
+    throw transportFailure(error, context);
   }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    // A gateway may return HTML or an empty body. Preserve its HTTP status and cooldown.
+    if (!response.ok)
+      throw providerFailure(
+        response.status,
+        Number(response.headers.get("retry-after")) || 0,
+        context.sending,
+      );
+    if (error instanceof SyntaxError) throw invalidReply(context, response.status);
+    throw transportFailure(error, context);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    if (!response.ok)
+      throw providerFailure(
+        response.status,
+        Number(response.headers.get("retry-after")) || 0,
+        context.sending,
+      );
+    throw invalidReply(context, response.status);
+  }
+  return { response, data: body as Record<string, unknown> };
 }
 
-function providerFailure(status: number, retryAfter = 0): DeliveryError {
+function providerFailure(status: number, retryAfter = 0, sending = true): DeliveryError {
   if (status === 401)
     return new DeliveryError(
       "The provider rejected the credential. Replace the token or password in this channel.",
@@ -74,12 +161,19 @@ function providerFailure(status: number, retryAfter = 0): DeliveryError {
     );
   if (status === 429)
     return new DeliveryError(
-      "The provider rate limit was reached. Delivery will retry after its cooldown.",
+      sending
+        ? "The provider rate limit was reached. Delivery will retry after its cooldown."
+        : "Telegram's rate limit was reached. Wait for the cooldown before retrying the setup guide.",
       true,
       retryAfter || 60,
     );
   if (status >= 500)
-    return new DeliveryError("The provider is temporarily unavailable. Delivery will retry.", true);
+    return new DeliveryError(
+      sending
+        ? "The provider is temporarily unavailable. Delivery will retry."
+        : "Telegram is temporarily unavailable. Try the setup guide again shortly.",
+      true,
+    );
   return new DeliveryError(
     "The provider rejected this destination or sender. Check the channel settings and verify the email sender or reconnect the Telegram chat.",
   );
@@ -91,6 +185,11 @@ export async function telegramCall(
   body: Record<string, unknown> = {},
   fetcher: Fetch = fetch,
 ): Promise<unknown> {
+  const context: RequestContext = {
+    provider: "Telegram",
+    host: "api.telegram.org",
+    sending: method === "sendMessage",
+  };
   const { response, data } = await jsonRequest(
     `https://api.telegram.org/bot${token}/${method}`,
     {
@@ -99,7 +198,9 @@ export async function telegramCall(
       body: JSON.stringify(body),
     },
     fetcher,
+    context,
   );
+  if (response.ok && typeof data["ok"] !== "boolean") throw invalidReply(context, response.status);
   if (!response.ok || data["ok"] !== true) {
     const params = data["parameters"] as
       { retry_after?: number; migrate_to_chat_id?: number } | undefined;
@@ -110,8 +211,10 @@ export async function telegramCall(
     throw providerFailure(
       typeof data["error_code"] === "number" ? data["error_code"] : response.status,
       Number(params?.retry_after) || 0,
+      context.sending,
     );
   }
+  if (!("result" in data) || data["result"] == null) throw invalidReply(context, response.status);
   return data["result"];
 }
 
@@ -208,6 +311,11 @@ export async function sendNotification(
       ),
     },
     fetcher,
+    {
+      provider: resend ? "Resend" : "Postmark",
+      host: resend ? "api.resend.com" : "api.postmarkapp.com",
+      sending: true,
+    },
   );
   if (!response.ok || (!resend && data["ErrorCode"] !== 0))
     throw providerFailure(

@@ -2,5 +2,7 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 import { bootFromEnv } from "./server.ts";
+import { configurePanelNetworking } from "./network.ts";
 
+configurePanelNetworking();
 bootFromEnv();

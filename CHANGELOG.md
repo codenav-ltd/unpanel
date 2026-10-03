@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.27] - 2026-10-03
+
+### Fixed
+
+- Give panel outbound address attempts two seconds to connect, fixing Telegram setup failures on slower working IPv4 routes when another resolved address is unreachable. Explicit Node timeout settings remain authoritative; dual-stack selection, TLS verification and overall request deadlines are preserved.
+- Telegram setup now distinguishes DNS, connection, TLS and invalid-response failures without claiming that a notification may have been sent. Safe error codes identify network problems without exposing bot tokens. Provider HTTP errors and cooldowns remain available even when a gateway responds with HTML.
+
 ## [0.1.0-alpha.26] - 2026-10-03
 
 ### Added
