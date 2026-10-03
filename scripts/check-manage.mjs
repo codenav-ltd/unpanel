@@ -12,6 +12,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -53,18 +54,21 @@ try {
   const require = createRequire(join(root, "apps/panel/package.json"));
   const scope = dirname(dirname(require.resolve("@node-rs/argon2/package.json")));
   const modules = join(fixture, "node_modules/@node-rs");
-  cpSync(scope, modules, { recursive: true, dereference: true });
   // pnpm's store directories may be private to the runner. The installed
   // package is readable by service/unprivileged users; reproduce that layout.
-  function makeReadable(path) {
-    chmodSync(path, 0o755);
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
-      const child = join(path, entry.name);
-      if (entry.isDirectory()) makeReadable(child);
-      else chmodSync(child, 0o644);
+  function copyReadable(source, destination) {
+    const actual = realpathSync(source);
+    if (statSync(actual).isDirectory()) {
+      mkdirSync(destination, { recursive: true, mode: 0o755 });
+      chmodSync(destination, 0o755);
+      for (const name of readdirSync(actual))
+        copyReadable(join(actual, name), join(destination, name));
+    } else {
+      cpSync(actual, destination);
+      chmodSync(destination, 0o644);
     }
   }
-  makeReadable(join(fixture, "node_modules"));
+  copyReadable(scope, modules);
   await build({
     entryPoints: [join(root, "apps/panel/src/manage.ts")],
     bundle: true,
@@ -115,7 +119,17 @@ try {
   ]) {
     const response = run(args, false);
     assert.equal(response.status, 1);
-    assert.match(response.stderr, /sudo unpanel-manage/);
+    assert.match(
+      response.stderr,
+      /sudo unpanel-manage/,
+      `Unprivileged fixture failed. Native package paths: ${JSON.stringify(
+        readdirSync(modules).map((name) => ({
+          name,
+          path: realpathSync(join(modules, name)),
+          mode: statSync(join(modules, name)).mode.toString(8),
+        })),
+      )}`,
+    );
     assert.doesNotMatch(response.stderr, /SQLITE|EACCES| at /);
   }
   assert.equal(run(["--help"], false).status, 0);
