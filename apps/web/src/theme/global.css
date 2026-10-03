@@ -4,11 +4,12 @@
   --dur: 200ms;
   --dur-slow: 350ms;
   --dur-spin: 700ms;
+  --dur-skeleton: 1400ms;
   --transition: var(--dur) var(--ease-out);
   --radius-sm: 6px;
   --radius: 10px;
   --focus-ring: 0 0 0 2px var(--ink), 0 0 0 4px var(--primary);
-  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-hover: color-mix(in srgb, var(--text) 6%, transparent);
   --primary-hover: color-mix(in srgb, var(--primary) 85%, white);
   --danger-tint: color-mix(in srgb, var(--danger) 12%, transparent);
   --warn-tint: color-mix(in srgb, var(--warn) 14%, transparent);
@@ -373,6 +374,46 @@ body {
   display: grid;
   place-items: center;
   padding: 16px;
+}
+
+.boot-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.boot-brand {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  color: var(--text-2);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.boot-state {
+  width: min(32rem, 100%);
+  margin: auto;
+  padding: 24px;
+}
+
+.boot-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.boot-state .actions {
+  justify-content: center;
+}
+
+.auth-shell .card,
+.settings-form-step {
+  animation: surface-enter var(--dur) var(--ease-out);
 }
 
 .card {
@@ -2370,12 +2411,58 @@ button.picker-item:focus-visible {
 }
 
 .spinner {
-  width: 0.9em;
-  height: 0.9em;
-  border: 2px solid transparent;
+  display: inline-block;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
   border-top-color: currentColor;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   animation: spin var(--dur-spin) linear infinite;
+}
+
+:is(p, small) > .spinner {
+  margin-inline-end: 0.4em;
+}
+
+.boot-loading > .spinner {
+  margin-inline-end: 0;
+}
+
+.page-view {
+  min-width: 0;
+}
+
+.page-enter-active {
+  transition:
+    opacity var(--dur) var(--ease-out),
+    transform var(--dur) var(--ease-out);
+}
+
+.page-leave-active {
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.page-leave-to {
+  opacity: 0;
+}
+
+@keyframes surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .step-enter-active {
@@ -3134,7 +3221,7 @@ button.node-row {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-popover);
 }
 
 .node-menu-name {
@@ -3615,21 +3702,43 @@ button.audit-retry:hover:not(:disabled) {
   display: block;
   height: 13px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(90deg, var(--raised), var(--bg-hover), var(--raised));
-  background-size: 200% 100%;
-  animation: skeleton 1.4s var(--ease-out) infinite;
+  background: var(--line);
+  animation: skeleton var(--dur-skeleton) var(--ease-out) infinite;
 }
 
 @keyframes skeleton {
-  from {
-    background-position: 160% 0;
+  0%,
+  100% {
+    opacity: 0.45;
   }
-  to {
-    background-position: -60% 0;
+  50% {
+    opacity: 1;
   }
 }
 
 @media (max-width: 768px) {
+  .release-path {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .release-path > div,
+  .release-path > div:last-child {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: end;
+  }
+
+  .release-path strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .release-path-line {
+    display: none;
+  }
+
   .settings-layout {
     grid-template-columns: minmax(0, 1fr);
   }

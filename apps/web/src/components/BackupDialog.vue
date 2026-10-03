@@ -100,7 +100,13 @@ function filenameOf(header: string | null): string | null {
   <div>
     <p class="hint">{{ en.shell.backupHint }}</p>
     <div class="actions">
-      <button type="button" :disabled="Boolean(busy)" @click="download">
+      <button
+        type="button"
+        :disabled="Boolean(busy)"
+        :aria-busy="busy === 'export'"
+        @click="download"
+      >
+        <span v-if="busy === 'export'" class="spinner" aria-hidden="true" />
         {{ busy === "export" ? en.shell.exporting : en.shell.exportBackup }}
       </button>
     </div>
@@ -108,6 +114,7 @@ function filenameOf(header: string | null): string | null {
       <span>{{ en.shell.restoreFile }}</span>
       <input
         type="file"
+        :disabled="Boolean(busy)"
         accept=".db,application/vnd.sqlite3,application/octet-stream"
         @change="onPick"
       />
@@ -115,10 +122,17 @@ function filenameOf(header: string | null): string | null {
     <p v-if="error" class="form-error" role="alert">{{ error }}</p>
     <p v-if="staged" class="form-warn" role="status">{{ en.shell.restorePending }}</p>
     <div class="actions">
-      <button type="button" class="danger" :disabled="!file || Boolean(busy)" @click="restore">
+      <button
+        type="button"
+        class="danger"
+        :disabled="!file || Boolean(busy)"
+        :aria-busy="busy === 'restore'"
+        @click="restore"
+      >
+        <span v-if="busy === 'restore'" class="spinner" aria-hidden="true" />
         {{ busy === "restore" ? en.shell.restoring : en.shell.restoreBackup }}
       </button>
-      <button v-if="staged" type="button" @click="emit('restart')">
+      <button v-if="staged" type="button" :disabled="Boolean(busy)" @click="emit('restart')">
         {{ en.shell.restart }}
       </button>
     </div>

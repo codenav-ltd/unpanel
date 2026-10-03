@@ -60,6 +60,7 @@ const emit = defineEmits<{
   addNode: [];
   menu: [payload: { id: string; x: number; y: number }];
   reviewUpdate: [];
+  drawerChange: [open: boolean];
 }>();
 
 const sectionLabel = computed(() => {
@@ -205,8 +206,17 @@ watch(drawer, (open) => {
   if (!mobile.value) return;
   void nextTick(() => {
     if (open) sidebar.value?.querySelector<HTMLButtonElement>("button")?.focus();
-    else menuHandle.value?.focus();
+    else if (
+      !hasOverlay() &&
+      (!document.activeElement ||
+        document.activeElement === document.body ||
+        sidebar.value?.contains(document.activeElement))
+    )
+      menuHandle.value?.focus();
   });
+});
+watch([mobile, drawer], ([isMobile, open]) => emit("drawerChange", isMobile && open), {
+  immediate: true,
 });
 const laterNote = ref("");
 const nodesOpen = ref(true);
@@ -218,8 +228,36 @@ const globalItems = computed(() =>
   ),
 );
 
-function onKey(event: Event): void {
-  if ("key" in event && event.key === "Escape") drawer.value = false;
+function hasOverlay(): boolean {
+  return Boolean(
+    document.querySelector(
+      'dialog[open], [role="dialog"][aria-modal="true"]:not(.sider), .node-menu',
+    ),
+  );
+}
+
+function onKey(event: KeyboardEvent): void {
+  if (!mobile.value || !drawer.value || hasOverlay()) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    drawer.value = false;
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const buttons = [
+    ...(sidebar.value?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []),
+  ].filter((button) => !button.closest("[inert]") && button.getClientRects().length > 0);
+  const first = buttons[0];
+  const last = buttons.at(-1);
+  if (!first || !last) return;
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || !sidebar.value?.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !sidebar.value?.contains(active))) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 onMounted(() => {
@@ -228,6 +266,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  emit("drawerChange", false);
   globalThis.removeEventListener("keydown", onKey);
   mobileQuery.removeEventListener("change", updateMobile);
 });
@@ -291,6 +330,9 @@ function onItem(item: Item): void {
     class="sider"
     :class="{ 'drawer-open': drawer }"
     :inert="mobile && !drawer"
+    :role="mobile && drawer ? 'dialog' : undefined"
+    :aria-modal="mobile && drawer ? true : undefined"
+    :aria-label="mobile && drawer ? en.nav.openMenu : undefined"
   >
     <div class="sider-brand">
       <span class="brand-text">{{ product.name }}</span>
@@ -399,8 +441,15 @@ function onItem(item: Item): void {
           <RightOutlined class="sidebar-update-arrow" aria-hidden="true" />
         </button>
       </Transition>
-      <button class="nav-item" type="button" :disabled="pending" @click="emit('signOut')">
-        <LogoutOutlined aria-hidden="true" />
+      <button
+        class="nav-item"
+        type="button"
+        :disabled="pending"
+        :aria-busy="pending"
+        @click="emit('signOut')"
+      >
+        <span v-if="pending" class="spinner" aria-hidden="true" />
+        <LogoutOutlined v-else aria-hidden="true" />
         <span>{{ en.shell.signOut }}</span>
       </button>
     </div>

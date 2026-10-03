@@ -34,6 +34,7 @@ async function save(): Promise<void> {
   reauth.value = false;
   busy.value = true;
   error.value = "";
+  note.value = "";
   try {
     form.value = await accountRequest<SecurityUpdatePolicy>("/updates/policy", "POST", form.value);
     note.value = "Security update policy saved.";
@@ -47,14 +48,23 @@ async function save(): Promise<void> {
 onMounted(() => void load());
 </script>
 <template>
-  <section class="wide">
+  <section class="wide update-policy-settings">
     <h2>Security update policy</h2>
     <p class="hint">
       Security advisories are matched to the installed version. Critical advisories keep a red
       notice visible and repeat an on-screen reminder after one hour.
     </p>
-    <p v-if="loading" role="status" class="hint">
-      <span class="spinner" aria-hidden="true" />Loading policy…
+    <div
+      v-if="loading && !loaded"
+      class="certificate-skeleton"
+      role="status"
+      aria-label="Loading policy"
+      aria-busy="true"
+    >
+      <span /><span /><span />
+    </div>
+    <p v-else-if="loading" role="status" class="hint">
+      <span class="spinner" aria-hidden="true" />Refreshing policy…
     </p>
     <form v-else-if="loaded" @submit.prevent="confirm = true">
       <fieldset :disabled="busy">
@@ -68,16 +78,17 @@ onMounted(() => void load());
               label: 'Install automatically after the grace period',
             },
           ]"
-        /><SelectField
-          v-if="form.criticalAction === 'install_after_deadline'"
-          v-model="form.graceHours"
-          label="Minimum grace period"
-          :options="[
-            { value: 6, label: '6 hours' },
-            { value: 24, label: '24 hours' },
-            { value: 72, label: '72 hours' },
-          ]"
-        /><label class="account-check"
+        /><Transition name="step"
+          ><SelectField
+            v-if="form.criticalAction === 'install_after_deadline'"
+            v-model="form.graceHours"
+            label="Minimum grace period"
+            :options="[
+              { value: 6, label: '6 hours' },
+              { value: 24, label: '24 hours' },
+              { value: 72, label: '72 hours' },
+            ]" /></Transition
+        ><label class="account-check"
           ><input v-model="form.notifyChannels" type="checkbox" />Send high and critical advisories
           to enabled Alert channels</label
         >
@@ -90,7 +101,7 @@ onMounted(() => void load());
           ordinary automatic updates disabled. Checks run at least hourly. A newly enabled or
           changed grace period starts now; a later publisher deadline is respected.
         </p>
-        <details class="hint">
+        <details class="policy-details">
           <summary>Safety limits and update checks</summary>
           <p>
             Breaking changes still need manual review. Maintenance, unavailable packages, failed
@@ -103,15 +114,22 @@ onMounted(() => void load());
             configured update-check interval.
           </p>
         </details>
-        <button type="submit" :disabled="busy">
-          <span v-if="busy" class="spinner" aria-hidden="true" />Review policy
-        </button>
+        <div class="actions">
+          <button type="submit" :disabled="busy || loading" :aria-busy="busy">
+            <span v-if="busy" class="spinner" aria-hidden="true" />Review policy
+          </button>
+        </div>
       </fieldset>
     </form>
-    <p v-if="error" class="form-error" role="alert">
-      {{ error }} <button :disabled="busy" @click="load">Reload policy</button>
-    </p>
-    <p v-if="note" class="form-warn" role="status">{{ note }}</p>
+    <div v-if="error" class="policy-error">
+      <p class="form-error" role="alert">{{ error }}</p>
+      <button class="quiet" :disabled="busy || loading" :aria-busy="loading" @click="load">
+        <span v-if="loading" class="spinner" aria-hidden="true" />Reload policy
+      </button>
+    </div>
+    <Transition name="update-result"
+      ><p v-if="note" class="certificate-success" role="status">{{ note }}</p></Transition
+    >
   </section>
   <AppDialog :open="confirm" title="Confirm security update policy" narrow @close="confirm = false"
     ><p v-if="form.criticalAction === 'install_after_deadline'">
@@ -147,5 +165,43 @@ fieldset {
   padding: 0;
   margin: 0;
   min-width: 0;
+}
+.update-policy-settings h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.policy-details {
+  margin-top: 20px;
+  padding-block: 12px;
+  border-block: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.policy-details summary {
+  padding: 4px 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition);
+}
+.policy-details summary:hover,
+.policy-details summary:active {
+  color: var(--text);
+}
+.policy-details summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.policy-details p {
+  margin: 12px 0 0;
+}
+.policy-error {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-top: 16px;
+}
+.policy-error .form-error {
+  margin: 0;
 }
 </style>

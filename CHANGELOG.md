@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.28] - 2026-10-03
+
+### Fixed
+
+- Restore readable spacing between settings descriptions, status labels and actions, including security update policy, Turnstile, password changes, authentication methods and recovery codes. Mobile settings keep the selected tab visible and show complete release versions.
+- Loading indicators now render as visible rings in text as well as buttons. More async actions show their own pending state, while account, email and user settings distinguish loading, empty, success and failure states.
+- Refreshing an authenticated panel uses a neutral session-loading screen instead of briefly displaying a login card. Startup reuses one session check, offers a retry on connection errors and restores the last theme before mounting.
+- Render the Turnstile challenge and remaining-attempt warnings on the sign-in form, where they are required, instead of the first-run setup form.
+- Dialogs opened on mount now enter the native modal layer correctly. Dropdowns stay within the viewport and dialog boundaries; keyboard navigation, nested-dialog focus restoration and mobile sidebar focus handling are improved.
+
+### Changed
+
+- Page navigation, settings sections, setup steps and dialogs use shared short transitions and honor reduced-motion preferences. Live polling does not restart page animations. These changes add no UI framework or runtime dependency.
+
 ## [0.1.0-alpha.27] - 2026-10-03
 
 ### Fixed

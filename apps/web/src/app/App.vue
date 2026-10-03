@@ -56,7 +56,7 @@ import { copyText } from "../copy.ts";
 import { formatPath, parsePath, type SettingsSection } from "./route.ts";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
-import { applyTheme, type ThemeName } from "../theme/tokens.ts";
+import { applyTheme, savedTheme, type ThemeName } from "../theme/tokens.ts";
 import { defaultLoginSecurity, type LoginSecuritySettings } from "../security.ts";
 const AlertsPage = defineAsyncComponent(() => import("../components/AlertsPage.vue"));
 const SecurityUpdateNotice = defineAsyncComponent(
@@ -162,6 +162,12 @@ interface SetupDraft {
   recoveryCodes: string[];
 }
 
+interface SessionAccount {
+  id: string;
+  username: string;
+  access: UserAccess;
+}
+
 type View = "loading" | "unreachable" | "setup" | "confirm" | "login" | "mfa" | "node";
 
 const view = ref<View>("loading");
@@ -190,7 +196,7 @@ const ops = ref<PanelOps>({ pollSec: 2, historyDays: 7, updateHours: 6, autoUpda
 const pollMs = ref(liveSampleMs);
 const updateOffer = ref("");
 const updateSecurity = ref<SecurityUpdateStatus | null>(null);
-const theme = ref<ThemeName>("dark");
+const theme = ref<ThemeName>(savedTheme());
 const publicUrl = ref("");
 const security = ref<LoginSecuritySettings>(defaultLoginSecurity());
 const turnstileToken = ref("");
@@ -204,6 +210,7 @@ const catalogError = ref("");
 const tagFilter = ref("");
 const overviewLayout = ref<OverviewLayout>(loadOverviewLayout());
 const showAdd = ref(false);
+const sidebarOpen = ref(false);
 const showHistory = ref(false);
 const showLogs = ref(false);
 const showCustomize = ref(false);
@@ -232,17 +239,16 @@ let updateTimer: ReturnType<typeof setInterval> | undefined;
 let applyingHistory = false;
 
 async function boot(): Promise<void> {
+  view.value = "loading";
   error.value = "";
   try {
-    const me = await fetch("/api/v1/me");
+    const me = await fetch("/api/v1/me", { signal: AbortSignal.timeout(15_000) });
     if (me.ok) {
-      const body = (await me.json()) as { username: string };
-      username.value = body.username;
-      showNode();
+      await showNode((await me.json()) as SessionAccount);
       return;
     }
     if (me.status !== 401) throw new Error(String(me.status));
-    const state = await fetch("/api/v1/auth/state");
+    const state = await fetch("/api/v1/auth/state", { signal: AbortSignal.timeout(15_000) });
     if (!state.ok) throw new Error(String(state.status));
     const body = (await state.json()) as {
       initialized: boolean;
@@ -463,14 +469,18 @@ async function copyCodes(): Promise<void> {
   if (!ok) error.value = en.auth.copyFailed;
 }
 
-async function showNode(): Promise<void> {
+async function showNode(account?: SessionAccount): Promise<void> {
   try {
-    const response = await fetch("/api/v1/me");
-    if (!response.ok) {
-      view.value = "login";
-      return;
+    let me = account;
+    if (!me) {
+      const response = await fetch("/api/v1/me", { signal: AbortSignal.timeout(15_000) });
+      if (response.status === 401) {
+        view.value = "login";
+        return;
+      }
+      if (!response.ok) throw new Error(String(response.status));
+      me = (await response.json()) as SessionAccount;
     }
-    const me = (await response.json()) as { id: string; username: string; access: UserAccess };
     accountId.value = me.id;
     username.value = me.username;
     access.value = me.access;
@@ -1294,8 +1304,9 @@ onUnmounted(() => {
       @add-node="showAdd = true"
       @menu="openNodeMenu"
       @review-update="openUpdate"
+      @drawer-change="sidebarOpen = $event"
     />
-    <div class="app-main">
+    <div class="app-main" :inert="sidebarOpen">
       <header class="app-bar">
         <h1 class="app-title">{{ pageTitle }}</h1>
         <div
@@ -1424,323 +1435,336 @@ onUnmounted(() => {
         <p v-if="prefs.maintenance" class="maint-banner" role="status">
           {{ en.shell.maintenanceOn }}
         </p>
-        <div v-if="page === 'overview'" class="overview">
-          <div v-if="catalogError" role="alert">
-            <p class="form-error">{{ catalogError }}</p>
-            <p v-if="catalogLoaded" class="hint">
-              {{ en.shell.nodesStale }}
-            </p>
-            <button type="button" :disabled="catalogLoading" @click="refreshList">
-              <span v-if="catalogLoading" class="spinner" aria-hidden="true" />
-              {{ catalogLoading ? en.shell.nodesRefreshing : en.audit.retry }}
-            </button>
-          </div>
-          <p v-else-if="!catalogLoaded" class="hint" role="status">
-            <span class="spinner" aria-hidden="true" /> {{ en.shell.nodesLoading }}
-          </p>
-          <p v-if="catalogLoaded" class="overview-summary">
-            {{ catalog.length === 1 ? en.shell.oneNode : `${catalog.length} ${en.shell.nodes}` }}
-            · {{ catalog.filter((node) => node.online).length }} {{ en.shell.onlineCount }}
-          </p>
-          <div v-if="nodeTags.length" class="tag-row" role="group" :aria-label="en.shell.tags">
-            <button
-              type="button"
-              class="tag-chip"
-              :aria-pressed="tagFilter === ''"
-              @click="tagFilter = ''"
-            >
-              {{ en.shell.allTags }}
-            </button>
-            <button
-              v-for="tag in nodeTags"
-              :key="tag"
-              type="button"
-              class="tag-chip"
-              :aria-pressed="tagFilter === tag"
-              @click="tagFilter = tag"
-            >
-              {{ tag }}
-            </button>
-          </div>
-          <div class="node-grid" :data-layout="overviewLayout">
-            <button
-              v-for="node in visibleNodes"
-              :key="node.id"
-              class="node-card"
-              type="button"
-              @click="openNode(node.id)"
-              @contextmenu.prevent="
-                openNodeMenu({ id: node.id, x: $event.clientX, y: $event.clientY })
-              "
-            >
-              <span class="node-card-head">
-                <strong>{{ node.name || node.hostname || en.shell.localNode }}</strong>
-                <span class="node-card-state">
-                  <span
-                    class="node-agent-badge"
-                    :data-state="nodeAgentState(node)"
-                    :title="en.updates.agentVersion"
-                  >
-                    {{ node.agentVersion ? `v${node.agentVersion}` : "v—" }}
-                  </span>
-                  <span
-                    :class="node.status === 'active' && node.online ? 'status-ok' : 'status-bad'"
-                    >{{ nodePresence(node) }}</span
-                  >
-                </span>
-              </span>
-              <span v-if="overviewLayout === 'detail' && detailSub(node)" class="node-sub">{{
-                detailSub(node)
-              }}</span>
-              <PulseRail
-                v-if="overviewLayout !== 'compact'"
-                :samples="node.cpu"
-                :offline="!node.online"
-              />
-              <span v-if="overviewLayout !== 'detail'" class="node-metrics">
-                <span>{{ en.shell.cpu }} {{ figure(ratioPercent(node.cpuRatio)) }}</span>
-                <span>{{ en.shell.memory }} {{ figure(ratioPercent(node.memRatio)) }}</span>
-                <span v-if="node.diskRatio != null"
-                  >{{ en.shell.storage }} {{ figure(ratioPercent(node.diskRatio)) }}</span
+        <Transition name="page" mode="out-in" appear>
+          <div
+            :key="page === 'dashboard' || page === 'host' ? `${page}:${nodeId}` : page"
+            class="page-view"
+          >
+            <div v-if="page === 'overview'" class="overview">
+              <div v-if="catalogError" role="alert">
+                <p class="form-error">{{ catalogError }}</p>
+                <p v-if="catalogLoaded" class="hint">
+                  {{ en.shell.nodesStale }}
+                </p>
+                <button type="button" :disabled="catalogLoading" @click="refreshList">
+                  <span v-if="catalogLoading" class="spinner" aria-hidden="true" />
+                  {{ catalogLoading ? en.shell.nodesRefreshing : en.audit.retry }}
+                </button>
+              </div>
+              <p v-else-if="!catalogLoaded" class="hint" role="status">
+                <span class="spinner" aria-hidden="true" /> {{ en.shell.nodesLoading }}
+              </p>
+              <p v-if="catalogLoaded" class="overview-summary">
+                {{
+                  catalog.length === 1 ? en.shell.oneNode : `${catalog.length} ${en.shell.nodes}`
+                }}
+                · {{ catalog.filter((node) => node.online).length }} {{ en.shell.onlineCount }}
+              </p>
+              <div v-if="nodeTags.length" class="tag-row" role="group" :aria-label="en.shell.tags">
+                <button
+                  type="button"
+                  class="tag-chip"
+                  :aria-pressed="tagFilter === ''"
+                  @click="tagFilter = ''"
                 >
-              </span>
-              <span v-if="overviewLayout === 'detail'" class="node-facts">
-                <span class="node-fact">
-                  <span class="node-fact-k">{{ en.shell.cpu }}</span>
-                  <span class="node-fact-v">{{ figure(ratioPercent(node.cpuRatio)) }}</span>
-                </span>
-                <span class="node-fact">
-                  <span class="node-fact-k">{{ en.shell.memory }}</span>
-                  <span class="node-fact-v">{{
-                    capacity(node.memUsed, node.memTotal, node.memRatio)
-                  }}</span>
-                </span>
-                <span class="node-fact">
-                  <span class="node-fact-k">{{ en.shell.storage }}</span>
-                  <span class="node-fact-v">{{
-                    capacity(node.diskUsed, node.diskTotal, node.diskRatio)
-                  }}</span>
-                </span>
-                <span class="node-fact">
-                  <span class="node-fact-k">{{ en.shell.swap }}</span>
-                  <span class="node-fact-v">{{ pair(node.swapUsed, node.swapTotal) }}</span>
-                </span>
-                <span class="node-fact">
-                  <span class="node-fact-k">{{ en.shell.netIn }}</span>
-                  <span class="node-fact-v">{{ rateLine(node.rxBps) }}</span>
-                </span>
-                <span class="node-fact">
-                  <span class="node-fact-k">{{ en.shell.netOut }}</span>
-                  <span class="node-fact-v">{{ rateLine(node.txBps) }}</span>
-                </span>
-                <span class="node-fact">
-                  <span class="node-fact-k">{{ en.shell.sockets }}</span>
-                  <span class="node-fact-v">{{ socketLine(node) }}</span>
-                </span>
-                <span class="node-fact">
-                  <span class="node-fact-k">{{ en.shell.uptime }}</span>
-                  <span class="node-fact-v">{{
-                    node.uptime == null ? "—" : formatUptime(node.uptime)
-                  }}</span>
-                </span>
-                <span class="node-fact node-fact-wide">
-                  <span class="node-fact-k">{{ en.shell.load }}</span>
-                  <span class="node-fact-v">{{ loadLine(node) }}</span>
-                </span>
-              </span>
-              <span v-if="overviewLayout === 'standard'" class="node-uptime">{{
-                node.uptime == null ? en.shell.railEmpty : formatUptime(node.uptime)
-              }}</span>
-              <span v-if="node.tags.length" class="node-address">{{ node.tags.join(", ") }}</span>
-            </button>
-          </div>
-        </div>
-        <NodePage
-          v-else-if="page === 'host' && snapshotNodeId === nodeId"
-          :key="nodeId"
-          :can-operate="canOperate"
-          :can-manage="canManage"
-          :hostname="info?.hostname ?? ''"
-          :os="info?.os.pretty ?? ''"
-          :kernel="info?.kernel ?? ''"
-          :arch="info?.arch ?? ''"
-          :tz="info?.tz ?? ''"
-          :cpu="hostCpu"
-          :memory="hostMemory"
-          :uptime="hostUptime"
-          :addresses="addressText"
-          :node-id="nodeId"
-          :online="phase === 'online'"
-          :name="prefs.name"
-          :tags="prefs.tags"
-          :maintenance="prefs.maintenance"
-          :status="selectedNode?.status ?? 'active'"
-          :swap-used="sample?.swapUsed ?? null"
-          :swap-total="sample?.swapTotal ?? null"
-          :agent-version="selectedNode?.agentVersion ?? ''"
-          @saved="onNodeSaved"
-          @changed="refreshList"
-          @removed="onRemoved"
-        />
-        <p
-          v-else-if="page === 'host'"
-          :class="phase === 'error' ? 'form-error' : 'hint'"
-          role="status"
-        >
-          {{ detail }}
-        </p>
-        <CertificatesPage
-          v-else-if="page === 'certificates' && canManage"
-          @public-url="publicUrl = $event"
-        />
-        <AlertsPage v-else-if="page === 'alerts' && canManage" />
-        <SettingsPage
-          v-else-if="page === 'settings'"
-          :access="access"
-          :account-id="accountId"
-          :username="username"
-          :theme="theme"
-          :public-url="publicUrl"
-          :section="settingsSection"
-          :ops="ops"
-          :security="security"
-          :nodes="catalog"
-          @theme="theme = $event"
-          @public-url="publicUrl = $event"
-          @section="settingsSection = $event"
-          @ops="applyOps"
-          @security="security = $event"
-          @update-found="updateOffer = $event"
-          @security-updated="checkOffer"
-          @refresh-nodes="refreshList"
-          @open-node="openNodeHost"
-        />
-        <div v-else-if="page === 'dashboard' && visibleVitals > 0" class="vitals">
-          <VitalTile
-            v-if="cards.cpu"
-            :label="en.shell.cpu"
-            :percent="cpuPercent"
-            :detail="cpuCaption"
-            :samples="cpuSeries"
-            :left="cpuFoot.left"
-            :right="cpuFoot.right"
-          />
-          <VitalTile
-            v-if="cards.memory"
-            :label="en.shell.memory"
-            :percent="memoryPercent"
-            :detail="memoryText"
-            :samples="memorySeries"
-            :left="memoryFoot.left"
-            :right="memoryFoot.right"
-          />
-          <VitalTile
-            v-if="cards.swap"
-            :label="en.shell.swap"
-            :percent="swapPercent"
-            :detail="swapText"
-            :samples="swapSeries"
-            :left="swapFoot.left"
-            :right="swapFoot.right"
-          />
-          <VitalTile
-            v-if="cards.storage && hasStorage"
-            :label="en.shell.storage"
-            :percent="diskPercent"
-            :detail="diskText"
-            :samples="diskSeries"
-            :left="diskFoot.left"
-            :right="diskFoot.right"
-          />
-          <CoreGrid
-            v-if="cards.breakdown && sample && hasBreakdown"
-            :cores="info?.cpu.cores ?? sample.cores.length"
-            :threads="info?.cpu.threads ?? sample.cores.length"
-            :detail="info?.cpu.model ?? ''"
-            :ratios="sample.cores"
-          />
-        </div>
-        <p v-if="page === 'dashboard' && emptyDashboard" class="history-empty">
-          {{ en.shell.allCardsHidden }}
-        </p>
-        <div v-if="page === 'dashboard' && visibleMid > 0" class="mid">
-          <ThroughputCard
-            v-if="cards.throughput"
-            :up="rates.up"
-            :down="rates.down"
-            :up-now="sample?.txBps ?? null"
-            :down-now="sample?.rxBps ?? null"
-            :sent="sample?.txTotal ?? null"
-            :received="sample?.rxTotal ?? null"
-          />
-          <ConnectionsCard
-            v-if="cards.connections"
-            :tcp="rates.tcp"
-            :udp="rates.udp"
-            :tcp-now="sample?.tcpCount ?? null"
-            :udp-now="sample?.udpCount ?? null"
-          />
-        </div>
-        <div v-if="page === 'dashboard' && cards.system && info" class="strip">
-          <div class="strip-cell">
-            <span class="vital-kicker">{{ en.shell.uptime }}</span>
-            <div class="strip-split">
-              <div>
-                <span class="strip-part-label">{{ en.shell.panelProcess }}</span>
-                <p class="strip-part-value">
-                  {{ panelProcess ? formatUptime(panelProcess.uptime) : "—" }}
-                </p>
+                  {{ en.shell.allTags }}
+                </button>
+                <button
+                  v-for="tag in nodeTags"
+                  :key="tag"
+                  type="button"
+                  class="tag-chip"
+                  :aria-pressed="tagFilter === tag"
+                  @click="tagFilter = tag"
+                >
+                  {{ tag }}
+                </button>
               </div>
-              <span class="strip-split-sep" aria-hidden="true" />
-              <div>
-                <span class="strip-part-label">{{ en.shell.osShort }}</span>
-                <p class="strip-part-value">
-                  {{ sample ? formatUptime(sample.uptime) : "—" }}
-                </p>
+              <div class="node-grid" :data-layout="overviewLayout">
+                <button
+                  v-for="node in visibleNodes"
+                  :key="node.id"
+                  class="node-card"
+                  type="button"
+                  @click="openNode(node.id)"
+                  @contextmenu.prevent="
+                    openNodeMenu({ id: node.id, x: $event.clientX, y: $event.clientY })
+                  "
+                >
+                  <span class="node-card-head">
+                    <strong>{{ node.name || node.hostname || en.shell.localNode }}</strong>
+                    <span class="node-card-state">
+                      <span
+                        class="node-agent-badge"
+                        :data-state="nodeAgentState(node)"
+                        :title="en.updates.agentVersion"
+                      >
+                        {{ node.agentVersion ? `v${node.agentVersion}` : "v—" }}
+                      </span>
+                      <span
+                        :class="
+                          node.status === 'active' && node.online ? 'status-ok' : 'status-bad'
+                        "
+                        >{{ nodePresence(node) }}</span
+                      >
+                    </span>
+                  </span>
+                  <span v-if="overviewLayout === 'detail' && detailSub(node)" class="node-sub">{{
+                    detailSub(node)
+                  }}</span>
+                  <PulseRail
+                    v-if="overviewLayout !== 'compact'"
+                    :samples="node.cpu"
+                    :offline="!node.online"
+                  />
+                  <span v-if="overviewLayout !== 'detail'" class="node-metrics">
+                    <span>{{ en.shell.cpu }} {{ figure(ratioPercent(node.cpuRatio)) }}</span>
+                    <span>{{ en.shell.memory }} {{ figure(ratioPercent(node.memRatio)) }}</span>
+                    <span v-if="node.diskRatio != null"
+                      >{{ en.shell.storage }} {{ figure(ratioPercent(node.diskRatio)) }}</span
+                    >
+                  </span>
+                  <span v-if="overviewLayout === 'detail'" class="node-facts">
+                    <span class="node-fact">
+                      <span class="node-fact-k">{{ en.shell.cpu }}</span>
+                      <span class="node-fact-v">{{ figure(ratioPercent(node.cpuRatio)) }}</span>
+                    </span>
+                    <span class="node-fact">
+                      <span class="node-fact-k">{{ en.shell.memory }}</span>
+                      <span class="node-fact-v">{{
+                        capacity(node.memUsed, node.memTotal, node.memRatio)
+                      }}</span>
+                    </span>
+                    <span class="node-fact">
+                      <span class="node-fact-k">{{ en.shell.storage }}</span>
+                      <span class="node-fact-v">{{
+                        capacity(node.diskUsed, node.diskTotal, node.diskRatio)
+                      }}</span>
+                    </span>
+                    <span class="node-fact">
+                      <span class="node-fact-k">{{ en.shell.swap }}</span>
+                      <span class="node-fact-v">{{ pair(node.swapUsed, node.swapTotal) }}</span>
+                    </span>
+                    <span class="node-fact">
+                      <span class="node-fact-k">{{ en.shell.netIn }}</span>
+                      <span class="node-fact-v">{{ rateLine(node.rxBps) }}</span>
+                    </span>
+                    <span class="node-fact">
+                      <span class="node-fact-k">{{ en.shell.netOut }}</span>
+                      <span class="node-fact-v">{{ rateLine(node.txBps) }}</span>
+                    </span>
+                    <span class="node-fact">
+                      <span class="node-fact-k">{{ en.shell.sockets }}</span>
+                      <span class="node-fact-v">{{ socketLine(node) }}</span>
+                    </span>
+                    <span class="node-fact">
+                      <span class="node-fact-k">{{ en.shell.uptime }}</span>
+                      <span class="node-fact-v">{{
+                        node.uptime == null ? "—" : formatUptime(node.uptime)
+                      }}</span>
+                    </span>
+                    <span class="node-fact node-fact-wide">
+                      <span class="node-fact-k">{{ en.shell.load }}</span>
+                      <span class="node-fact-v">{{ loadLine(node) }}</span>
+                    </span>
+                  </span>
+                  <span v-if="overviewLayout === 'standard'" class="node-uptime">{{
+                    node.uptime == null ? en.shell.railEmpty : formatUptime(node.uptime)
+                  }}</span>
+                  <span v-if="node.tags.length" class="node-address">{{
+                    node.tags.join(", ")
+                  }}</span>
+                </button>
               </div>
             </div>
-            <p class="strip-sub">{{ info.os.pretty }} · {{ info.kernel }} · {{ info.arch }}</p>
-          </div>
-          <div class="strip-cell">
-            <span class="vital-kicker">{{ en.shell.systemStrip }}</span>
-            <div class="strip-split">
-              <div>
-                <span class="strip-part-label">{{ en.shell.panelProcess }}</span>
-                <p class="strip-part-value">
-                  {{ panelProcess ? formatBytes(panelProcess.rss) : "—" }}
-                </p>
-              </div>
-              <span class="strip-split-sep" aria-hidden="true" />
-              <div>
-                <span class="strip-part-label">{{ en.shell.agentProcess }}</span>
-                <p class="strip-part-value">
-                  {{ sample ? formatBytes(sample.agentRss) : "—" }}
-                </p>
-              </div>
-            </div>
-            <p class="strip-sub">
-              {{ info.hostname }} · {{ info.tz
-              }}<template v-if="loadText"> · {{ en.shell.load }} {{ loadText }}</template>
+            <NodePage
+              v-else-if="page === 'host' && snapshotNodeId === nodeId"
+              :key="nodeId"
+              :can-operate="canOperate"
+              :can-manage="canManage"
+              :hostname="info?.hostname ?? ''"
+              :os="info?.os.pretty ?? ''"
+              :kernel="info?.kernel ?? ''"
+              :arch="info?.arch ?? ''"
+              :tz="info?.tz ?? ''"
+              :cpu="hostCpu"
+              :memory="hostMemory"
+              :uptime="hostUptime"
+              :addresses="addressText"
+              :node-id="nodeId"
+              :online="phase === 'online'"
+              :name="prefs.name"
+              :tags="prefs.tags"
+              :maintenance="prefs.maintenance"
+              :status="selectedNode?.status ?? 'active'"
+              :swap-used="sample?.swapUsed ?? null"
+              :swap-total="sample?.swapTotal ?? null"
+              :agent-version="selectedNode?.agentVersion ?? ''"
+              @saved="onNodeSaved"
+              @changed="refreshList"
+              @removed="onRemoved"
+            />
+            <p
+              v-else-if="page === 'host'"
+              :class="phase === 'error' ? 'form-error' : 'hint'"
+              role="status"
+            >
+              {{ detail }}
             </p>
-          </div>
-          <div class="strip-cell">
-            <div class="strip-head">
-              <span class="vital-kicker">{{ en.shell.ipAddresses }}</span>
-              <button
-                class="strip-eye"
-                type="button"
-                :aria-pressed="showAddresses"
-                :title="showAddresses ? en.shell.hideAddresses : en.shell.showAddresses"
-                :aria-label="showAddresses ? en.shell.hideAddresses : en.shell.showAddresses"
-                @click="showAddresses = !showAddresses"
-              >
-                <EyeOutlined v-if="showAddresses" aria-hidden="true" />
-                <EyeInvisibleOutlined v-else aria-hidden="true" />
-              </button>
+            <CertificatesPage
+              v-else-if="page === 'certificates' && canManage"
+              @public-url="publicUrl = $event"
+            />
+            <AlertsPage v-else-if="page === 'alerts' && canManage" />
+            <SettingsPage
+              v-else-if="page === 'settings'"
+              :access="access"
+              :account-id="accountId"
+              :username="username"
+              :theme="theme"
+              :public-url="publicUrl"
+              :section="settingsSection"
+              :ops="ops"
+              :security="security"
+              :nodes="catalog"
+              @theme="theme = $event"
+              @public-url="publicUrl = $event"
+              @section="settingsSection = $event"
+              @ops="applyOps"
+              @security="security = $event"
+              @update-found="updateOffer = $event"
+              @security-updated="checkOffer"
+              @refresh-nodes="refreshList"
+              @open-node="openNodeHost"
+            />
+            <div v-else-if="page === 'dashboard' && visibleVitals > 0" class="vitals">
+              <VitalTile
+                v-if="cards.cpu"
+                :label="en.shell.cpu"
+                :percent="cpuPercent"
+                :detail="cpuCaption"
+                :samples="cpuSeries"
+                :left="cpuFoot.left"
+                :right="cpuFoot.right"
+              />
+              <VitalTile
+                v-if="cards.memory"
+                :label="en.shell.memory"
+                :percent="memoryPercent"
+                :detail="memoryText"
+                :samples="memorySeries"
+                :left="memoryFoot.left"
+                :right="memoryFoot.right"
+              />
+              <VitalTile
+                v-if="cards.swap"
+                :label="en.shell.swap"
+                :percent="swapPercent"
+                :detail="swapText"
+                :samples="swapSeries"
+                :left="swapFoot.left"
+                :right="swapFoot.right"
+              />
+              <VitalTile
+                v-if="cards.storage && hasStorage"
+                :label="en.shell.storage"
+                :percent="diskPercent"
+                :detail="diskText"
+                :samples="diskSeries"
+                :left="diskFoot.left"
+                :right="diskFoot.right"
+              />
+              <CoreGrid
+                v-if="cards.breakdown && sample && hasBreakdown"
+                :cores="info?.cpu.cores ?? sample.cores.length"
+                :threads="info?.cpu.threads ?? sample.cores.length"
+                :detail="info?.cpu.model ?? ''"
+                :ratios="sample.cores"
+              />
             </div>
-            <p class="strip-value strip-ips" :data-hidden="!showAddresses">{{ addressText }}</p>
+            <p v-if="page === 'dashboard' && emptyDashboard" class="history-empty">
+              {{ en.shell.allCardsHidden }}
+            </p>
+            <div v-if="page === 'dashboard' && visibleMid > 0" class="mid">
+              <ThroughputCard
+                v-if="cards.throughput"
+                :up="rates.up"
+                :down="rates.down"
+                :up-now="sample?.txBps ?? null"
+                :down-now="sample?.rxBps ?? null"
+                :sent="sample?.txTotal ?? null"
+                :received="sample?.rxTotal ?? null"
+              />
+              <ConnectionsCard
+                v-if="cards.connections"
+                :tcp="rates.tcp"
+                :udp="rates.udp"
+                :tcp-now="sample?.tcpCount ?? null"
+                :udp-now="sample?.udpCount ?? null"
+              />
+            </div>
+            <div v-if="page === 'dashboard' && cards.system && info" class="strip">
+              <div class="strip-cell">
+                <span class="vital-kicker">{{ en.shell.uptime }}</span>
+                <div class="strip-split">
+                  <div>
+                    <span class="strip-part-label">{{ en.shell.panelProcess }}</span>
+                    <p class="strip-part-value">
+                      {{ panelProcess ? formatUptime(panelProcess.uptime) : "—" }}
+                    </p>
+                  </div>
+                  <span class="strip-split-sep" aria-hidden="true" />
+                  <div>
+                    <span class="strip-part-label">{{ en.shell.osShort }}</span>
+                    <p class="strip-part-value">
+                      {{ sample ? formatUptime(sample.uptime) : "—" }}
+                    </p>
+                  </div>
+                </div>
+                <p class="strip-sub">{{ info.os.pretty }} · {{ info.kernel }} · {{ info.arch }}</p>
+              </div>
+              <div class="strip-cell">
+                <span class="vital-kicker">{{ en.shell.systemStrip }}</span>
+                <div class="strip-split">
+                  <div>
+                    <span class="strip-part-label">{{ en.shell.panelProcess }}</span>
+                    <p class="strip-part-value">
+                      {{ panelProcess ? formatBytes(panelProcess.rss) : "—" }}
+                    </p>
+                  </div>
+                  <span class="strip-split-sep" aria-hidden="true" />
+                  <div>
+                    <span class="strip-part-label">{{ en.shell.agentProcess }}</span>
+                    <p class="strip-part-value">
+                      {{ sample ? formatBytes(sample.agentRss) : "—" }}
+                    </p>
+                  </div>
+                </div>
+                <p class="strip-sub">
+                  {{ info.hostname }} · {{ info.tz
+                  }}<template v-if="loadText"> · {{ en.shell.load }} {{ loadText }}</template>
+                </p>
+              </div>
+              <div class="strip-cell">
+                <div class="strip-head">
+                  <span class="vital-kicker">{{ en.shell.ipAddresses }}</span>
+                  <button
+                    class="strip-eye"
+                    type="button"
+                    :aria-pressed="showAddresses"
+                    :title="showAddresses ? en.shell.hideAddresses : en.shell.showAddresses"
+                    :aria-label="showAddresses ? en.shell.hideAddresses : en.shell.showAddresses"
+                    @click="showAddresses = !showAddresses"
+                  >
+                    <EyeOutlined v-if="showAddresses" aria-hidden="true" />
+                    <EyeInvisibleOutlined v-else aria-hidden="true" />
+                  </button>
+                </div>
+                <p class="strip-value strip-ips" :data-hidden="!showAddresses">{{ addressText }}</p>
+              </div>
+            </div>
           </div>
-        </div>
+        </Transition>
       </div>
     </div>
     <NodeMenu
@@ -1776,7 +1800,14 @@ onUnmounted(() => {
         <button type="button" class="quiet" :disabled="removeBusy" @click="removeId = null">
           {{ en.shell.cancel }}
         </button>
-        <button type="button" class="danger" :disabled="removeBusy" @click="confirmRemove">
+        <button
+          type="button"
+          class="danger"
+          :disabled="removeBusy"
+          :aria-busy="removeBusy"
+          @click="confirmRemove"
+        >
+          <span v-if="removeBusy" class="spinner" aria-hidden="true" />
           {{ removeBusy ? en.shell.removing : en.shell.removeNode }}
         </button>
       </template>
@@ -1825,8 +1856,10 @@ onUnmounted(() => {
           type="button"
           class="danger"
           :disabled="controlBusy || Boolean(controlNote)"
+          :aria-busy="controlBusy"
           @click="submitControl"
         >
+          <span v-if="controlBusy" class="spinner" aria-hidden="true" />
           {{
             controlBusy
               ? confirmAction === "stop"
@@ -1840,7 +1873,22 @@ onUnmounted(() => {
       </template>
     </AppDialog>
   </div>
-  <main v-else class="shell">
+  <main v-else-if="view === 'loading' || view === 'unreachable'" class="boot-screen">
+    <div class="boot-brand">{{ product.name }}</div>
+    <div class="boot-state">
+      <p v-if="view === 'loading'" class="boot-loading" role="status">
+        <span class="spinner" aria-hidden="true" />
+        {{ en.shell.connecting }}
+      </p>
+      <template v-else>
+        <p class="form-error" role="alert">{{ error }}</p>
+        <div class="actions">
+          <button type="button" @click="boot">{{ en.audit.retry }}</button>
+        </div>
+      </template>
+    </div>
+  </main>
+  <main v-else class="shell auth-shell">
     <section class="card">
       <div class="card-body">
         <h1>{{ product.name }}</h1>
@@ -1848,13 +1896,7 @@ onUnmounted(() => {
           {{ product.tagline }}
         </p>
         <Transition name="step" mode="out-in">
-          <p v-if="view === 'loading'" key="loading" class="status" aria-live="polite">
-            {{ en.shell.connecting }}
-          </p>
-          <p v-else-if="view === 'unreachable'" key="unreachable" class="form-error" role="alert">
-            {{ error }}
-          </p>
-          <form v-else-if="view === 'setup'" key="setup" @submit.prevent="submitSetup">
+          <form v-if="view === 'setup'" key="setup" @submit.prevent="submitSetup">
             <p class="step">{{ en.auth.setupStep }}</p>
             <p class="hint">{{ en.auth.setupHint }}</p>
             <label class="field">
@@ -1904,17 +1946,6 @@ onUnmounted(() => {
                 :aria-invalid="Boolean(error)"
               />
             </label>
-            <TurnstileWidget
-              v-if="security.turnstile.enabled && security.turnstile.siteKey"
-              :key="turnstileVersion"
-              v-model="turnstileToken"
-              :site-key="security.turnstile.siteKey"
-              :theme="theme === 'light' ? 'light' : 'dark'"
-              @error="onTurnstileError"
-            />
-            <div v-if="loginWarnings.length" class="login-warnings" role="status">
-              <p v-for="warning in loginWarnings" :key="warning">{{ warning }}</p>
-            </div>
             <p v-if="error" class="form-error" role="alert">{{ error }}</p>
             <div class="actions">
               <button type="submit" :disabled="pending">
@@ -2017,6 +2048,17 @@ onUnmounted(() => {
                 :aria-invalid="Boolean(error)"
               />
             </label>
+            <TurnstileWidget
+              v-if="security.turnstile.enabled && security.turnstile.siteKey"
+              :key="turnstileVersion"
+              v-model="turnstileToken"
+              :site-key="security.turnstile.siteKey"
+              :theme="theme === 'light' ? 'light' : 'dark'"
+              @error="onTurnstileError"
+            />
+            <div v-if="loginWarnings.length" class="login-warnings" role="status">
+              <p v-for="warning in loginWarnings" :key="warning">{{ warning }}</p>
+            </div>
             <p v-if="error" class="form-error" role="alert">{{ error }}</p>
             <div class="actions">
               <button type="submit" :disabled="pending">

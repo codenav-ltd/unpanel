@@ -187,6 +187,7 @@ async function saveName(): Promise<void> {
     });
     rename.value = null;
     await load();
+    note.value = "Authentication method renamed.";
   });
 }
 onMounted(load);
@@ -198,17 +199,35 @@ onMounted(load);
         <h2>Two-factor authentication</h2>
         <p class="hint">Choose how this account verifies a sign-in after its password.</p>
       </div>
-      <button v-if="data" type="button" class="quiet" :disabled="busy" @click="reauth = true">
+      <button
+        v-if="data"
+        type="button"
+        class="quiet"
+        :disabled="busy || loading"
+        @click="reauth = true"
+      >
         {{ data.elevated ? "Verify again" : "Unlock changes" }}
       </button>
     </div>
-    <p v-if="loading" class="hint" role="status">
+    <div
+      v-if="loading && !data"
+      class="certificate-skeleton"
+      role="status"
+      aria-label="Loading authentication methods"
+      aria-busy="true"
+    >
+      <span /><span /><span />
+    </div>
+    <p v-else-if="loading" class="hint" role="status">
       <span class="spinner" aria-hidden="true" /> Loading authentication methods…
     </p>
-    <p v-if="error && !enroll && !rename && !confirm" class="form-error" role="alert">
-      {{ error }} <button v-if="!data" class="quiet" @click="load">Retry</button>
-    </p>
-    <p v-if="note" class="hint" role="status">{{ note }}</p>
+    <div v-if="error && !enroll && !rename && !confirm" class="settings-feedback">
+      <p class="form-error" role="alert">{{ error }}</p>
+      <button class="quiet" :disabled="loading || busy" @click="load">Retry</button>
+    </div>
+    <Transition name="update-result">
+      <p v-if="note" class="certificate-success" role="status">{{ note }}</p>
+    </Transition>
     <template v-if="data">
       <p :class="data.policy.required ? 'hint' : 'security-warning'">
         {{
@@ -220,7 +239,7 @@ onMounted(load);
       <p v-if="!data.elevated" class="hint">
         Verify your identity to add methods or change the policy.
       </p>
-      <ul v-if="data.methods.length" class="account-method-list">
+      <TransitionGroup v-if="data.methods.length" name="step" tag="ul" class="account-method-list">
         <li v-for="method in data.methods" :key="method.id">
           <div>
             <strong>{{ method.name }}</strong>
@@ -263,13 +282,20 @@ onMounted(load);
             </button>
           </div>
         </li>
-      </ul>
+      </TransitionGroup>
       <p v-else class="security-empty">
         No verified methods yet. Add an authenticator app, passkey or email address.
       </p>
-      <button :disabled="!data.elevated || busy" @click="startEnrollment">
-        <span v-if="busy && !enroll" class="spinner" aria-hidden="true" /> Add authentication method
-      </button>
+      <div class="actions">
+        <button
+          :disabled="!data.elevated || busy || loading"
+          :aria-busy="busy && !enroll"
+          @click="startEnrollment"
+        >
+          <span v-if="busy && !enroll" class="spinner" aria-hidden="true" /> Add authentication
+          method
+        </button>
+      </div>
       <form
         class="account-form account-policy"
         @submit.prevent="
@@ -288,7 +314,8 @@ onMounted(load);
             ><input v-model="policy.allowed" type="checkbox" :value="item.value" />{{
               item.label
             }}</label
-          ><button type="submit">Save policy</button>
+          >
+          <div class="actions"><button type="submit">Save policy</button></div>
         </fieldset>
       </form>
       <div class="account-policy">
@@ -297,16 +324,18 @@ onMounted(load);
           {{ data.recoveryRemaining }} unused codes. Keep them somewhere you can access without this
           device. A code replaces a second factor once.
         </p>
-        <button
-          class="quiet"
-          :disabled="!data.elevated || busy"
-          @click="
-            confirm = 'recovery';
-            error = '';
-          "
-        >
-          Generate new recovery codes
-        </button>
+        <div class="actions">
+          <button
+            class="quiet"
+            :disabled="!data.elevated || busy"
+            @click="
+              confirm = 'recovery';
+              error = '';
+            "
+          >
+            Generate new recovery codes
+          </button>
+        </div>
       </div>
     </template>
   </section>
@@ -325,74 +354,82 @@ onMounted(load);
       @submit.prevent="ticket ? finish() : prepare()"
     >
       <fieldset :disabled="busy">
-        <template v-if="!ticket"
-          ><p class="hint">Step 1 of 2 · Choose and name your method.</p>
-          <SelectField v-model="kind" label="Authentication method" :options="kinds" /><label
-            class="field"
-            ><span>Method name</span
-            ><input v-model="name" maxlength="80" required placeholder="My phone"
-          /></label>
-          <template v-if="kind === 'email'"
-            ><SelectField
-              v-model="deliveryId"
-              label="Email delivery method"
-              :options="emailChoices"
-            />
-            <p v-if="!emailChoices.length" class="hint">
-              <template v-if="canManageEmail"
-                >Create a named method in
-                <a href="/settings/email">Settings → Email</a> first.</template
-              >
-              <template v-else
-                >Ask an administrator to add an email delivery method first.</template
-              >
-            </p>
-            <label class="field"
-              ><span>Verification email address</span
-              ><input v-model="address" type="email" autocomplete="email" required maxlength="254"
+        <div :key="ticket ? 'verify' : 'choose'" class="settings-form-step">
+          <template v-if="!ticket"
+            ><p class="hint">Step 1 of 2 · Choose and name your method.</p>
+            <SelectField v-model="kind" label="Authentication method" :options="kinds" /><label
+              class="field"
+              ><span>Method name</span
+              ><input v-model="name" maxlength="80" required placeholder="My phone"
             /></label>
-            <p class="hint">
-              Email security depends on your mailbox. An authenticator app or passkey is preferable
-              for administrators.
-            </p></template
+            <template v-if="kind === 'email'"
+              ><SelectField
+                v-model="deliveryId"
+                label="Email delivery method"
+                :options="emailChoices"
+              />
+              <p v-if="!emailChoices.length" class="hint">
+                <template v-if="canManageEmail"
+                  >Create a named method in
+                  <a href="/settings/email">Settings → Email</a> first.</template
+                >
+                <template v-else
+                  >Ask an administrator to add an email delivery method first.</template
+                >
+              </p>
+              <label class="field"
+                ><span>Verification email address</span
+                ><input
+                  v-model="address"
+                  type="email"
+                  autocomplete="email"
+                  required
+                  maxlength="254"
+              /></label>
+              <p class="hint">
+                Email security depends on your mailbox. An authenticator app or passkey is
+                preferable for administrators.
+              </p></template
+            >
+            <p v-if="kind === 'passkey' && !canPasskey" class="security-warning">
+              Open this panel using its saved HTTPS domain and a browser-trusted certificate to
+              create a passkey.
+              {{ data?.passkeyOrigin ?? "Set the public address in Settings → Panel." }}
+            </p>
+          </template>
+          <template v-else
+            ><p class="hint">Step 2 of 2 · Prove you can use this method.</p>
+            <template v-if="kind === 'totp'"
+              ><p>Scan this code with your authenticator app, then enter its six-digit code.</p>
+              <img v-if="qr" class="account-qr" :src="qr" alt="Authenticator setup QR code" />
+              <details>
+                <summary>Enter a setup key manually</summary>
+                <code class="account-secret">{{ secret }}</code>
+                <p class="hint">Time-based · 6 digits · 30-second interval</p>
+              </details></template
+            >
+            <p v-if="kind === 'email'">
+              A code was sent to {{ address }}. Check your inbox and spam folder. It expires in five
+              minutes.
+            </p>
+            <p v-if="kind === 'passkey'">
+              Your browser will ask you to verify with your fingerprint, face, PIN or security key.
+            </p>
+            <label v-if="kind !== 'passkey'" class="field"
+              ><span>Verification code</span
+              ><input
+                v-model="code"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                required
+                pattern="[0-9]{6}"
+                maxlength="6" /></label
+            ><label class="account-check"
+              ><input v-model="requireAfter" type="checkbox" /> Require two-factor sign-in after
+              saving</label
+            ></template
           >
-          <p v-if="kind === 'passkey' && !canPasskey" class="security-warning">
-            Open this panel using its saved HTTPS domain and a browser-trusted certificate to create
-            a passkey. {{ data?.passkeyOrigin ?? "Set the public address in Settings → Panel." }}
-          </p>
-        </template>
-        <template v-else
-          ><p class="hint">Step 2 of 2 · Prove you can use this method.</p>
-          <template v-if="kind === 'totp'"
-            ><p>Scan this code with your authenticator app, then enter its six-digit code.</p>
-            <img v-if="qr" class="account-qr" :src="qr" alt="Authenticator setup QR code" />
-            <details>
-              <summary>Enter a setup key manually</summary>
-              <code class="account-secret">{{ secret }}</code>
-              <p class="hint">Time-based · 6 digits · 30-second interval</p>
-            </details></template
-          >
-          <p v-if="kind === 'email'">
-            A code was sent to {{ address }}. Check your inbox and spam folder. It expires in five
-            minutes.
-          </p>
-          <p v-if="kind === 'passkey'">
-            Your browser will ask you to verify with your fingerprint, face, PIN or security key.
-          </p>
-          <label v-if="kind !== 'passkey'" class="field"
-            ><span>Verification code</span
-            ><input
-              v-model="code"
-              inputmode="numeric"
-              autocomplete="one-time-code"
-              required
-              pattern="[0-9]{6}"
-              maxlength="6" /></label
-          ><label class="account-check"
-            ><input v-model="requireAfter" type="checkbox" /> Require two-factor sign-in after
-            saving</label
-          ></template
-        >
+        </div>
       </fieldset>
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
     </form>
@@ -406,6 +443,7 @@ onMounted(load);
       ><button
         form="factor-enrollment"
         type="submit"
+        :aria-busy="busy"
         :disabled="
           busy ||
           (!ticket && kind === 'passkey' && !canPasskey) ||
@@ -436,7 +474,7 @@ onMounted(load);
     </form>
     <template #footer
       ><button class="quiet" :disabled="busy" @click="rename = null">Cancel</button
-      ><button form="rename-factor" type="submit" :disabled="busy">
+      ><button form="rename-factor" type="submit" :disabled="busy" :aria-busy="busy">
         <span v-if="busy" class="spinner" aria-hidden="true" />Save name
       </button></template
     ></AppDialog
@@ -471,7 +509,7 @@ onMounted(load);
     <p v-if="error" class="form-error" role="alert">{{ error }}</p>
     <template #footer
       ><button class="quiet" :disabled="busy" @click="confirm = null">Cancel</button
-      ><button :disabled="busy" @click="applyConfirmation">
+      ><button :disabled="busy" :aria-busy="busy" @click="applyConfirmation">
         <span v-if="busy" class="spinner" aria-hidden="true" />Confirm change
       </button></template
     ></AppDialog
@@ -489,3 +527,37 @@ onMounted(load);
     ></AppDialog
   >
 </template>
+<style scoped>
+.settings-feedback {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-top: 16px;
+}
+.settings-feedback .form-error {
+  margin: 0;
+}
+.account-form details {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.account-form summary {
+  cursor: pointer;
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.account-form summary:hover,
+.account-form summary:active {
+  color: var(--text);
+}
+.account-form summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.step-leave-active {
+  pointer-events: none;
+}
+</style>

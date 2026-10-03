@@ -192,6 +192,7 @@ async function add(): Promise<void> {
   }
 }
 function select(item: Certificate, operation: "apply" | "remove" | "renewal"): void {
+  error.value = "";
   selection.value = item;
   dialog.value = operation;
   address.value = `https://${item.host.includes(":") ? `[${item.host}]` : item.host}${data.value?.port === 443 ? "" : `:${data.value?.port ?? 28517}`}`;
@@ -525,6 +526,7 @@ onUnmounted(() => {
                 type="button"
                 class="quiet"
                 :disabled="running || item.nextAttempt > Date.now()"
+                :aria-busy="busy === `/${item.id}/renew`"
                 @click="action(`/${item.id}/renew`, 'POST', undefined, copy.renewalQueued)"
               >
                 <span v-if="busy === `/${item.id}/renew`" class="spinner" aria-hidden="true" />{{
@@ -535,12 +537,14 @@ onUnmounted(() => {
                 type="button"
                 class="quiet"
                 :disabled="running"
+                :aria-busy="busy === `/${item.id}`"
                 @click="
                   item.autoRenew
                     ? select(item, 'renewal')
                     : action(`/${item.id}`, 'PATCH', { autoRenew: true }, copy.renewalSaved)
                 "
               >
+                <span v-if="busy === `/${item.id}`" class="spinner" aria-hidden="true" />
                 {{ item.autoRenew ? copy.disableRenewal : copy.enableRenewal }}
               </button>
             </template>
@@ -608,13 +612,13 @@ onUnmounted(() => {
           @click="confirm"
         >
           <span v-if="busy" class="spinner" aria-hidden="true" />{{
-            busy
-              ? copy.applying
-              : dialog === "apply"
-                ? copy.confirm
-                : dialog === "remove"
-                  ? copy.remove
-                  : copy.disableRenewal
+            dialog === "apply"
+              ? busy
+                ? copy.applying
+                : copy.confirm
+              : dialog === "remove"
+                ? copy.remove
+                : copy.disableRenewal
           }}
         </button></template
       >

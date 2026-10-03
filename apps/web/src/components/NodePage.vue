@@ -53,13 +53,13 @@ const fresh = ref("");
 const accessError = ref("");
 const accessNote = ref("");
 
-const swapping = ref(false);
+const pendingAction = ref<"save" | "swap" | "toggle" | "reenroll" | "remove" | "">("");
 const swapGib = ref<1 | 2 | 4 | 8>(1);
 const swapError = ref("");
 const swapNote = ref("");
 const swapOptions = ([1, 2, 4, 8] as const).map((value) => ({ value, label: `${value} GiB` }));
 const { name, tagText, maintenance, acceptSaved } = useNodeDraft(props);
-const busy = ref(false);
+const busy = computed(() => Boolean(pendingAction.value));
 const error = ref("");
 const note = ref("");
 
@@ -79,7 +79,7 @@ watch(
 
 async function save(): Promise<void> {
   if (busy.value) return;
-  busy.value = true;
+  pendingAction.value = "save";
   error.value = "";
   note.value = "";
   const tags = tagText.value
@@ -108,13 +108,17 @@ async function save(): Promise<void> {
       "Refresh this node to check its saved values before trying again.",
     );
   } finally {
-    busy.value = false;
+    pendingAction.value = "";
   }
 }
 
-async function run(path: string, method: "POST" | "DELETE"): Promise<Response | null> {
-  if (busy.value) return null;
-  busy.value = true;
+async function run(
+  path: string,
+  method: "POST" | "DELETE",
+  action: "toggle" | "reenroll" | "remove",
+): Promise<boolean> {
+  if (busy.value) return false;
+  pendingAction.value = action;
   accessError.value = "";
   accessNote.value = "";
   try {
@@ -123,33 +127,34 @@ async function run(path: string, method: "POST" | "DELETE"): Promise<Response | 
     });
     if (!response.ok) {
       accessError.value = await readProblem(response, "change this node");
-      return null;
+      return false;
     }
-    return response;
+    if (action === "reenroll") {
+      const body = (await response.json()) as { data: { installed: string; fresh: string } };
+      installed.value = body.data.installed;
+      fresh.value = body.data.fresh;
+    }
+    return true;
   } catch {
     accessError.value = replyNotReceived(
       "change this node",
       "Refresh the node list and check Logs before trying again.",
     );
-    return null;
+    return false;
   } finally {
-    busy.value = false;
+    pendingAction.value = "";
   }
 }
 
 async function toggleEnabled(): Promise<void> {
   const path = props.status === "disabled" ? "/enable" : "/disable";
-  if (!(await run(path, "POST"))) return;
+  if (!(await run(path, "POST", "toggle"))) return;
   accessNote.value = props.status === "disabled" ? en.shell.saved : en.shell.disableHint;
   emit("changed");
 }
 
 async function reenroll(): Promise<void> {
-  const response = await run("/enrollment-token", "POST");
-  if (!response) return;
-  const body = (await response.json()) as { data: { installed: string; fresh: string } };
-  installed.value = body.data.installed;
-  fresh.value = body.data.fresh;
+  if (!(await run("/enrollment-token", "POST", "reenroll"))) return;
   confirmRemove.value = false;
   emit("changed");
 }
@@ -171,8 +176,7 @@ const agentNote = computed(() => {
 
 async function createSwap(): Promise<void> {
   if (busy.value) return;
-  busy.value = true;
-  swapping.value = true;
+  pendingAction.value = "swap";
   swapError.value = "";
   swapNote.value = "";
   try {
@@ -203,13 +207,12 @@ async function createSwap(): Promise<void> {
       // The sentence on the page already points at Logs.
     }
   } finally {
-    busy.value = false;
-    swapping.value = false;
+    pendingAction.value = "";
   }
 }
 
 async function remove(): Promise<void> {
-  if (!(await run("", "DELETE"))) return;
+  if (!(await run("", "DELETE", "remove"))) return;
   emit("removed");
 }
 </script>
@@ -247,10 +250,11 @@ async function remove(): Promise<void> {
       </div>
       <p class="hint">{{ en.shell.maintenanceHint }}</p>
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-      <p v-else-if="note" class="form-warn" role="status">{{ note }}</p>
+      <p v-else-if="note" class="certificate-success" role="status">{{ note }}</p>
       <div class="actions">
-        <button type="button" :disabled="busy" @click="save">
-          {{ busy ? en.shell.saving : en.shell.save }}
+        <button type="button" :disabled="busy" :aria-busy="pendingAction === 'save'" @click="save">
+          <span v-if="pendingAction === 'save'" class="spinner" aria-hidden="true" />
+          {{ pendingAction === "save" ? en.shell.saving : en.shell.save }}
         </button>
       </div>
     </section>
@@ -325,10 +329,15 @@ async function remove(): Promise<void> {
           :disabled="busy"
         />
         <p v-if="swapError" class="form-error" role="alert">{{ swapError }}</p>
-        <p v-else-if="swapNote" class="form-warn" role="status">{{ swapNote }}</p>
+        <p v-else-if="swapNote" class="certificate-success" role="status">{{ swapNote }}</p>
         <div class="actions">
-          <button type="submit" :disabled="busy || status !== 'active' || !online">
-            {{ swapping ? en.shell.swapCreating : en.shell.swapCreate }}
+          <button
+            type="submit"
+            :disabled="busy || status !== 'active' || !online"
+            :aria-busy="pendingAction === 'swap'"
+          >
+            <span v-if="pendingAction === 'swap'" class="spinner" aria-hidden="true" />
+            {{ pendingAction === "swap" ? en.shell.swapCreating : en.shell.swapCreate }}
           </button>
         </div>
       </form>
@@ -339,10 +348,23 @@ async function remove(): Promise<void> {
       <p v-if="accessError" class="form-error" role="alert">{{ accessError }}</p>
       <p v-else-if="accessNote" class="form-warn" role="status">{{ accessNote }}</p>
       <div class="row-actions">
-        <button type="button" :disabled="busy" @click="toggleEnabled">
+        <button
+          type="button"
+          :disabled="busy"
+          :aria-busy="pendingAction === 'toggle'"
+          @click="toggleEnabled"
+        >
+          <span v-if="pendingAction === 'toggle'" class="spinner" aria-hidden="true" />
           {{ status === "disabled" ? en.shell.enableNode : en.shell.disableNode }}
         </button>
-        <button v-if="!local" type="button" :disabled="busy" @click="reenroll">
+        <button
+          v-if="!local"
+          type="button"
+          :disabled="busy"
+          :aria-busy="pendingAction === 'reenroll'"
+          @click="reenroll"
+        >
+          <span v-if="pendingAction === 'reenroll'" class="spinner" aria-hidden="true" />
           {{ en.shell.reenroll }}
         </button>
         <button
@@ -357,7 +379,14 @@ async function remove(): Promise<void> {
       </div>
       <div v-if="confirmRemove" class="row-actions">
         <p class="hint">{{ en.shell.removeConfirm }}</p>
-        <button class="danger" type="button" :disabled="busy" @click="remove">
+        <button
+          class="danger"
+          type="button"
+          :disabled="busy"
+          :aria-busy="pendingAction === 'remove'"
+          @click="remove"
+        >
+          <span v-if="pendingAction === 'remove'" class="spinner" aria-hidden="true" />
           {{ en.shell.removeNode }}
         </button>
         <button class="quiet" type="button" :disabled="busy" @click="confirmRemove = false">

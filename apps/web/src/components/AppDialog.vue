@@ -19,9 +19,21 @@ const titleId = useId();
 watch(
   () => props.open,
   (open) => {
-    const dialog = root.value;
+    // Parents may immediately remove their slotted content when closing.
+    // Keep the fading shell at its previous size without delaying native close().
+    if (!open && root.value?.open)
+      root.value.style.setProperty("--dialog-exit-height", `${root.value.offsetHeight}px`);
+  },
+);
+
+watch(
+  [() => props.open, root],
+  ([open, dialog]) => {
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      dialog.style.removeProperty("--dialog-exit-height");
+      dialog.showModal();
+    }
     if (!open && dialog.open) dialog.close();
   },
   { flush: "post" },
@@ -67,3 +79,76 @@ function onClick(event: Event): void {
     </div>
   </dialog>
 </template>
+
+<style scoped>
+.dialog,
+.dialog-panel {
+  max-height: calc(100dvh - 32px);
+}
+
+.dialog-head,
+.dialog-foot,
+.dialog-close {
+  flex-shrink: 0;
+}
+
+.dialog-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Native close restores focus immediately. Discrete transitions only keep the
+   closing pixels in the top layer; a new modal can take focus without a timer. */
+@supports (transition-behavior: allow-discrete) {
+  .dialog {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+    transition:
+      opacity var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out),
+      display var(--dur-fast) allow-discrete,
+      overlay var(--dur-fast) allow-discrete;
+  }
+
+  .dialog:not([open]) {
+    height: var(--dialog-exit-height, auto);
+    pointer-events: none;
+  }
+
+  .dialog:not([open])::backdrop {
+    pointer-events: none;
+  }
+
+  .dialog[open] {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    transition-duration: var(--dur);
+  }
+
+  .dialog::backdrop {
+    opacity: 0;
+    transition:
+      opacity var(--dur-fast) var(--ease-out),
+      display var(--dur-fast) allow-discrete,
+      overlay var(--dur-fast) allow-discrete;
+  }
+
+  .dialog[open]::backdrop {
+    animation: none;
+    opacity: 1;
+    transition-duration: var(--dur);
+  }
+
+  @starting-style {
+    .dialog[open] {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+
+    .dialog[open]::backdrop {
+      opacity: 0;
+    }
+  }
+}
+</style>

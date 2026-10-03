@@ -95,6 +95,7 @@ async function remove(): Promise<void> {
       "DELETE",
     );
     removing.value = null;
+    note.value = "Email method removed.";
   });
 }
 async function test(): Promise<void> {
@@ -120,18 +121,30 @@ onMounted(load);
       </div>
       <button :disabled="busy || loading" @click="edit(null)">Set up new method</button>
     </div>
-    <p v-if="loading" class="hint" role="status">
+    <div
+      v-if="loading && !methods.length"
+      class="certificate-skeleton"
+      role="status"
+      aria-label="Loading email methods"
+      aria-busy="true"
+    >
+      <span /><span /><span />
+    </div>
+    <p v-else-if="loading" class="hint" role="status">
       <span class="spinner" aria-hidden="true" />Loading email methods…
     </p>
-    <p v-if="error && !open && !removing && !testing" class="form-error" role="alert">
-      {{ error }} <button class="quiet" @click="load">Retry</button>
-    </p>
-    <p v-if="note" class="hint" role="status">{{ note }}</p>
-    <p v-if="!loading && !methods.length" class="security-empty">
+    <div v-if="error && !open && !removing && !testing" class="settings-feedback">
+      <p class="form-error" role="alert">{{ error }}</p>
+      <button class="quiet" :disabled="loading || busy" @click="load">Retry</button>
+    </div>
+    <Transition name="update-result">
+      <p v-if="note" class="certificate-success" role="status">{{ note }}</p>
+    </Transition>
+    <p v-if="!loading && !error && !methods.length" class="security-empty">
       No email delivery methods yet. Connect SMTP, Resend or Postmark to send verification codes and
       alerts.
     </p>
-    <ul class="account-method-list">
+    <TransitionGroup v-if="methods.length" name="step" tag="ul" class="account-method-list">
       <li v-for="method in methods" :key="method.id">
         <div>
           <strong>{{ method.name }}</strong>
@@ -166,7 +179,7 @@ onMounted(load);
           </button>
         </div>
       </li>
-    </ul>
+    </TransitionGroup>
   </section>
   <AppDialog
     :open="open"
@@ -174,101 +187,108 @@ onMounted(load);
     @close="close"
     ><form id="email-method-form" class="account-form" @submit.prevent="save">
       <fieldset :disabled="busy">
-        <p class="hint">
-          Step {{ step }} of 2 ·
-          {{ step === 1 ? "Choose a name and provider" : "Connect your sender" }}
-        </p>
-        <template v-if="step === 1"
-          ><label class="field"
-            ><span>Method name</span
-            ><input
-              v-model="form.name"
-              required
-              maxlength="80"
-              placeholder="Operations mail" /></label
-          ><SelectField
-            v-model="form.provider"
-            label="Provider"
-            :options="[
-              { value: 'smtp', label: 'SMTP · any mail server' },
-              { value: 'resend', label: 'Resend · API' },
-              { value: 'postmark', label: 'Postmark · API' },
-            ]"
-          /><label class="account-check"
-            ><input
-              v-model="form.enabled"
-              type="checkbox"
-              :disabled="Boolean(editing?.references)"
-            />
-            Enabled</label
-          >
-          <p v-if="editing?.references" class="hint">
-            Changes apply to {{ editing.references }} linked uses. Keep this method enabled while
-            they depend on it.
-          </p></template
-        >
-        <template v-else
-          ><label class="field"
-            ><span>Sender email</span
-            ><input v-model="form.from" type="email" required maxlength="254" autocomplete="email"
-          /></label>
-          <p class="hint">Use a sender address approved by your provider.</p>
-          <template v-if="form.provider === 'smtp'"
-            ><label class="field"
-              ><span>SMTP hostname</span
-              ><input v-model="form.host" required maxlength="253" placeholder="smtp.example.com"
-            /></label>
-            <div class="certificate-form-grid">
-              <label class="field"
-                ><span>Port</span
-                ><input
-                  v-model.number="form.port"
-                  type="number"
-                  min="1"
-                  max="65535"
-                  required /></label
-              ><SelectField
-                v-model="form.security"
-                label="Encryption"
-                :options="[
-                  { value: 'tls', label: 'TLS · usually port 465' },
-                  { value: 'starttls', label: 'STARTTLS · usually port 587' },
-                ]"
-              />
-            </div>
-            <label class="field"
-              ><span>SMTP username</span
-              ><input
-                v-model="form.username"
-                required
-                maxlength="320"
-                autocomplete="off" /></label></template
-          ><label class="field"
-            ><span>{{
-              form.provider === "smtp" ? "SMTP password or app password" : "API token"
-            }}</span
-            ><input
-              v-model="form.secret"
-              type="password"
-              autocomplete="new-password"
-              maxlength="4096"
-              :required="!editing || editing.settings.provider !== form.provider"
-          /></label>
+        <div :key="step" class="settings-form-step">
           <p class="hint">
-            {{
-              editing?.settings.provider === form.provider
-                ? "Leave the secret blank to keep the saved credential."
-                : "Credentials are encrypted and are never returned to your browser."
-            }}
-          </p></template
-        >
+            Step {{ step }} of 2 ·
+            {{ step === 1 ? "Choose a name and provider" : "Connect your sender" }}
+          </p>
+          <template v-if="step === 1"
+            ><label class="field"
+              ><span>Method name</span
+              ><input
+                v-model="form.name"
+                required
+                maxlength="80"
+                placeholder="Operations mail" /></label
+            ><SelectField
+              v-model="form.provider"
+              label="Provider"
+              :options="[
+                { value: 'smtp', label: 'SMTP · any mail server' },
+                { value: 'resend', label: 'Resend · API' },
+                { value: 'postmark', label: 'Postmark · API' },
+              ]"
+            /><label class="account-check"
+              ><input
+                v-model="form.enabled"
+                type="checkbox"
+                :disabled="Boolean(editing?.references)"
+              />
+              Enabled</label
+            >
+            <p v-if="editing?.references" class="hint">
+              Changes apply to {{ editing.references }} linked uses. Keep this method enabled while
+              they depend on it.
+            </p></template
+          >
+          <template v-else
+            ><label class="field"
+              ><span>Sender email</span
+              ><input
+                v-model="form.from"
+                type="email"
+                required
+                maxlength="254"
+                autocomplete="email"
+            /></label>
+            <p class="hint">Use a sender address approved by your provider.</p>
+            <template v-if="form.provider === 'smtp'"
+              ><label class="field"
+                ><span>SMTP hostname</span
+                ><input v-model="form.host" required maxlength="253" placeholder="smtp.example.com"
+              /></label>
+              <div class="certificate-form-grid">
+                <label class="field"
+                  ><span>Port</span
+                  ><input
+                    v-model.number="form.port"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    required /></label
+                ><SelectField
+                  v-model="form.security"
+                  label="Encryption"
+                  :options="[
+                    { value: 'tls', label: 'TLS · usually port 465' },
+                    { value: 'starttls', label: 'STARTTLS · usually port 587' },
+                  ]"
+                />
+              </div>
+              <label class="field"
+                ><span>SMTP username</span
+                ><input
+                  v-model="form.username"
+                  required
+                  maxlength="320"
+                  autocomplete="off" /></label></template
+            ><label class="field"
+              ><span>{{
+                form.provider === "smtp" ? "SMTP password or app password" : "API token"
+              }}</span
+              ><input
+                v-model="form.secret"
+                type="password"
+                autocomplete="new-password"
+                maxlength="4096"
+                :required="!editing || editing.settings.provider !== form.provider"
+            /></label>
+            <p class="hint">
+              {{
+                editing?.settings.provider === form.provider
+                  ? "Leave the secret blank to keep the saved credential."
+                  : "Credentials are encrypted and are never returned to your browser."
+              }}
+            </p></template
+          >
+        </div>
       </fieldset>
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
     </form>
     <template #footer
       ><button class="quiet" :disabled="busy" @click="step === 2 ? (step = 1) : close()">
         {{ step === 2 ? "Back" : "Cancel" }}</button
-      ><button form="email-method-form" type="submit" :disabled="busy">
+      ><button form="email-method-form" type="submit" :disabled="busy" :aria-busy="busy">
         <span v-if="busy" class="spinner" aria-hidden="true" />{{
           step === 1 ? "Continue" : "Save email method"
         }}
@@ -284,7 +304,7 @@ onMounted(load);
     <p v-if="error" class="form-error" role="alert">{{ error }}</p>
     <template #footer
       ><button class="quiet" :disabled="busy" @click="removing = null">Cancel</button
-      ><button :disabled="busy" @click="remove">
+      ><button class="danger" :disabled="busy" :aria-busy="busy" @click="remove">
         <span v-if="busy" class="spinner" aria-hidden="true" />Remove method
       </button></template
     ></AppDialog
@@ -304,9 +324,23 @@ onMounted(load);
     </form>
     <template #footer
       ><button class="quiet" :disabled="busy" @click="testing = null">Cancel</button
-      ><button form="test-email-method" type="submit" :disabled="busy">
+      ><button form="test-email-method" type="submit" :disabled="busy" :aria-busy="busy">
         <span v-if="busy" class="spinner" aria-hidden="true" />Send test
       </button></template
     ></AppDialog
   >
 </template>
+<style scoped>
+.settings-feedback {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-top: 16px;
+}
+.settings-feedback .form-error {
+  margin: 0;
+}
+.step-leave-active {
+  pointer-events: none;
+}
+</style>

@@ -22,6 +22,7 @@ const emit = defineEmits<{
 const root = ref<HTMLElement | null>(null);
 const left = ref(props.x);
 const top = ref(props.y);
+const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
 function place(): void {
   const menu = root.value;
@@ -32,7 +33,30 @@ function place(): void {
 }
 
 function onKey(event: KeyboardEvent): void {
-  if (event.key === "Escape") emit("close");
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    previousFocus?.focus();
+    emit("close");
+    return;
+  }
+  if (event.key === "Tab") {
+    previousFocus?.focus();
+    emit("close");
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const items = [...(root.value?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
+  if (!items.length) return;
+  event.preventDefault();
+  const current = items.findIndex((item) => item === document.activeElement);
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? items.length - 1
+        : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+  items[next]?.focus();
 }
 
 function onPointer(event: Event): void {
@@ -43,15 +67,13 @@ function onPointer(event: Event): void {
 
 onMounted(() => {
   place();
-  root.value?.focus();
-  window.addEventListener("keydown", onKey);
+  root.value?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
   window.addEventListener("pointerdown", onPointer);
   window.addEventListener("resize", place);
   window.addEventListener("scroll", onPointer, true);
 });
 
 onUnmounted(() => {
-  window.removeEventListener("keydown", onKey);
   window.removeEventListener("pointerdown", onPointer);
   window.removeEventListener("resize", place);
   window.removeEventListener("scroll", onPointer, true);
@@ -71,6 +93,7 @@ function run(action: "dashboard" | "edit" | "toggle" | "reenroll" | "remove"): v
       tabindex="-1"
       :aria-label="`${en.shell.nodeMenu}, ${name}`"
       :style="{ left: `${left}px`, top: `${top}px` }"
+      @keydown="onKey"
     >
       <p class="node-menu-name">{{ name }}</p>
       <button type="button" role="menuitem" class="node-menu-item" @click="run('dashboard')">

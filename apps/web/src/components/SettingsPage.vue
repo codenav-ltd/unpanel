@@ -79,6 +79,17 @@ const emit = defineEmits<{
 }>();
 
 const canManage = computed(() => managesPanel(props.access));
+const settingsNav = ref<HTMLElement | null>(null);
+function revealActiveSection(): void {
+  const nav = settingsNav.value;
+  const active = nav?.querySelector<HTMLElement>('[aria-current="true"]');
+  if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
+  const bounds = nav.getBoundingClientRect();
+  const tab = active.getBoundingClientRect();
+  if (tab.left < bounds.left) nav.scrollLeft -= bounds.left - tab.left;
+  else if (tab.right > bounds.right) nav.scrollLeft += tab.right - bounds.right;
+}
+watch(() => props.section, revealActiveSection, { flush: "post" });
 const sections = computed(() =>
   [
     { id: "panel" as const, label: en.settings.panel, icon: DashboardOutlined },
@@ -880,18 +891,21 @@ async function waitForAgent(nodeId: string): Promise<boolean> {
 }
 
 onMounted(() => {
+  revealActiveSection();
+  window.addEventListener("resize", revealActiveSection);
   if (canManage.value && !resumePanelUpdate()) void checkUpdates();
   if (props.section === "security") void loadBans();
 });
 
 onUnmounted(() => {
   settingsUnmounted = true;
+  window.removeEventListener("resize", revealActiveSection);
 });
 </script>
 
 <template>
   <div class="settings-layout">
-    <nav class="settings-nav" :aria-label="en.nav.settings">
+    <nav ref="settingsNav" class="settings-nav" :aria-label="en.nav.settings">
       <button
         v-for="item in sections"
         :key="item.id"
@@ -904,600 +918,659 @@ onUnmounted(() => {
         <span>{{ item.label }}</span>
       </button>
     </nav>
-    <div v-if="section === 'panel'" class="page-stack">
-      <section class="wide">
-        <span class="vital-kicker">{{ en.shell.appearance }}</span>
-        <p class="hint">{{ en.shell.themeHint }}</p>
-        <div class="theme-row" role="radiogroup" :aria-label="en.shell.appearance">
-          <button
-            v-for="item in themes"
-            :key="item.id"
-            class="theme-choice"
-            type="button"
-            role="radio"
-            :aria-checked="theme === item.id"
-            :disabled="Boolean(busy)"
-            @click="saveTheme(item.id)"
-          >
-            {{ item.label }}
-          </button>
-        </div>
-        <p v-if="themeError" class="form-error" role="alert">{{ themeError }}</p>
-        <p v-else-if="themeNote" class="form-warn" role="status">{{ themeNote }}</p>
-      </section>
-      <section class="wide">
-        <span class="vital-kicker">{{ en.shell.publicUrl }}</span>
-        <p class="hint">{{ en.shell.publicUrlHint }}</p>
-        <form @submit.prevent="savePublicUrl">
-          <label class="field">
-            <span>{{ en.shell.publicUrl }}</span>
-            <input
-              v-model="publicUrl"
-              type="url"
-              inputmode="url"
-              placeholder="https://panel.example.com"
-            />
-          </label>
-          <p class="hint"><a href="/certificates">Manage HTTPS and certificates →</a></p>
-          <p v-if="urlError" class="form-error" role="alert">{{ urlError }}</p>
-          <p v-else-if="urlNote" class="form-warn" role="status">{{ urlNote }}</p>
-          <div class="actions">
-            <button type="submit" :disabled="Boolean(busy)">
-              {{ busy === "url" ? en.shell.saving : en.shell.save }}
-            </button>
-          </div>
-        </form>
-      </section>
-      <section class="wide">
-        <span class="vital-kicker">{{ en.shell.pollLabel }}</span>
-        <p class="hint">{{ en.shell.pollHint }}</p>
-        <form @submit.prevent="saveOps">
-          <SelectField
-            v-model="pollSec"
-            :label="en.shell.pollLabel"
-            :options="pollOptions"
-            :disabled="Boolean(busy)"
-          />
-          <SelectField
-            v-model="historyDays"
-            :label="en.shell.historyLabel"
-            :options="historyOptions"
-            :disabled="Boolean(busy)"
-          />
-          <p class="hint">{{ en.shell.historyKeepHint }}</p>
-          <SelectField
-            v-model="updateHours"
-            :label="en.shell.updateEvery"
-            :options="updateOptions"
-            :disabled="Boolean(busy)"
-          />
-          <p class="hint">{{ en.shell.updateEveryHint }}</p>
-          <div class="switch-row">
-            <span id="auto-update-label">{{ en.shell.autoUpdate }}</span>
-            <button
-              type="button"
-              class="switch"
-              role="switch"
-              :aria-checked="autoUpdate"
-              aria-labelledby="auto-update-label"
-              @click="autoUpdate = !autoUpdate"
-            >
-              <span class="switch-thumb" />
-            </button>
-          </div>
-          <p class="hint">{{ en.shell.autoUpdateHint }}</p>
-          <p v-if="opsError" class="form-error" role="alert">{{ opsError }}</p>
-          <p v-else-if="opsNote" class="form-warn" role="status">{{ opsNote }}</p>
-          <div class="actions">
-            <button type="submit" :disabled="Boolean(busy)">
-              {{ busy === "ops" ? en.shell.saving : en.shell.save }}
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
-    <div v-else-if="section === 'security'" class="page-stack">
-      <section v-if="access.locked" class="wide">
-        <h2>Read-only demo account</h2>
-        <p class="hint">
-          Explore the nodes and monitoring without changing the panel. Password and authentication
-          methods are managed by an owner.
-        </p>
-      </section>
-      <AccountSecurity v-else :can-manage-email="canManage" />
-      <template v-if="access.role === 'owner'">
-        <section class="wide">
-          <span class="vital-kicker">{{ en.settings.turnstile }}</span>
-          <p class="hint">{{ en.settings.turnstileHint }}</p>
-          <p class="hint">
-            {{ security.turnstile.enabled ? "Enabled on sign-in" : "Not enabled" }}
-          </p>
-          <button type="button" @click="openTurnstile">
-            {{ security.turnstile.secretConfigured ? "Manage Turnstile" : "Set up Turnstile" }}
-          </button>
-          <p v-if="turnstileNote" class="form-warn" role="status">{{ turnstileNote }}</p>
-        </section>
-        <section class="wide">
-          <span class="vital-kicker">{{ en.settings.restrictions }}</span>
-          <p class="hint">{{ en.settings.restrictionsHint }}</p>
-          <form @submit.prevent="saveRestrictions">
-            <div class="switch-row security-master">
-              <span id="restrictions-label">{{ en.settings.restrictionsEnable }}</span>
+    <Transition name="settings-section" mode="out-in">
+      <div :key="section" class="settings-content">
+        <div v-if="section === 'panel'" class="page-stack">
+          <section class="wide">
+            <span class="vital-kicker">{{ en.shell.appearance }}</span>
+            <p class="hint">{{ en.shell.themeHint }}</p>
+            <div class="theme-row" role="radiogroup" :aria-label="en.shell.appearance">
               <button
+                v-for="item in themes"
+                :key="item.id"
+                class="theme-choice"
                 type="button"
-                class="switch"
-                role="switch"
-                :aria-checked="restrictionsEnabled"
-                aria-labelledby="restrictions-label"
+                role="radio"
+                :aria-checked="theme === item.id"
+                :aria-busy="busy === 'theme' && theme === item.id"
                 :disabled="Boolean(busy)"
-                @click="restrictionsEnabled = !restrictionsEnabled"
+                @click="saveTheme(item.id)"
               >
-                <span class="switch-thumb" />
+                <span
+                  v-if="busy === 'theme' && theme === item.id"
+                  class="spinner"
+                  aria-hidden="true"
+                />
+                {{ item.label }}
               </button>
             </div>
-            <p v-if="!restrictionsEnabled" class="security-warning" role="status">
-              <WarningOutlined aria-hidden="true" />
-              <span>{{ en.settings.restrictionsOff }}</span>
-            </p>
-            <fieldset class="security-policy" :disabled="!restrictionsEnabled || Boolean(busy)">
-              <div class="security-rule">
-                <div class="security-rule-head">
-                  <div>
-                    <strong>{{ en.settings.rateLimit }}</strong>
-                    <p class="hint">{{ en.settings.rateLimitHint }}</p>
-                  </div>
-                  <button
-                    type="button"
-                    class="switch"
-                    role="switch"
-                    :aria-checked="rateEnabled"
-                    :aria-label="en.settings.rateLimit"
-                    @click="rateEnabled = !rateEnabled"
-                  >
-                    <span class="switch-thumb" />
-                  </button>
-                </div>
-                <div v-if="rateEnabled" class="security-rule-body">
-                  <SelectField
-                    v-model="rateMode"
-                    :label="en.settings.rateMode"
-                    :options="rateModeOptions"
-                  />
-                  <p v-if="rateMode === 'default'" class="hint">
-                    {{ en.settings.rateDefaultHint }}
-                  </p>
-                  <div v-else class="security-number-grid">
-                    <label class="field">
-                      <span>{{ en.settings.attempts }}</span>
-                      <input
-                        v-model.number="rateAttempts"
-                        type="number"
-                        min="3"
-                        max="100"
-                        required
-                      />
-                    </label>
-                    <label class="field">
-                      <span>{{ en.settings.waitSeconds }}</span>
-                      <input
-                        v-model.number="rateWaitSec"
-                        type="number"
-                        min="1"
-                        max="31536000"
-                        required
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
-              <div class="security-rule">
-                <div class="security-rule-head">
-                  <div>
-                    <strong>{{ en.settings.banIp }}</strong>
-                    <p class="hint">{{ en.settings.banIpHint }}</p>
-                  </div>
-                  <button
-                    type="button"
-                    class="switch"
-                    role="switch"
-                    :aria-checked="banIpEnabled"
-                    :aria-label="en.settings.banIp"
-                    @click="banIpEnabled = !banIpEnabled"
-                  >
-                    <span class="switch-thumb" />
-                  </button>
-                </div>
-                <div v-if="banIpEnabled" class="security-rule-body security-number-grid">
-                  <label class="field">
-                    <span>{{ en.settings.attempts }}</span>
-                    <input
-                      v-model.number="banIpAttempts"
-                      type="number"
-                      min="3"
-                      max="100"
-                      required
-                    />
-                  </label>
-                  <SelectField
-                    v-model="banIpDuration"
-                    :label="en.settings.duration"
-                    :options="durationOptions"
-                  />
-                  <label v-if="banIpDuration === 'temporary'" class="field">
-                    <span>{{ en.settings.seconds }}</span>
-                    <input
-                      v-model.number="banIpSeconds"
-                      type="number"
-                      min="1"
-                      max="31536000"
-                      required
-                    />
-                  </label>
-                </div>
-              </div>
-              <div class="security-rule">
-                <div class="security-rule-head">
-                  <div>
-                    <strong>{{ en.settings.banPanel }}</strong>
-                    <p class="hint">{{ en.settings.banPanelHint }}</p>
-                  </div>
-                  <button
-                    type="button"
-                    class="switch"
-                    role="switch"
-                    :aria-checked="banPanelEnabled"
-                    :aria-label="en.settings.banPanel"
-                    @click="banPanelEnabled = !banPanelEnabled"
-                  >
-                    <span class="switch-thumb" />
-                  </button>
-                </div>
-                <template v-if="banPanelEnabled">
-                  <p class="security-warning" role="status">
-                    <WarningOutlined aria-hidden="true" />
-                    <span>{{ en.settings.panelLockWarning }}</span>
-                  </p>
-                  <div class="security-rule-body security-number-grid">
-                    <label class="field">
-                      <span>{{ en.settings.attempts }}</span>
-                      <input
-                        v-model.number="banPanelAttempts"
-                        type="number"
-                        min="3"
-                        max="100"
-                        required
-                      />
-                    </label>
-                    <SelectField
-                      v-model="banPanelDuration"
-                      :label="en.settings.duration"
-                      :options="durationOptions"
-                    />
-                    <label v-if="banPanelDuration === 'temporary'" class="field">
-                      <span>{{ en.settings.seconds }}</span>
-                      <input
-                        v-model.number="banPanelSeconds"
-                        type="number"
-                        min="1"
-                        max="31536000"
-                        required
-                      />
-                    </label>
-                  </div>
-                </template>
-              </div>
-            </fieldset>
-            <p v-if="restrictionError" class="form-error" role="alert">{{ restrictionError }}</p>
-            <p v-else-if="restrictionNote" class="form-warn" role="status">
-              {{ restrictionNote }}
-            </p>
-            <div class="actions">
-              <button type="submit" :disabled="Boolean(busy)">
-                {{ busy === "restrictions" ? en.shell.saving : en.settings.saveRestrictions }}
-              </button>
-            </div>
-          </form>
-        </section>
-        <section v-if="restrictionsEnabled && banIpEnabled" class="wide">
-          <span class="vital-kicker">{{ en.settings.blockedAddresses }}</span>
-          <p class="hint">{{ en.settings.blockedAddressesHint }}</p>
-          <p v-if="bansLoading" class="hint" aria-live="polite">
-            <span class="spinner" aria-hidden="true" />
-            {{ en.settings.loadingBans }}
-          </p>
-          <p v-else-if="bansError" class="form-error" role="alert">{{ bansError }}</p>
-          <p v-else-if="bannedIps.length === 0" class="security-empty">
-            {{ en.settings.noBlockedAddresses }}
-          </p>
-          <ul v-else class="ban-list">
-            <li v-for="entry in bannedIps" :key="entry.ip" class="ban-row">
-              <div>
-                <code>{{ entry.ip }}</code>
-                <p>
-                  {{ blockedUntil(entry) }} ·
-                  {{ en.settings.blockedFailures.replace("{count}", String(entry.failures)) }}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="quiet"
-                :disabled="Boolean(unbanBusy)"
-                @click="unban(entry.ip)"
-              >
-                {{ unbanBusy === entry.ip ? en.settings.unblocking : en.settings.unblock }}
-              </button>
-            </li>
-          </ul>
-          <p v-if="bansNote" class="form-warn" role="status">{{ bansNote }}</p>
-        </section>
-      </template>
-      <section v-if="!access.locked" class="wide">
-        <span class="vital-kicker">{{ en.shell.account }}</span>
-        <p class="hint">{{ username }}</p>
-        <button type="button" @click="openPassword">Change password</button>
-        <p v-if="passwordNote" class="form-warn" role="status">{{ passwordNote }}</p>
-      </section>
-    </div>
-    <div v-else-if="section === 'email' && canManage" class="page-stack"><EmailSettings /></div>
-    <div v-else-if="section === 'users' && access.role === 'owner'" class="page-stack">
-      <UserSettings :account-id="accountId" :nodes="nodes" />
-    </div>
-    <div v-else-if="section === 'updates'" class="page-stack">
-      <Transition name="update-result">
-        <div v-if="updateSuccessVersion" class="update-success" role="status">
-          <CheckCircleOutlined aria-hidden="true" />
-          <div>
-            <strong>{{
-              en.updates.updatedTitle.replace("{version}", updateSuccessVersion)
-            }}</strong>
-            <p>{{ en.updates.updatedHint }}</p>
-          </div>
-        </div>
-      </Transition>
-      <section class="wide update-panel-card">
-        <div class="update-section-head">
-          <div>
-            <span class="vital-kicker">{{ en.updates.panelTitle }}</span>
-            <p class="hint">{{ en.updates.panelHint }}</p>
-          </div>
-          <span
-            class="update-state-chip"
-            :data-state="
-              updateState === 'available'
-                ? 'warning'
-                : updateState === 'error'
-                  ? 'error'
-                  : updateState === 'checking' ||
-                      updateState === 'working' ||
-                      updateState === 'started'
-                    ? 'busy'
-                    : 'ok'
-            "
-          >
-            <span
-              v-if="
-                updateState === 'checking' || updateState === 'working' || updateState === 'started'
-              "
-              class="spinner"
-              aria-hidden="true"
-            />
-            <template v-if="updateState === 'checking'">{{ en.updates.checkingShort }}</template>
-            <template v-else-if="updateState === 'available'">{{
-              en.updates.availableShort
-            }}</template>
-            <template v-else-if="updateState === 'working'">{{
-              en.updates.installingShort
-            }}</template>
-            <template v-else-if="updateState === 'started'">{{
-              en.updates.restartingShort
-            }}</template>
-            <template v-else-if="updateState === 'error'">{{
-              en.updates.checkFailedShort
-            }}</template>
-            <template v-else>{{ en.updates.currentShort }}</template>
-          </span>
-        </div>
-        <div class="release-path" :data-available="updateVersion ? 'true' : 'false'">
-          <div>
-            <span>{{ en.updates.installed }}</span>
-            <strong>v{{ product.version }}</strong>
-          </div>
-          <span class="release-path-line" aria-hidden="true" />
-          <div>
-            <span>{{ en.updates.target }}</span>
-            <strong>{{ updateVersion ? `v${updateVersion}` : en.updates.noNewRelease }}</strong>
-          </div>
-        </div>
-        <div
-          v-if="updateState === 'started'"
-          class="panel-update-progress"
-          role="status"
-          aria-live="polite"
-          aria-busy="true"
-        >
-          <span class="panel-update-loader" aria-hidden="true">
-            <span class="spinner" />
-          </span>
-          <div>
-            <strong>{{ en.updates.waitingForRestart }}</strong>
-            <p>{{ en.shell.updateStarted }}</p>
-          </div>
-        </div>
-        <p
-          v-else
-          class="update-message"
-          aria-live="polite"
-          :class="{ 'form-error': updateState === 'error' }"
-          :aria-busy="updateState === 'checking' || updateState === 'working'"
-        >
-          <template v-if="updateState === 'checking'">{{ en.shell.updateChecking }}</template>
-          <template v-else-if="updateState === 'current'">{{ en.shell.updateCurrent }}</template>
-          <template v-else-if="updateState === 'available'">
-            {{ en.shell.updateAvailable.replace("{version}", updateVersion) }}
-          </template>
-          <template v-else-if="updateState === 'working'">{{ en.shell.updateWorking }}</template>
-          <template v-else>{{ updateError }}</template>
-        </p>
-        <p
-          v-if="updateState === 'available' && updateReviewRequired"
-          class="security-warning"
-          role="status"
-        >
-          <WarningOutlined aria-hidden="true" />
-          <span>{{ en.updates.automaticReviewPaused }}</span>
-        </p>
-        <div class="actions">
-          <template v-if="updateState === 'available' || updateState === 'working'">
-            <button
-              v-if="updateState === 'available'"
-              type="button"
-              class="quiet"
-              @click="releaseDetailsOpen = true"
-            >
-              {{ en.updates.viewChanges }}
-            </button>
-            <button type="button" :disabled="updateState === 'working'" @click="requestPanelUpdate">
-              <span v-if="updateState === 'working'" class="spinner" aria-hidden="true" />
-              {{
-                updateState === "working"
-                  ? en.shell.updateWorking
-                  : updateReviewRequired
-                    ? en.updates.reviewUpdate
-                    : en.shell.updateAction
-              }}
-            </button>
-          </template>
-          <button
-            v-else-if="
-              updateState === 'checking' || updateState === 'current' || updateState === 'error'
-            "
-            type="button"
-            :disabled="updateState === 'checking'"
-            :aria-busy="updateState === 'checking'"
-            @click="checkUpdates"
-          >
-            <span v-if="updateState === 'checking'" class="spinner" aria-hidden="true" />
-            {{ updateState === "checking" ? en.updates.checkingShort : en.shell.updateCheck }}
-          </button>
-        </div>
-      </section>
-
-      <section class="wide">
-        <div class="update-section-head">
-          <div>
-            <span class="vital-kicker">{{ en.updates.nodesTitle }}</span>
-            <p class="hint">{{ en.updates.nodesHint }}</p>
-          </div>
-          <span v-if="remoteNodes.length" class="fleet-count">
-            {{ en.updates.nodeCount.replace("{count}", String(remoteNodes.length)) }}
-          </span>
-        </div>
-        <p v-if="updateState === 'available'" class="security-warning" role="status">
-          <WarningOutlined aria-hidden="true" />
-          <span>{{ en.updates.panelFirstHint }}</span>
-        </p>
-        <div v-if="remoteNodes.length" class="update-node-list">
-          <article v-for="node in remoteNodes" :key="node.id" class="update-node-row">
-            <div class="update-node-main">
-              <span
-                class="node-dot"
-                :data-state="node.online ? 'online' : 'off'"
-                aria-hidden="true"
-              />
-              <div>
-                <strong>{{ updateNodeName(node) }}</strong>
-                <span>{{ node.arch || en.updates.archUnknown }}</span>
-              </div>
-            </div>
-            <div class="update-node-version">
-              <span>{{ en.updates.agentVersion }}</span>
-              <strong>{{ node.agentVersion ? `v${node.agentVersion}` : "—" }}</strong>
-            </div>
-            <div class="update-node-action">
-              <span class="node-update-state" :data-state="nodeVersionState(node)">
-                {{ nodeUpdateLabel(node) }}
-              </span>
-              <button
-                v-if="nodeVersionState(node) === 'outdated' && node.canUpdateAgent"
-                type="button"
-                class="quiet"
-                :disabled="!canUpdateNode(node)"
-                @click="updateAgent(node)"
-              >
-                <span v-if="agentBusy === node.id" class="spinner" aria-hidden="true" />
-                {{ agentBusy === node.id ? en.updates.updatingAgent : en.updates.updateAgent }}
-              </button>
-              <button
-                v-else-if="nodeVersionState(node) === 'outdated'"
-                type="button"
-                class="quiet"
-                @click="emit('openNode', node.id)"
-              >
-                {{ en.updates.manualSteps }}
-              </button>
-            </div>
+            <p v-if="themeError" class="form-error" role="alert">{{ themeError }}</p>
             <p
-              v-if="agentResult[node.id]"
-              class="agent-update-result"
-              :data-state="agentResult[node.id]?.kind"
+              v-else-if="themeNote"
+              :class="busy === 'theme' ? 'hint' : 'certificate-success'"
               role="status"
             >
-              {{ agentResult[node.id]?.text }}
+              {{ themeNote }}
+            </p>
+          </section>
+          <section class="wide">
+            <span class="vital-kicker">{{ en.shell.publicUrl }}</span>
+            <p class="hint">{{ en.shell.publicUrlHint }}</p>
+            <form @submit.prevent="savePublicUrl">
+              <label class="field">
+                <span>{{ en.shell.publicUrl }}</span>
+                <input
+                  v-model="publicUrl"
+                  type="url"
+                  inputmode="url"
+                  placeholder="https://panel.example.com"
+                />
+              </label>
+              <p class="hint"><a href="/certificates">Manage HTTPS and certificates →</a></p>
+              <p v-if="urlError" class="form-error" role="alert">{{ urlError }}</p>
+              <p v-else-if="urlNote" class="certificate-success" role="status">{{ urlNote }}</p>
+              <div class="actions">
+                <button type="submit" :disabled="Boolean(busy)" :aria-busy="busy === 'url'">
+                  <span v-if="busy === 'url'" class="spinner" aria-hidden="true" />
+                  {{ busy === "url" ? en.shell.saving : en.shell.save }}
+                </button>
+              </div>
+            </form>
+          </section>
+          <section class="wide">
+            <span class="vital-kicker">{{ en.shell.pollLabel }}</span>
+            <p class="hint">{{ en.shell.pollHint }}</p>
+            <form @submit.prevent="saveOps">
+              <SelectField
+                v-model="pollSec"
+                :label="en.shell.pollLabel"
+                :options="pollOptions"
+                :disabled="Boolean(busy)"
+              />
+              <SelectField
+                v-model="historyDays"
+                :label="en.shell.historyLabel"
+                :options="historyOptions"
+                :disabled="Boolean(busy)"
+              />
+              <p class="hint">{{ en.shell.historyKeepHint }}</p>
+              <SelectField
+                v-model="updateHours"
+                :label="en.shell.updateEvery"
+                :options="updateOptions"
+                :disabled="Boolean(busy)"
+              />
+              <p class="hint">{{ en.shell.updateEveryHint }}</p>
+              <div class="switch-row">
+                <span id="auto-update-label">{{ en.shell.autoUpdate }}</span>
+                <button
+                  type="button"
+                  class="switch"
+                  role="switch"
+                  :aria-checked="autoUpdate"
+                  aria-labelledby="auto-update-label"
+                  :disabled="Boolean(busy)"
+                  @click="autoUpdate = !autoUpdate"
+                >
+                  <span class="switch-thumb" />
+                </button>
+              </div>
+              <p class="hint">{{ en.shell.autoUpdateHint }}</p>
+              <p v-if="opsError" class="form-error" role="alert">{{ opsError }}</p>
+              <p v-else-if="opsNote" class="certificate-success" role="status">{{ opsNote }}</p>
+              <div class="actions">
+                <button type="submit" :disabled="Boolean(busy)" :aria-busy="busy === 'ops'">
+                  <span v-if="busy === 'ops'" class="spinner" aria-hidden="true" />
+                  {{ busy === "ops" ? en.shell.saving : en.shell.save }}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+        <div v-else-if="section === 'security'" class="page-stack">
+          <section v-if="access.locked" class="wide">
+            <h2>Read-only demo account</h2>
+            <p class="hint">
+              Explore the nodes and monitoring without changing the panel. Password and
+              authentication methods are managed by an owner.
+            </p>
+          </section>
+          <AccountSecurity v-else :can-manage-email="canManage" />
+          <template v-if="access.role === 'owner'">
+            <section class="wide">
+              <span class="vital-kicker">{{ en.settings.turnstile }}</span>
+              <p class="hint">{{ en.settings.turnstileHint }}</p>
+              <p class="settings-status" :data-enabled="security.turnstile.enabled">
+                {{ security.turnstile.enabled ? "Enabled on sign-in" : "Not enabled" }}
+              </p>
+              <div class="actions">
+                <button type="button" :disabled="Boolean(busy)" @click="openTurnstile">
+                  {{
+                    security.turnstile.secretConfigured ? "Manage Turnstile" : "Set up Turnstile"
+                  }}
+                </button>
+              </div>
+              <p
+                v-if="turnstileNote"
+                :class="clearTurnstileSecret ? 'form-warn' : 'certificate-success'"
+                role="status"
+              >
+                {{ turnstileNote }}
+              </p>
+            </section>
+            <section class="wide">
+              <span class="vital-kicker">{{ en.settings.restrictions }}</span>
+              <p class="hint">{{ en.settings.restrictionsHint }}</p>
+              <form @submit.prevent="saveRestrictions">
+                <div class="switch-row security-master">
+                  <span id="restrictions-label">{{ en.settings.restrictionsEnable }}</span>
+                  <button
+                    type="button"
+                    class="switch"
+                    role="switch"
+                    :aria-checked="restrictionsEnabled"
+                    aria-labelledby="restrictions-label"
+                    :disabled="Boolean(busy)"
+                    @click="restrictionsEnabled = !restrictionsEnabled"
+                  >
+                    <span class="switch-thumb" />
+                  </button>
+                </div>
+                <p v-if="!restrictionsEnabled" class="security-warning" role="status">
+                  <WarningOutlined aria-hidden="true" />
+                  <span>{{ en.settings.restrictionsOff }}</span>
+                </p>
+                <fieldset class="security-policy" :disabled="!restrictionsEnabled || Boolean(busy)">
+                  <div class="security-rule">
+                    <div class="security-rule-head">
+                      <div>
+                        <strong>{{ en.settings.rateLimit }}</strong>
+                        <p class="hint">{{ en.settings.rateLimitHint }}</p>
+                      </div>
+                      <button
+                        type="button"
+                        class="switch"
+                        role="switch"
+                        :aria-checked="rateEnabled"
+                        :aria-label="en.settings.rateLimit"
+                        @click="rateEnabled = !rateEnabled"
+                      >
+                        <span class="switch-thumb" />
+                      </button>
+                    </div>
+                    <div v-if="rateEnabled" class="security-rule-body">
+                      <SelectField
+                        v-model="rateMode"
+                        :label="en.settings.rateMode"
+                        :options="rateModeOptions"
+                      />
+                      <p v-if="rateMode === 'default'" class="hint">
+                        {{ en.settings.rateDefaultHint }}
+                      </p>
+                      <div v-else class="security-number-grid">
+                        <label class="field">
+                          <span>{{ en.settings.attempts }}</span>
+                          <input
+                            v-model.number="rateAttempts"
+                            type="number"
+                            min="3"
+                            max="100"
+                            required
+                          />
+                        </label>
+                        <label class="field">
+                          <span>{{ en.settings.waitSeconds }}</span>
+                          <input
+                            v-model.number="rateWaitSec"
+                            type="number"
+                            min="1"
+                            max="31536000"
+                            required
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="security-rule">
+                    <div class="security-rule-head">
+                      <div>
+                        <strong>{{ en.settings.banIp }}</strong>
+                        <p class="hint">{{ en.settings.banIpHint }}</p>
+                      </div>
+                      <button
+                        type="button"
+                        class="switch"
+                        role="switch"
+                        :aria-checked="banIpEnabled"
+                        :aria-label="en.settings.banIp"
+                        @click="banIpEnabled = !banIpEnabled"
+                      >
+                        <span class="switch-thumb" />
+                      </button>
+                    </div>
+                    <div v-if="banIpEnabled" class="security-rule-body security-number-grid">
+                      <label class="field">
+                        <span>{{ en.settings.attempts }}</span>
+                        <input
+                          v-model.number="banIpAttempts"
+                          type="number"
+                          min="3"
+                          max="100"
+                          required
+                        />
+                      </label>
+                      <SelectField
+                        v-model="banIpDuration"
+                        :label="en.settings.duration"
+                        :options="durationOptions"
+                      />
+                      <label v-if="banIpDuration === 'temporary'" class="field">
+                        <span>{{ en.settings.seconds }}</span>
+                        <input
+                          v-model.number="banIpSeconds"
+                          type="number"
+                          min="1"
+                          max="31536000"
+                          required
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  <div class="security-rule">
+                    <div class="security-rule-head">
+                      <div>
+                        <strong>{{ en.settings.banPanel }}</strong>
+                        <p class="hint">{{ en.settings.banPanelHint }}</p>
+                      </div>
+                      <button
+                        type="button"
+                        class="switch"
+                        role="switch"
+                        :aria-checked="banPanelEnabled"
+                        :aria-label="en.settings.banPanel"
+                        @click="banPanelEnabled = !banPanelEnabled"
+                      >
+                        <span class="switch-thumb" />
+                      </button>
+                    </div>
+                    <template v-if="banPanelEnabled">
+                      <p class="security-warning" role="status">
+                        <WarningOutlined aria-hidden="true" />
+                        <span>{{ en.settings.panelLockWarning }}</span>
+                      </p>
+                      <div class="security-rule-body security-number-grid">
+                        <label class="field">
+                          <span>{{ en.settings.attempts }}</span>
+                          <input
+                            v-model.number="banPanelAttempts"
+                            type="number"
+                            min="3"
+                            max="100"
+                            required
+                          />
+                        </label>
+                        <SelectField
+                          v-model="banPanelDuration"
+                          :label="en.settings.duration"
+                          :options="durationOptions"
+                        />
+                        <label v-if="banPanelDuration === 'temporary'" class="field">
+                          <span>{{ en.settings.seconds }}</span>
+                          <input
+                            v-model.number="banPanelSeconds"
+                            type="number"
+                            min="1"
+                            max="31536000"
+                            required
+                          />
+                        </label>
+                      </div>
+                    </template>
+                  </div>
+                </fieldset>
+                <p v-if="restrictionError" class="form-error" role="alert">
+                  {{ restrictionError }}
+                </p>
+                <p v-else-if="restrictionNote" class="certificate-success" role="status">
+                  {{ restrictionNote }}
+                </p>
+                <div class="actions">
+                  <button
+                    type="submit"
+                    :disabled="Boolean(busy)"
+                    :aria-busy="busy === 'restrictions'"
+                  >
+                    <span v-if="busy === 'restrictions'" class="spinner" aria-hidden="true" />
+                    {{ busy === "restrictions" ? en.shell.saving : en.settings.saveRestrictions }}
+                  </button>
+                </div>
+              </form>
+            </section>
+            <section v-if="restrictionsEnabled && banIpEnabled" class="wide">
+              <span class="vital-kicker">{{ en.settings.blockedAddresses }}</span>
+              <p class="hint">{{ en.settings.blockedAddressesHint }}</p>
+              <p v-if="bansLoading" class="hint" aria-live="polite">
+                <span class="spinner" aria-hidden="true" />
+                {{ en.settings.loadingBans }}
+              </p>
+              <div v-else-if="bansError" class="settings-load-error">
+                <p class="form-error" role="alert">{{ bansError }}</p>
+                <button type="button" class="quiet" :disabled="bansLoading" @click="loadBans">
+                  Retry blocked addresses
+                </button>
+              </div>
+              <p v-else-if="bannedIps.length === 0" class="security-empty">
+                {{ en.settings.noBlockedAddresses }}
+              </p>
+              <ul v-else class="ban-list">
+                <li v-for="entry in bannedIps" :key="entry.ip" class="ban-row">
+                  <div>
+                    <code>{{ entry.ip }}</code>
+                    <p>
+                      {{ blockedUntil(entry) }} ·
+                      {{ en.settings.blockedFailures.replace("{count}", String(entry.failures)) }}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    class="quiet"
+                    :disabled="Boolean(unbanBusy)"
+                    @click="unban(entry.ip)"
+                  >
+                    <span v-if="unbanBusy === entry.ip" class="spinner" aria-hidden="true" />
+                    {{ unbanBusy === entry.ip ? en.settings.unblocking : en.settings.unblock }}
+                  </button>
+                </li>
+              </ul>
+              <p v-if="bansNote" class="certificate-success" role="status">{{ bansNote }}</p>
+            </section>
+          </template>
+          <section v-if="!access.locked" class="wide">
+            <span class="vital-kicker">{{ en.shell.account }}</span>
+            <p class="hint">{{ username }}</p>
+            <div class="actions">
+              <button type="button" :disabled="Boolean(busy)" @click="openPassword">
+                Change password
+              </button>
+            </div>
+            <p v-if="passwordNote" class="certificate-success" role="status">{{ passwordNote }}</p>
+          </section>
+        </div>
+        <div v-else-if="section === 'email' && canManage" class="page-stack"><EmailSettings /></div>
+        <div v-else-if="section === 'users' && access.role === 'owner'" class="page-stack">
+          <UserSettings :account-id="accountId" :nodes="nodes" />
+        </div>
+        <div v-else-if="section === 'updates'" class="page-stack">
+          <Transition name="update-result">
+            <div v-if="updateSuccessVersion" class="update-success" role="status">
+              <CheckCircleOutlined aria-hidden="true" />
+              <div>
+                <strong>{{
+                  en.updates.updatedTitle.replace("{version}", updateSuccessVersion)
+                }}</strong>
+                <p>{{ en.updates.updatedHint }}</p>
+              </div>
+            </div>
+          </Transition>
+          <section class="wide update-panel-card">
+            <div class="update-section-head">
+              <div>
+                <span class="vital-kicker">{{ en.updates.panelTitle }}</span>
+                <p class="hint">{{ en.updates.panelHint }}</p>
+              </div>
+              <span
+                class="update-state-chip"
+                :data-state="
+                  updateState === 'available'
+                    ? 'warning'
+                    : updateState === 'error'
+                      ? 'error'
+                      : updateState === 'checking' ||
+                          updateState === 'working' ||
+                          updateState === 'started'
+                        ? 'busy'
+                        : 'ok'
+                "
+              >
+                <span
+                  v-if="
+                    updateState === 'checking' ||
+                    updateState === 'working' ||
+                    updateState === 'started'
+                  "
+                  class="spinner"
+                  aria-hidden="true"
+                />
+                <template v-if="updateState === 'checking'">{{
+                  en.updates.checkingShort
+                }}</template>
+                <template v-else-if="updateState === 'available'">{{
+                  en.updates.availableShort
+                }}</template>
+                <template v-else-if="updateState === 'working'">{{
+                  en.updates.installingShort
+                }}</template>
+                <template v-else-if="updateState === 'started'">{{
+                  en.updates.restartingShort
+                }}</template>
+                <template v-else-if="updateState === 'error'">{{
+                  en.updates.checkFailedShort
+                }}</template>
+                <template v-else>{{ en.updates.currentShort }}</template>
+              </span>
+            </div>
+            <div class="release-path" :data-available="updateVersion ? 'true' : 'false'">
+              <div>
+                <span>{{ en.updates.installed }}</span>
+                <strong>v{{ product.version }}</strong>
+              </div>
+              <span class="release-path-line" aria-hidden="true" />
+              <div>
+                <span>{{ en.updates.target }}</span>
+                <strong>{{ updateVersion ? `v${updateVersion}` : en.updates.noNewRelease }}</strong>
+              </div>
+            </div>
+            <div
+              v-if="updateState === 'started'"
+              class="panel-update-progress"
+              role="status"
+              aria-live="polite"
+              aria-busy="true"
+            >
+              <span class="panel-update-loader" aria-hidden="true">
+                <span class="spinner" />
+              </span>
+              <div>
+                <strong>{{ en.updates.waitingForRestart }}</strong>
+                <p>{{ en.shell.updateStarted }}</p>
+              </div>
+            </div>
+            <p
+              v-else
+              class="update-message"
+              aria-live="polite"
+              :class="{ 'form-error': updateState === 'error' }"
+              :aria-busy="updateState === 'checking' || updateState === 'working'"
+            >
+              <template v-if="updateState === 'checking'">{{ en.shell.updateChecking }}</template>
+              <template v-else-if="updateState === 'current'">{{
+                en.shell.updateCurrent
+              }}</template>
+              <template v-else-if="updateState === 'available'">
+                {{ en.shell.updateAvailable.replace("{version}", updateVersion) }}
+              </template>
+              <template v-else-if="updateState === 'working'">{{
+                en.shell.updateWorking
+              }}</template>
+              <template v-else>{{ updateError }}</template>
             </p>
             <p
-              v-else-if="nodeVersionState(node) === 'outdated' && !node.canUpdateAgent"
-              class="agent-update-result"
-              data-state="manual"
+              v-if="updateState === 'available' && updateReviewRequired"
+              class="security-warning"
+              role="status"
             >
-              {{ en.updates.nodeManualHint }}
+              <WarningOutlined aria-hidden="true" />
+              <span>{{ en.updates.automaticReviewPaused }}</span>
             </p>
-          </article>
-        </div>
-        <div v-else class="update-empty">
-          <CloudSyncOutlined aria-hidden="true" />
-          <div>
-            <strong>{{ en.updates.noRemoteNodes }}</strong>
-            <p>{{ en.updates.noRemoteNodesHint }}</p>
-          </div>
-        </div>
-      </section>
-      <SecurityUpdatePolicy v-if="access.role === 'owner'" @changed="emit('securityUpdated')" />
-    </div>
+            <div class="actions">
+              <template v-if="updateState === 'available' || updateState === 'working'">
+                <button
+                  v-if="updateState === 'available'"
+                  type="button"
+                  class="quiet"
+                  @click="releaseDetailsOpen = true"
+                >
+                  {{ en.updates.viewChanges }}
+                </button>
+                <button
+                  type="button"
+                  :disabled="updateState === 'working'"
+                  @click="requestPanelUpdate"
+                >
+                  <span v-if="updateState === 'working'" class="spinner" aria-hidden="true" />
+                  {{
+                    updateState === "working"
+                      ? en.shell.updateWorking
+                      : updateReviewRequired
+                        ? en.updates.reviewUpdate
+                        : en.shell.updateAction
+                  }}
+                </button>
+              </template>
+              <button
+                v-else-if="
+                  updateState === 'checking' || updateState === 'current' || updateState === 'error'
+                "
+                type="button"
+                :disabled="updateState === 'checking'"
+                :aria-busy="updateState === 'checking'"
+                @click="checkUpdates"
+              >
+                <span v-if="updateState === 'checking'" class="spinner" aria-hidden="true" />
+                {{ updateState === "checking" ? en.updates.checkingShort : en.shell.updateCheck }}
+              </button>
+            </div>
+          </section>
 
-    <div v-else class="page-stack">
-      <section class="wide about-hero">
-        <div class="about-mark" aria-hidden="true">U</div>
-        <div class="about-copy">
-          <span class="vital-kicker">{{ product.name }}</span>
-          <h2>{{ product.tagline }}</h2>
-          <p>{{ en.about.description }}</p>
+          <section class="wide">
+            <div class="update-section-head">
+              <div>
+                <span class="vital-kicker">{{ en.updates.nodesTitle }}</span>
+                <p class="hint">{{ en.updates.nodesHint }}</p>
+              </div>
+              <span v-if="remoteNodes.length" class="fleet-count">
+                {{ en.updates.nodeCount.replace("{count}", String(remoteNodes.length)) }}
+              </span>
+            </div>
+            <p v-if="updateState === 'available'" class="security-warning" role="status">
+              <WarningOutlined aria-hidden="true" />
+              <span>{{ en.updates.panelFirstHint }}</span>
+            </p>
+            <div v-if="remoteNodes.length" class="update-node-list">
+              <article v-for="node in remoteNodes" :key="node.id" class="update-node-row">
+                <div class="update-node-main">
+                  <span
+                    class="node-dot"
+                    :data-state="node.online ? 'online' : 'off'"
+                    aria-hidden="true"
+                  />
+                  <div>
+                    <strong>{{ updateNodeName(node) }}</strong>
+                    <span>{{ node.arch || en.updates.archUnknown }}</span>
+                  </div>
+                </div>
+                <div class="update-node-version">
+                  <span>{{ en.updates.agentVersion }}</span>
+                  <strong>{{ node.agentVersion ? `v${node.agentVersion}` : "—" }}</strong>
+                </div>
+                <div class="update-node-action">
+                  <span class="node-update-state" :data-state="nodeVersionState(node)">
+                    {{ nodeUpdateLabel(node) }}
+                  </span>
+                  <button
+                    v-if="nodeVersionState(node) === 'outdated' && node.canUpdateAgent"
+                    type="button"
+                    class="quiet"
+                    :disabled="!canUpdateNode(node)"
+                    @click="updateAgent(node)"
+                  >
+                    <span v-if="agentBusy === node.id" class="spinner" aria-hidden="true" />
+                    {{ agentBusy === node.id ? en.updates.updatingAgent : en.updates.updateAgent }}
+                  </button>
+                  <button
+                    v-else-if="nodeVersionState(node) === 'outdated'"
+                    type="button"
+                    class="quiet"
+                    @click="emit('openNode', node.id)"
+                  >
+                    {{ en.updates.manualSteps }}
+                  </button>
+                </div>
+                <p
+                  v-if="agentResult[node.id]"
+                  class="agent-update-result"
+                  :data-state="agentResult[node.id]?.kind"
+                  role="status"
+                >
+                  {{ agentResult[node.id]?.text }}
+                </p>
+                <p
+                  v-else-if="nodeVersionState(node) === 'outdated' && !node.canUpdateAgent"
+                  class="agent-update-result"
+                  data-state="manual"
+                >
+                  {{ en.updates.nodeManualHint }}
+                </p>
+              </article>
+            </div>
+            <div v-else class="update-empty">
+              <CloudSyncOutlined aria-hidden="true" />
+              <div>
+                <strong>{{ en.updates.noRemoteNodes }}</strong>
+                <p>{{ en.updates.noRemoteNodesHint }}</p>
+              </div>
+            </div>
+          </section>
+          <SecurityUpdatePolicy v-if="access.role === 'owner'" @changed="emit('securityUpdated')" />
         </div>
-        <div class="about-build">
-          <span>{{ en.about.runningVersion }}</span>
-          <strong>v{{ product.version }}</strong>
-          <small>{{ product.version.includes("-") ? en.about.prerelease : en.about.stable }}</small>
-        </div>
-      </section>
-      <section class="wide about-provenance">
-        <div>
-          <span class="vital-kicker">{{ en.about.openSource }}</span>
-          <p>{{ en.about.licenseHint.replace("{license}", product.license) }}</p>
-        </div>
-        <a
-          class="about-source-link"
-          :href="product.sourceUrl"
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          <span>
-            <small>{{ en.shell.source }}</small>
-            <strong>{{ product.sourceUrl.replace("https://", "") }}</strong>
-          </span>
-          <span aria-hidden="true">↗</span>
-        </a>
-      </section>
-    </div>
 
+        <div v-else class="page-stack">
+          <section class="wide about-hero">
+            <div class="about-mark" aria-hidden="true">U</div>
+            <div class="about-copy">
+              <span class="vital-kicker">{{ product.name }}</span>
+              <h2>{{ product.tagline }}</h2>
+              <p>{{ en.about.description }}</p>
+            </div>
+            <div class="about-build">
+              <span>{{ en.about.runningVersion }}</span>
+              <strong>v{{ product.version }}</strong>
+              <small>{{
+                product.version.includes("-") ? en.about.prerelease : en.about.stable
+              }}</small>
+            </div>
+          </section>
+          <section class="wide about-provenance">
+            <div>
+              <span class="vital-kicker">{{ en.about.openSource }}</span>
+              <p>{{ en.about.licenseHint.replace("{license}", product.license) }}</p>
+            </div>
+            <a
+              class="about-source-link"
+              :href="product.sourceUrl"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              <span>
+                <small>{{ en.shell.source }}</small>
+                <strong>{{ product.sourceUrl.replace("https://", "") }}</strong>
+              </span>
+              <span aria-hidden="true">↗</span>
+            </a>
+          </section>
+        </div>
+      </div>
+    </Transition>
     <AppDialog :open="passwordOpen" title="Change password" narrow @close="closePassword">
       <p class="hint" role="status">
         Step {{ passwordStep }} of 3 ·
@@ -1505,51 +1578,53 @@ onUnmounted(() => {
       </p>
       <form id="password-guide" @submit.prevent="advancePassword">
         <fieldset :disabled="Boolean(busy)">
-          <template v-if="passwordStep === 1">
-            <p>Enter your current password. It will be verified when you save the change.</p>
-            <label class="field"
-              ><span>Current password</span
-              ><input
-                v-model="current"
-                type="password"
-                autocomplete="current-password"
-                required
-                maxlength="128"
-            /></label>
-          </template>
-          <template v-else-if="passwordStep === 2">
-            <label class="field"
-              ><span>New password</span
-              ><input
-                v-model="next"
-                type="password"
-                autocomplete="new-password"
-                required
-                minlength="10"
-                maxlength="128"
-            /></label>
-            <label class="field"
-              ><span>Confirm new password</span
-              ><input
-                v-model="confirmation"
-                type="password"
-                autocomplete="new-password"
-                required
-                minlength="10"
-                maxlength="128"
-            /></label>
-            <p v-if="strength" class="hint">{{ strength }}</p>
-            <p v-if="confirmation && confirmation !== next" class="form-error">
-              The passwords do not match.
-            </p>
-          </template>
-          <template v-else>
-            <p>
-              Your password will change for <strong>{{ username }}</strong
-              >. This browser stays signed in. Other sessions and unfinished sign-ins will end.
-            </p>
-            <p class="hint">Save the new password in your password manager before continuing.</p>
-          </template>
+          <div :key="passwordStep" class="settings-form-step">
+            <template v-if="passwordStep === 1">
+              <p>Enter your current password. It will be verified when you save the change.</p>
+              <label class="field"
+                ><span>Current password</span
+                ><input
+                  v-model="current"
+                  type="password"
+                  autocomplete="current-password"
+                  required
+                  maxlength="128"
+              /></label>
+            </template>
+            <template v-else-if="passwordStep === 2">
+              <label class="field"
+                ><span>New password</span
+                ><input
+                  v-model="next"
+                  type="password"
+                  autocomplete="new-password"
+                  required
+                  minlength="10"
+                  maxlength="128"
+              /></label>
+              <label class="field"
+                ><span>Confirm new password</span
+                ><input
+                  v-model="confirmation"
+                  type="password"
+                  autocomplete="new-password"
+                  required
+                  minlength="10"
+                  maxlength="128"
+              /></label>
+              <p v-if="strength" class="hint">{{ strength }}</p>
+              <p v-if="confirmation && confirmation !== next" class="form-error">
+                The passwords do not match.
+              </p>
+            </template>
+            <template v-else>
+              <p>
+                Your password will change for <strong>{{ username }}</strong
+                >. This browser stays signed in. Other sessions and unfinished sign-ins will end.
+              </p>
+              <p class="hint">Save the new password in your password manager before continuing.</p>
+            </template>
+          </div>
         </fieldset>
         <p v-if="passwordError" class="form-error" role="alert">{{ passwordError }}</p>
       </form>
@@ -1565,6 +1640,7 @@ onUnmounted(() => {
           form="password-guide"
           class="primary"
           type="submit"
+          :aria-busy="busy === 'password'"
           :disabled="Boolean(busy) || (passwordStep === 2 && (!next || confirmation !== next))"
         >
           <span v-if="busy === 'password'" class="spinner" aria-hidden="true" />{{
@@ -1595,93 +1671,96 @@ onUnmounted(() => {
         "
       >
         <fieldset :disabled="Boolean(busy)">
-          <template v-if="turnstileStep === 1">
-            <p>
-              Create a widget in
-              <a
-                href="https://dash.cloudflare.com/?to=/:account/turnstile"
-                target="_blank"
-                rel="noopener noreferrer"
-                >Cloudflare Turnstile ↗</a
-              >. Choose Managed mode and add the hostname you use to open this panel.
-            </p>
-            <label class="field"
-              ><span
-                ><input v-model="turnstileEnabled" type="checkbox" /> Enable verification on
-                sign-in</span
-              ></label
-            >
-            <label class="field"
-              ><span>Site key</span
-              ><input
-                v-model="turnstileSiteKey"
-                :required="turnstileEnabled"
-                maxlength="200"
-                autocomplete="off"
-            /></label>
-            <label class="field"
-              ><span>Secret key</span
-              ><input
-                v-model="turnstileSecret"
-                type="password"
-                :required="turnstileEnabled && (!turnstileSecretConfigured || clearTurnstileSecret)"
-                maxlength="500"
-                autocomplete="new-password"
-                @input="clearTurnstileSecret = false"
-            /></label>
-            <p class="hint">
-              {{
-                turnstileSecretConfigured && !clearTurnstileSecret
-                  ? "Leave the secret blank to keep the saved key."
-                  : "Both keys come from the same Cloudflare widget."
-              }}
-            </p>
-            <button
-              v-if="turnstileSecretConfigured && !clearTurnstileSecret"
-              class="quiet"
-              type="button"
-              @click="removeTurnstileSecret"
-            >
-              Remove saved secret and disable
-            </button>
-          </template>
-          <template v-else-if="turnstileStep === 2">
-            <p>
-              Complete this challenge to check your site key, allowed hostname and secret before
-              enabling sign-in verification.
-            </p>
-            <TurnstileWidget
-              :key="challengeVersion"
-              v-model="challengeToken"
-              :site-key="turnstileSiteKey.trim()"
-              :theme="theme === 'light' ? 'light' : 'dark'"
-              @error="turnstileError = $event"
-            />
-            <button
-              class="quiet"
-              type="button"
-              @click="
-                challengeToken = '';
-                challengeVersion++;
-                turnstileError = '';
-              "
-            >
-              Reload challenge
-            </button>
-          </template>
-          <template v-else>
-            <p v-if="turnstileEnabled">
-              The server verified your test. Turnstile will be required on the next sign-in.
-            </p>
-            <p v-else class="security-warning">
-              Turnstile verification will be disabled. Your password and authentication methods
-              still apply.
-            </p>
-            <p v-if="clearTurnstileSecret" class="hint">The saved secret will also be removed.</p>
-            <p class="hint">
-              Keep this browser signed in while you test a new sign-in in another browser.
-            </p>
-          </template>
+          <div :key="turnstileStep" class="settings-form-step">
+            <template v-if="turnstileStep === 1">
+              <p>
+                Create a widget in
+                <a
+                  href="https://dash.cloudflare.com/?to=/:account/turnstile"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >Cloudflare Turnstile ↗</a
+                >. Choose Managed mode and add the hostname you use to open this panel.
+              </p>
+              <label class="field"
+                ><span
+                  ><input v-model="turnstileEnabled" type="checkbox" /> Enable verification on
+                  sign-in</span
+                ></label
+              >
+              <label class="field"
+                ><span>Site key</span
+                ><input
+                  v-model="turnstileSiteKey"
+                  :required="turnstileEnabled"
+                  maxlength="200"
+                  autocomplete="off"
+              /></label>
+              <label class="field"
+                ><span>Secret key</span
+                ><input
+                  v-model="turnstileSecret"
+                  type="password"
+                  :required="
+                    turnstileEnabled && (!turnstileSecretConfigured || clearTurnstileSecret)
+                  "
+                  maxlength="500"
+                  autocomplete="new-password"
+                  @input="clearTurnstileSecret = false"
+              /></label>
+              <p class="hint">
+                {{
+                  turnstileSecretConfigured && !clearTurnstileSecret
+                    ? "Leave the secret blank to keep the saved key."
+                    : "Both keys come from the same Cloudflare widget."
+                }}
+              </p>
+              <div v-if="turnstileSecretConfigured && !clearTurnstileSecret" class="actions">
+                <button class="quiet" type="button" @click="removeTurnstileSecret">
+                  Remove saved secret and disable
+                </button>
+              </div>
+            </template>
+            <template v-else-if="turnstileStep === 2">
+              <p>
+                Complete this challenge to check your site key, allowed hostname and secret before
+                enabling sign-in verification.
+              </p>
+              <TurnstileWidget
+                :key="challengeVersion"
+                v-model="challengeToken"
+                :site-key="turnstileSiteKey.trim()"
+                :theme="theme === 'light' ? 'light' : 'dark'"
+                @error="turnstileError = $event"
+              />
+              <div class="actions">
+                <button
+                  class="quiet"
+                  type="button"
+                  @click="
+                    challengeToken = '';
+                    challengeVersion++;
+                    turnstileError = '';
+                  "
+                >
+                  Reload challenge
+                </button>
+              </div>
+            </template>
+            <template v-else>
+              <p v-if="turnstileEnabled">
+                The server verified your test. Turnstile will be required on the next sign-in.
+              </p>
+              <p v-else class="security-warning">
+                Turnstile verification will be disabled. Your password and authentication methods
+                still apply.
+              </p>
+              <p v-if="clearTurnstileSecret" class="hint">The saved secret will also be removed.</p>
+              <p class="hint">
+                Keep this browser signed in while you test a new sign-in in another browser.
+              </p>
+            </template>
+          </div>
         </fieldset>
         <p v-if="turnstileError" class="form-error" role="alert">{{ turnstileError }}</p>
       </form>
@@ -1697,6 +1776,7 @@ onUnmounted(() => {
           form="turnstile-guide"
           type="submit"
           class="primary"
+          :aria-busy="Boolean(busy)"
           :disabled="Boolean(busy) || (turnstileStep === 2 && !challengeToken)"
         >
           <span v-if="busy" class="spinner" aria-hidden="true" />{{
@@ -1722,3 +1802,76 @@ onUnmounted(() => {
     />
   </div>
 </template>
+<style scoped>
+.settings-content {
+  min-width: 0;
+}
+.settings-content > .page-stack {
+  gap: 16px;
+}
+.settings-content :deep(.wide) {
+  min-width: 0;
+}
+.settings-content :deep(.wide > h2) {
+  margin: 0;
+  font-size: 16px;
+}
+.settings-status {
+  display: inline-flex;
+  align-items: center;
+  margin: 16px 0 0;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.settings-status[data-enabled="true"] {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 35%, var(--line));
+}
+.settings-load-error {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-top: 16px;
+}
+.settings-load-error .form-error {
+  margin: 0;
+}
+.settings-section-enter-active {
+  transition:
+    opacity var(--dur) var(--ease-out),
+    transform var(--dur) var(--ease-out);
+}
+.settings-section-leave-active {
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+  pointer-events: none;
+}
+.settings-section-enter-from,
+.settings-section-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+@media (max-width: 640px) {
+  .settings-content > .page-stack {
+    gap: 12px;
+  }
+  .settings-content :deep(.account-section-head > div),
+  .settings-content :deep(.account-method-list li > div) {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .settings-content :deep(.account-method-list li) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .settings-content :deep(.account-method-list .actions) {
+    justify-content: flex-start;
+  }
+}
+</style>

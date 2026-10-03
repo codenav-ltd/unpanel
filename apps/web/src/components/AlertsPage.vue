@@ -80,6 +80,7 @@ async function refresh(): Promise<void> {
   }
 }
 async function act(path: string, method: string, body: unknown, success: string): Promise<boolean> {
+  if (busy.value || disposed) return false;
   busy.value = path;
   error.value = "";
   note.value = "";
@@ -250,6 +251,7 @@ onUnmounted(() => {
               <button
                 class="quiet"
                 :disabled="Boolean(busy) || Boolean(incident.acknowledgedAt)"
+                :aria-busy="busy === `/incidents/${incident.id}/acknowledge`"
                 @click="
                   act(
                     `/incidents/${incident.id}/acknowledge`,
@@ -290,13 +292,17 @@ onUnmounted(() => {
                 Start with sensible defaults, then tune thresholds and destinations.
               </p>
             </div>
-            <button class="primary" @click="editRule(null)">Create rule</button>
+            <button class="primary" :disabled="Boolean(busy)" @click="editRule(null)">
+              Create rule
+            </button>
           </div>
           <div v-if="!data.rules.length" class="alert-empty">
             <SettingOutlined aria-hidden="true" />
             <h3>No rules configured</h3>
             <p>Create a rule to watch resource usage, offline nodes, or your panel certificate.</p>
-            <button class="primary" @click="editRule(null)">Create your first rule</button>
+            <button class="primary" :disabled="Boolean(busy)" @click="editRule(null)">
+              Create your first rule
+            </button>
           </div>
           <article v-for="rule in data.rules" :key="rule.id" class="alert-item">
             <div class="alert-item-main">
@@ -326,7 +332,7 @@ onUnmounted(() => {
               >
             </div>
             <div class="alert-actions">
-              <button class="quiet" @click="editRule(rule)">Edit</button
+              <button class="quiet" :disabled="Boolean(busy)" @click="editRule(rule)">Edit</button
               ><button
                 class="quiet"
                 :disabled="Boolean(busy)"
@@ -358,7 +364,9 @@ onUnmounted(() => {
                 Get messages in a private conversation or group. The guide finds your conversation
                 for you.
               </p>
-              <button class="primary" @click="editTelegram(null)">Open Telegram setup guide</button>
+              <button class="primary" :disabled="Boolean(busy)" @click="editTelegram(null)">
+                Open Telegram setup guide
+              </button>
             </article>
             <article class="alert-channel-option">
               <MailOutlined aria-hidden="true" />
@@ -367,7 +375,9 @@ onUnmounted(() => {
                 Select a saved email method and add recipients. Manage providers once in Settings →
                 Email.
               </p>
-              <button class="quiet" @click="editEmail(null)">Connect email</button>
+              <button class="quiet" :disabled="Boolean(busy)" @click="editEmail(null)">
+                Connect email
+              </button>
             </article>
           </div>
           <p v-if="!data.channels.length" class="hint">
@@ -396,6 +406,7 @@ onUnmounted(() => {
               <button
                 class="quiet"
                 :disabled="Boolean(busy) || !channel.enabled"
+                :aria-busy="busy === `/channels/${channel.id}/test`"
                 @click="
                   act(
                     `/channels/${channel.id}/test`,
@@ -413,6 +424,7 @@ onUnmounted(() => {
               ><button
                 class="quiet"
                 :disabled="Boolean(busy)"
+                :aria-busy="busy === `/channels/${channel.id}`"
                 @click="
                   act(
                     `/channels/${channel.id}`,
@@ -526,7 +538,12 @@ onUnmounted(() => {
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       <template #footer
         ><button class="quiet" :disabled="Boolean(busy)" @click="removal = null">Cancel</button
-        ><button class="danger" :disabled="Boolean(busy)" @click="remove">
+        ><button
+          class="danger"
+          :disabled="Boolean(busy)"
+          :aria-busy="Boolean(busy)"
+          @click="remove"
+        >
           <span v-if="busy" class="button-spinner" aria-hidden="true" />Remove
         </button></template
       ></AppDialog
@@ -555,7 +572,12 @@ onUnmounted(() => {
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       <template #footer
         ><button class="quiet" :disabled="Boolean(busy)" @click="silence = null">Cancel</button
-        ><button class="primary" :disabled="Boolean(busy)" @click="saveSilence">
+        ><button
+          class="primary"
+          :disabled="Boolean(busy)"
+          :aria-busy="Boolean(busy)"
+          @click="saveSilence"
+        >
           <span v-if="busy" class="button-spinner" aria-hidden="true" />Apply
         </button></template
       ></AppDialog

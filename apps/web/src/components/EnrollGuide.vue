@@ -12,19 +12,28 @@ const props = defineProps<{ installed: string; fresh: string }>();
 const mode = ref<"installed" | "fresh">("installed");
 const copied = ref(false);
 const copyError = ref(false);
+const copying = ref(false);
 
 const script = computed(() => (mode.value === "installed" ? props.installed : props.fresh));
 
-watch(mode, () => {
+watch(script, () => {
   copied.value = false;
   copyError.value = false;
 });
 
 async function copy(): Promise<void> {
+  if (copying.value) return;
+  copying.value = true;
+  const requestedScript = script.value;
   copyError.value = false;
-  const ok = await copyText(script.value);
-  copied.value = ok;
-  copyError.value = !ok;
+  try {
+    const ok = await copyText(requestedScript);
+    if (requestedScript !== script.value) return;
+    copied.value = ok;
+    copyError.value = !ok;
+  } finally {
+    copying.value = false;
+  }
 }
 </script>
 
@@ -47,7 +56,8 @@ async function copy(): Promise<void> {
   </label>
   <p v-if="copyError" class="form-error" role="alert">{{ en.shell.copyFailed }}</p>
   <div class="actions">
-    <button type="button" @click="copy">
+    <button type="button" :disabled="copying" :aria-busy="copying" @click="copy">
+      <span v-if="copying" class="spinner" aria-hidden="true" />
       {{ copied ? en.shell.copiedCommand : en.shell.copyCommand }}
     </button>
   </div>

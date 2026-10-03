@@ -4,7 +4,16 @@
 
 ## Current implementation and interaction contract
 
-The alpha uses Vue 3, custom accessible dialogs/selects, Ant Design icons, and shared CSS tokens. The broader stack below is a design target, not an installed dependency list. Alerts is a lazy-loaded route with guided Telegram discovery and explicit identity confirmation; email progressively exposes SMTP or provider API settings. All asynchronous actions retain their control with a spinner, prevent duplicate submissions, and explain failures and the next action. Channels remain independently configurable. The product should feel professional without requiring users to know internal identifiers.
+The alpha uses Vue 3, custom accessible dialogs/selects, Ant Design icons, and shared CSS tokens. The broader stack below is a design target, not an installed dependency list. Alerts is a lazy-loaded route with guided Telegram discovery and explicit identity confirmation. Named SMTP/Resend/Postmark delivery methods are configured once in Settings → Email and selected by Alerts or email OTP. Channels remain independently configurable. The product should feel professional without requiring users to know internal identifiers.
+
+The implemented interaction rules are:
+
+- Resolve the server session before displaying a login/setup card. Pending session checks use a neutral screen; connection failures offer a retry. A cached theme is a visual preference only and never substitutes for server authorization.
+- Separate descriptions, status labels and primary actions with explicit layout spacing. Use the shared `.actions` group instead of placing a button directly after a hint. Mobile settings reveal the current tab and wrap important values rather than hiding them behind ellipses.
+- `.spinner` has an explicit inline box and a visible ring. Async controls expose pending state and block duplicate submissions. Initial account/email/user content has a loading state; failed requests have a distinct error and retry rather than looking like an empty list.
+- Page and settings navigation use 200 ms entry and 120 ms exit transitions. Step forms keep required fields mounted immediately and animate only their entry. Navigation keys exclude live sample timestamps, so polling never replays page transitions.
+- Native dialogs retain modal focus behavior and immediate `close()` semantics; supporting browsers animate the closing surface using discrete display/overlay transitions. Select menus keep focus on the combobox, support keyboard navigation, and fit scrollable dialog and viewport bounds. The mobile drawer makes underlying content inert while open.
+- Transitions use shared motion tokens and honor `prefers-reduced-motion`. No animation library or full UI framework is added for these interactions.
 
 ## 1. Stack
 

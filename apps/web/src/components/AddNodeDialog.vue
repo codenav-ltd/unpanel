@@ -81,11 +81,11 @@ async function create(): Promise<void> {
     </ol>
     <label class="field">
       <span>{{ en.shell.displayName }}</span>
-      <input v-model="name" maxlength="64" required />
+      <input v-model="name" maxlength="64" :disabled="busy" required />
     </label>
     <label class="field">
       <span>{{ en.shell.tags }}</span>
-      <input v-model="tagText" :placeholder="en.shell.tagsHint" />
+      <input v-model="tagText" :placeholder="en.shell.tagsHint" :disabled="busy" />
     </label>
     <label class="field">
       <span>{{ en.shell.panelAddressLabel }}</span>
@@ -93,6 +93,7 @@ async function create(): Promise<void> {
         v-model="panelAddress"
         type="url"
         inputmode="url"
+        :disabled="busy"
         required
         :placeholder="en.shell.publicUrlPlaceholder"
       />
@@ -101,7 +102,8 @@ async function create(): Promise<void> {
     <p v-if="loopback" class="form-warn" role="status">{{ en.shell.publicUrlLoopback }}</p>
     <p v-if="error" class="form-error" role="alert">{{ error }}</p>
     <div class="actions">
-      <button type="submit" :disabled="busy || !panelAddress.trim()">
+      <button type="submit" :disabled="busy || !panelAddress.trim()" :aria-busy="busy">
+        <span v-if="busy" class="spinner" aria-hidden="true" />
         {{ busy ? en.shell.saving : en.shell.addNode }}
       </button>
     </div>

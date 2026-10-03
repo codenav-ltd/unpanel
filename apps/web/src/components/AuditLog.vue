@@ -86,7 +86,7 @@ onMounted(() => {
         <span class="skeleton-line" />
       </li>
     </ul>
-    <p v-else-if="problem" class="audit-note">
+    <p v-else-if="problem" class="form-error" role="alert">
       {{ problem }}
       <button class="audit-retry" type="button" @click="load">{{ en.audit.retry }}</button>
     </p>

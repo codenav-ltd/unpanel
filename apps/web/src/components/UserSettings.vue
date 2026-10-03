@@ -114,6 +114,7 @@ async function save(): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   formError.value = "";
+  note.value = "";
   try {
     users.value = await accountRequest<ManagedUser[]>(
       editing.value ? "/users/" + editing.value : "/users",
@@ -136,6 +137,7 @@ async function remove(): Promise<void> {
   if (!removing.value || busy.value) return;
   busy.value = true;
   formError.value = "";
+  note.value = "";
   try {
     users.value = await accountRequest<ManagedUser[]>("/users/" + removing.value.id, "DELETE");
     removing.value = null;
@@ -151,6 +153,7 @@ async function changeMode(): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   formError.value = "";
+  note.value = "";
   try {
     mode.value = (
       await accountRequest<{ mode: "single" | "team" }>("/user-mode", "POST", {
@@ -179,12 +182,12 @@ async function changeMode(): Promise<void> {
       create a Viewer and enable demo mode.
     </p>
     <div class="actions">
-      <button :disabled="busy" @click="reauth = true">
+      <button :disabled="busy || loading" @click="reauth = true">
         {{ unlocked ? "Verify identity again" : "Unlock user management" }}</button
       ><button
         v-if="mode === 'team'"
         class="primary"
-        :disabled="!unlocked || loading"
+        :disabled="!unlocked || loading || busy"
         @click="edit()"
       >
         Create user
@@ -203,18 +206,35 @@ async function changeMode(): Promise<void> {
     <p class="hint">
       Identity verification lasts five minutes. Access changes sign the affected user out.
     </p>
-    <p v-if="loading" role="status" class="hint">
+    <div
+      v-if="loading && !users.length"
+      class="certificate-skeleton"
+      role="status"
+      aria-label="Loading users"
+      aria-busy="true"
+    >
+      <span /><span /><span />
+    </div>
+    <p v-else-if="loading" role="status" class="hint">
       <span class="spinner" aria-hidden="true" />Loading users…
     </p>
-    <p v-if="error" class="form-error" role="alert">
-      {{ error }} <button @click="load">Retry</button>
-    </p>
-    <p v-if="note" class="form-warn" role="status">{{ note }}</p>
-    <p v-if="mode === 'single'" class="hint">
+    <div v-if="error" class="settings-feedback">
+      <p class="form-error" role="alert">{{ error }}</p>
+      <button class="quiet" :disabled="loading || busy" @click="load">Retry</button>
+    </div>
+    <Transition name="update-result">
+      <p v-if="note" class="certificate-success" role="status">{{ note }}</p>
+    </Transition>
+    <p v-if="!loading && !error && mode === 'single'" class="security-empty">
       Single-user mode: only the owner has access. Enable team mode to create users and assign
       permissions.
     </p>
-    <ul v-if="mode === 'team'" class="account-method-list">
+    <TransitionGroup
+      v-if="mode === 'team' && users.length"
+      name="step"
+      tag="ul"
+      class="account-method-list"
+    >
       <li v-for="user in users" :key="user.id" class="account-method">
         <div>
           <strong>{{ user.displayName || user.username }}</strong>
@@ -245,7 +265,10 @@ async function changeMode(): Promise<void> {
           </button>
         </div>
       </li>
-    </ul>
+    </TransitionGroup>
+    <p v-else-if="!loading && !error && mode === 'team'" class="security-empty">
+      No users to show. Create a user to give someone access to this panel.
+    </p>
   </section>
   <AppDialog
     :open="modeDialog"
@@ -275,6 +298,7 @@ async function changeMode(): Promise<void> {
       ><button :disabled="busy" @click="modeDialog = false">Cancel</button
       ><button
         :class="mode === 'team' ? 'danger' : 'primary'"
+        :aria-busy="busy"
         :disabled="busy || (mode === 'team' && modeConfirmation !== 'single')"
         @click="changeMode"
       >
@@ -298,86 +322,88 @@ async function changeMode(): Promise<void> {
     </p>
     <form id="user-form" @submit.prevent="save">
       <fieldset :disabled="busy">
-        <template v-if="step === 1">
-          <label class="field"
-            ><span>Username</span
-            ><input
-              v-model="form.username"
-              required
-              maxlength="64"
-              autocomplete="off"
-              :disabled="Boolean(editing)"
-          /></label>
-          <label class="field"
-            ><span>Display name (optional)</span><input v-model="form.displayName" maxlength="80"
-          /></label>
-          <label v-if="editing !== accountId" class="field"
-            ><span>{{ editing ? "New password (leave blank to keep current)" : "Password" }}</span
-            ><input
-              v-model="form.password"
-              type="password"
-              autocomplete="new-password"
-              :required="!editing"
-              minlength="10"
-              maxlength="1024"
-          /></label>
-          <p class="hint">
-            Share credentials privately. Each user can manage their own password and two-factor
-            methods unless demo mode is enabled.
-          </p>
-        </template>
-        <template v-else>
-          <SelectField
-            v-model="form.role"
-            label="Role"
-            :options="roles"
-            :disabled="editing === accountId"
-          />
-          <p class="hint">{{ description }}</p>
-          <label v-if="form.role === 'viewer'" class="account-check"
-            ><input v-model="form.locked" type="checkbox" />Read-only demo mode</label
-          >
-          <p v-if="form.locked" class="hint">
-            Visitors cannot change the password, add authentication methods or write any panel
-            settings.
-          </p>
-          <template v-if="form.role === 'viewer' || form.role === 'operator'"
-            ><label class="account-check"
-              ><input v-model="form.allNodes" type="checkbox" />Allow all nodes, including future
-              nodes</label
-            >
-            <fieldset v-if="!form.allNodes" class="choice-field">
-              <legend>Allowed nodes</legend>
-              <label v-for="node in nodes" :key="node.id" class="account-check"
-                ><input v-model="form.nodeIds" type="checkbox" :value="node.id" />{{
-                  node.name || node.hostname || node.id
-                }}</label
-              >
-              <p class="hint">
-                No selection means no node access. Other nodes are hidden and their API requests are
-                denied.
-              </p>
-            </fieldset></template
-          >
-          <label class="account-check"
-            ><input
-              v-model="form.enabled"
-              type="checkbox"
+        <div :key="step" class="settings-form-step">
+          <template v-if="step === 1">
+            <label class="field"
+              ><span>Username</span
+              ><input
+                v-model="form.username"
+                required
+                maxlength="64"
+                autocomplete="off"
+                :disabled="Boolean(editing)"
+            /></label>
+            <label class="field"
+              ><span>Display name (optional)</span><input v-model="form.displayName" maxlength="80"
+            /></label>
+            <label v-if="editing !== accountId" class="field"
+              ><span>{{ editing ? "New password (leave blank to keep current)" : "Password" }}</span
+              ><input
+                v-model="form.password"
+                type="password"
+                autocomplete="new-password"
+                :required="!editing"
+                minlength="10"
+                maxlength="1024"
+            /></label>
+            <p class="hint">
+              Share credentials privately. Each user can manage their own password and two-factor
+              methods unless demo mode is enabled.
+            </p>
+          </template>
+          <template v-else>
+            <SelectField
+              v-model="form.role"
+              label="Role"
+              :options="roles"
               :disabled="editing === accountId"
-            />Account enabled</label
-          >
-          <p class="hint">
-            Saving access or resetting another user's password signs them out immediately. Their
-            existing two-factor methods remain in place.
-          </p>
-        </template>
+            />
+            <p class="hint">{{ description }}</p>
+            <label v-if="form.role === 'viewer'" class="account-check"
+              ><input v-model="form.locked" type="checkbox" />Read-only demo mode</label
+            >
+            <p v-if="form.locked" class="hint">
+              Visitors cannot change the password, add authentication methods or write any panel
+              settings.
+            </p>
+            <template v-if="form.role === 'viewer' || form.role === 'operator'"
+              ><label class="account-check"
+                ><input v-model="form.allNodes" type="checkbox" />Allow all nodes, including future
+                nodes</label
+              >
+              <fieldset v-if="!form.allNodes" class="choice-field">
+                <legend>Allowed nodes</legend>
+                <label v-for="node in nodes" :key="node.id" class="account-check"
+                  ><input v-model="form.nodeIds" type="checkbox" :value="node.id" />{{
+                    node.name || node.hostname || node.id
+                  }}</label
+                >
+                <p class="hint">
+                  No selection means no node access. Other nodes are hidden and their API requests
+                  are denied.
+                </p>
+              </fieldset></template
+            >
+            <label class="account-check"
+              ><input
+                v-model="form.enabled"
+                type="checkbox"
+                :disabled="editing === accountId"
+              />Account enabled</label
+            >
+            <p class="hint">
+              Saving access or resetting another user's password signs them out immediately. Their
+              existing two-factor methods remain in place.
+            </p>
+          </template>
+        </div>
       </fieldset>
       <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
     </form>
     <template #footer
       ><button class="quiet" :disabled="busy" @click="step === 2 ? (step = 1) : close()">
         {{ step === 2 ? "Back" : "Cancel" }}</button
-      ><button class="primary" type="submit" form="user-form" :disabled="busy">
+      ><button class="primary" type="submit" form="user-form" :disabled="busy" :aria-busy="busy">
         <span v-if="busy" class="spinner" aria-hidden="true" />{{
           step === 1 ? "Continue" : editing ? "Save user" : "Create user"
         }}
@@ -396,9 +422,23 @@ async function changeMode(): Promise<void> {
     <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
     <template #footer
       ><button :disabled="busy" @click="removing = null">Cancel</button
-      ><button class="danger" :disabled="busy" @click="remove">
+      ><button class="danger" :disabled="busy" :aria-busy="busy" @click="remove">
         <span v-if="busy" class="spinner" aria-hidden="true" />Delete user
       </button></template
     ></AppDialog
   >
 </template>
+<style scoped>
+.settings-feedback {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-top: 16px;
+}
+.settings-feedback .form-error {
+  margin: 0;
+}
+.step-leave-active {
+  pointer-events: none;
+}
+</style>

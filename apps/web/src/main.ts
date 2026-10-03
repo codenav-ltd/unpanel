@@ -4,12 +4,10 @@
 import { product } from "@unpanel/shared";
 import { createApp } from "vue";
 import App from "./app/App.vue";
-import { cssVariables, dark } from "./theme/tokens.ts";
+import { applyTheme, savedTheme } from "./theme/tokens.ts";
 import "./theme/global.css";
 
-for (const [name, value] of Object.entries(cssVariables(dark))) {
-  document.documentElement.style.setProperty(name, value);
-}
+applyTheme(savedTheme());
 
 document.title = product.name;
 

@@ -73,6 +73,17 @@ const cssNames = {
 
 export type ThemeName = "dark" | "light" | "ultra";
 
+/** A visual preference only; account access is always resolved by the server. */
+export function savedTheme(): ThemeName {
+  try {
+    const theme = localStorage.getItem("unpanel.theme");
+    if (theme === "light" || theme === "ultra") return theme;
+  } catch {
+    // Storage may be disabled; the default theme still renders normally.
+  }
+  return "dark";
+}
+
 export function paletteOf(theme: ThemeName): Palette {
   if (theme === "light") return light;
   if (theme === "ultra") return ultraDark;
@@ -84,6 +95,12 @@ export function applyTheme(theme: ThemeName): void {
     document.documentElement.style.setProperty(name, value);
   }
   document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme === "light" ? "light" : "dark";
+  try {
+    localStorage.setItem("unpanel.theme", theme);
+  } catch {
+    // The server remains the source of truth when storage is unavailable.
+  }
 }
 
 export function cssVariables(palette: Palette): Record<string, string> {
