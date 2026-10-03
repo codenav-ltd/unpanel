@@ -2135,7 +2135,27 @@ button.select-option[aria-selected="true"] {
 }
 
 .turnstile-wrap {
+  min-width: 0;
   min-height: 65px;
+  margin-top: 12px;
+}
+
+.turnstile-host {
+  width: 100%;
+  max-width: 300px;
+  min-width: 0;
+  min-height: 65px;
+}
+.turnstile-wrap[data-size="compact"] .turnstile-host {
+  min-height: 140px;
+}
+.turnstile-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.turnstile-retry {
   margin-top: 12px;
 }
 

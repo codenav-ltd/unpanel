@@ -112,7 +112,8 @@ export function createAudit(db: DatabaseSync, now: () => number = Date.now): Aud
   const readAll = db.prepare(`SELECT ${columns} FROM audit_logs ORDER BY id`);
   const prune = db.prepare(`DELETE FROM audit_logs WHERE ts < ?`);
 
-  let head = String((readLast.get() as { hash?: string } | undefined)?.hash ?? GENESIS);
+  const head = (): string =>
+    String((readLast.get() as { hash?: string } | undefined)?.hash ?? GENESIS);
 
   return {
     record(input, at) {
@@ -129,26 +130,35 @@ export function createAudit(db: DatabaseSync, now: () => number = Date.now): Aud
         errorCode: text(input.errorCode),
         durationMs: input.durationMs ?? null,
       };
-      const prevHash = head;
-      const hash = chainHash(prevHash, record);
-      const written = write.run(
-        record.ts,
-        record.actorKind,
-        record.actorId,
-        record.ip,
-        record.action,
-        record.nodeId,
-        record.target,
-        record.params ? canonicalJSON(record.params) : null,
-        record.result,
-        record.errorCode,
-        record.durationMs,
-        prevHash,
-        hash,
-      );
-      head = hash;
-      prune.run(record.ts - RETAIN_MS);
-      return { id: Number(written.lastInsertRowid), ...record, hash };
+      // The panel and local recovery CLI share this log. Read the head under a
+      // write lock rather than caching it across records from another connection.
+      const ownsTransaction = !db.isTransaction;
+      if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
+      try {
+        const prevHash = head();
+        const hash = chainHash(prevHash, record);
+        const written = write.run(
+          record.ts,
+          record.actorKind,
+          record.actorId,
+          record.ip,
+          record.action,
+          record.nodeId,
+          record.target,
+          record.params ? canonicalJSON(record.params) : null,
+          record.result,
+          record.errorCode,
+          record.durationMs,
+          prevHash,
+          hash,
+        );
+        prune.run(record.ts - RETAIN_MS);
+        if (ownsTransaction) db.exec("COMMIT");
+        return { id: Number(written.lastInsertRowid), ...record, hash };
+      } catch (error) {
+        if (ownsTransaction) db.exec("ROLLBACK");
+        throw error;
+      }
     },
 
     list(limit) {
@@ -156,7 +166,7 @@ export function createAudit(db: DatabaseSync, now: () => number = Date.now): Aud
       return readLatest.all(capped).map((raw) => entryOf(raw as unknown as Row));
     },
 
-    head: () => head,
+    head,
 
     verify() {
       let previous: string | null = null;

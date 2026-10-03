@@ -8,16 +8,25 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const SITE = "https://unpanel.codenav.dev/channels.json";
 const RELEASES = "https://api.github.com/repos/codenav-ltd/unpanel/releases?per_page=20";
 
-export function choosePackage(current, arch, channels) {
+export function choosePackage(current, arch, channels, approval) {
   if (!parseVersion(current)) {
     throw new Error("This install's version is invalid. The running panel was not changed.");
   }
   const parsed = parseChannels(channels);
   const release = selectUpdate(current, parsed);
+  if (approval && release?.version !== approval)
+    throw new Error(
+      "The available release no longer matches the approved version. Check for updates again.",
+    );
   if (!release) return null;
   const asset = assetFor(release, arch);
   assertUrl(asset.url);
-  return { version: release.version, url: asset.url, sha256: asset.sha256 };
+  return {
+    version: release.version,
+    url: asset.url,
+    sha256: asset.sha256,
+    reviewRequired: release.reviewRequired,
+  };
 }
 
 export function channelsAssetUrl(releases) {
@@ -83,6 +92,9 @@ function parseRelease(value) {
   }
   assertUrl(url);
   const release = { version, url, sha256, notes: typeof notes === "string" ? notes : "" };
+  release.reviewRequired =
+    value.reviewRequired === true ||
+    (Array.isArray(value.changelog) && value.changelog.some((item) => item?.kind === "breaking"));
   if (value.assets != null) release.assets = parseAssets(value.assets);
   return release;
 }
@@ -213,17 +225,33 @@ async function main() {
   const current = argument("--current");
   const arch = argument("--arch");
   const manifest = argument("--manifest");
+  const approval = argument("--approve");
+  const check = process.argv.includes("--check");
   if (!current || !arch) {
     throw new Error(
       "Usage: select-update.mjs --current VERSION --arch linux-x64|linux-arm64 [--manifest FILE]",
     );
   }
   const channels = manifest ? JSON.parse(readFileSync(manifest, "utf8")) : await loadChannels();
-  const chosen = choosePackage(current, arch, channels);
+  const chosen = choosePackage(current, arch, channels, approval);
   if (!chosen) {
-    process.stdout.write("current\n");
+    process.stdout.write(check ? "Already up to date.\n" : "current\n");
     return;
   }
+  if (check) {
+    process.stdout.write(
+      `Update available: ${chosen.version}\nRelease notes: https://github.com/codenav-ltd/unpanel/releases/tag/v${chosen.version}\n`,
+    );
+    if (chosen.reviewRequired)
+      process.stdout.write(
+        `Review required. After reading the notes, run:\n  sudo unpanel-manage update --approve ${chosen.version}\n`,
+      );
+    return;
+  }
+  if (chosen.reviewRequired && approval !== chosen.version)
+    throw new Error(
+      `Release ${chosen.version} requires review. Read https://github.com/codenav-ltd/unpanel/releases/tag/v${chosen.version}, then run: sudo unpanel-manage update --approve ${chosen.version}`,
+    );
   process.stdout.write(`${chosen.url}\n${chosen.sha256}\n${chosen.version}\n`);
 }
 

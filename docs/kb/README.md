@@ -44,3 +44,4 @@ This directory records **behavior details of external systems, formulas, limits,
 | [users-and-permissions.md](./users-and-permissions.md) | Team mode, roles, node scopes, locked live-demo accounts and access revocation |
 | [troubleshooting.md](./troubleshooting.md) | Troubleshooting index |
 | [runbooks.md](./runbooks.md) | Operational runbooks |
+| [terminal-management.md](./terminal-management.md) | Services, logs, updates, sudo guidance and local sign-in recovery |

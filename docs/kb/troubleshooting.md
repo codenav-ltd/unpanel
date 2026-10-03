@@ -1,14 +1,16 @@
 # Troubleshooting Index
 
-> Symptom → likely cause → fix, with links to the detailed KB entry. Start with `sudo unpanel doctor` / `sudo unpanel-agent doctor`, which check most of these automatically.
+Symptom → likely cause → fix. Start with `unpanel-manage status` and `sudo unpanel-manage logs`. See [terminal management](./terminal-management.md). Older doctor/admin commands mentioned below remain design targets, not commands available in this alpha.
 
 ## Panel
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Cannot open the panel at all | Port blocked by firewall or cloud security group; wrong base path | `unpanel doctor`; `ss -tlnp | grep <port>`; check the security group; `sudo unpanel admin info` |
+| Cannot open the panel at all | Service stopped, port blocked, or incorrect address | `unpanel-manage status`; `sudo unpanel-manage logs`; check the configured address in `/etc/unpanel/panel.env` and provider firewall |
 | Browser says "connection not private" | Self-signed certificate (expected on first install) | Compare the fingerprint printed by the installer; bind a domain and issue a certificate ([ADR-0010](../adr/0010-https-by-default.md)) |
-| Lost the base path or port | — | `sudo unpanel admin info` |
+| Lost the panel address or port | — | Inspect `UNPANEL_PUBLIC_URL` and `UNPANEL_PORT` in `/etc/unpanel/panel.env` |
+| Turnstile required but no widget appears | Browser widget unavailable or an old panel build | `sudo unpanel-manage turnstile disable`, refresh, update, then test and re-enable; [recovery](./terminal-management.md#restore-access) |
+| `unpanel-manage unlock` cannot access the database | Command lacks administrator access | Run `sudo unpanel-manage unlock`; from alpha.29 the CLI prompts before accessing protected files |
 | Locked out (lost 2FA) | — | [runbooks.md](./runbooks.md) "Lost second factor" |
 | Passkey option missing | Accessed by IP or with an untrusted certificate | [webauthn-passkey.md](./webauthn-passkey.md) §1 |
 | TOTP codes rejected | Server clock drift | `timedatectl`; enable NTP ([totp.md](./totp.md) §5) |

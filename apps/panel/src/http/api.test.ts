@@ -123,10 +123,14 @@ describe("Turnstile setup verification", () => {
     const app = appWith(createAudit(db), "tok", { security });
     const fetcher = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(Response.json({ success: true, action: "login" }));
+      .mockResolvedValue(Response.json({ success: true, action: "setup", hostname: "localhost" }));
     const payload = {
       method: "POST",
-      body: JSON.stringify({ secret: "fixture-private-key", token: "fixture-response" }),
+      body: JSON.stringify({
+        secret: "fixture-private-key",
+        siteKey: "fixture-site-key",
+        token: "fixture-response",
+      }),
     };
     try {
       expect((await app.request("/api/v1/security/turnstile/test", payload)).status).toBe(401);
@@ -144,7 +148,9 @@ describe("Turnstile setup verification", () => {
         headers: { cookie: "unpanel_sid=tok" },
       });
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ data: { verified: true } });
+      expect(await response.json()).toEqual({
+        data: { verified: true, verification: expect.any(String), expiresAt: expect.any(Number) },
+      });
       expect(security.view().turnstile).toEqual({
         enabled: false,
         siteKey: "",
@@ -325,7 +331,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const app = appWith(audit, "tok", {
       applyAgentUpdate: async (nodeId) => ({
         accepted: true,
-        version: nodeId === "nd_1" ? "0.1.0-alpha.28" : "unexpected",
+        version: nodeId === "nd_1" ? "0.1.0-alpha.29" : "unexpected",
       }),
     });
 
@@ -336,7 +342,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const body = (await response.json()) as { data: { version: string } };
 
     expect(response.status).toBe(200);
-    expect(body.data.version).toBe("0.1.0-alpha.28");
+    expect(body.data.version).toBe("0.1.0-alpha.29");
     expect(audit.list(1)[0]).toMatchObject({ action: "agent.update", nodeId: "nd_1" });
   });
 
@@ -495,6 +501,37 @@ describe("PATCH /api/v1/settings", () => {
     const db = openDatabase(":memory:");
     const security = createLoginSecurity({ db, masterKey: randomBytes(32) });
     const app = appWith(createAudit(openDatabase(":memory:")), "tok", { security });
+    const fetcher = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ success: true, action: "setup", hostname: "localhost" }));
+    const test = await app.request("/api/v1/security/turnstile/test", {
+      method: "POST",
+      headers: { cookie: "unpanel_sid=tok" },
+      body: JSON.stringify({
+        siteKey: "site-key",
+        secret: "secret-key",
+        token: "fixture-response",
+      }),
+    });
+    const proof = (await test.json()) as { data: { verification: string } };
+    fetcher.mockRestore();
+    for (const turnstile of [
+      { enabled: true, siteKey: "site-key", secret: "secret-key" },
+      {
+        enabled: true,
+        siteKey: "changed-key",
+        secret: "secret-key",
+        verification: proof.data.verification,
+      },
+    ]) {
+      const refused = await app.request("/api/v1/settings", {
+        method: "PATCH",
+        headers: { cookie: "unpanel_sid=tok" },
+        body: JSON.stringify({ security: { turnstile } }),
+      });
+      expect(refused.status).toBe(400);
+      expect(security.view().turnstile.enabled).toBe(false);
+    }
     const response = await app.request("/api/v1/settings", {
       method: "PATCH",
       headers: { cookie: "unpanel_sid=tok", "content-type": "application/json" },
@@ -503,7 +540,12 @@ describe("PATCH /api/v1/settings", () => {
           loginRestrictions: {
             banPanel: { enabled: true, attempts: 5, duration: "permanent" },
           },
-          turnstile: { enabled: true, siteKey: "site-key", secret: "secret-key" },
+          turnstile: {
+            enabled: true,
+            siteKey: "site-key",
+            secret: "secret-key",
+            verification: proof.data.verification,
+          },
         },
       }),
     });
@@ -522,6 +564,20 @@ describe("PATCH /api/v1/settings", () => {
       secretConfigured: true,
     });
     expect(JSON.stringify(body)).not.toContain("secret-key");
+    const disabled = await app.request("/api/v1/settings", {
+      method: "PATCH",
+      headers: { cookie: "unpanel_sid=tok" },
+      body: JSON.stringify({ security: { turnstile: { enabled: false } } }),
+    });
+    expect(disabled.status).toBe(200);
+    const replay = await app.request("/api/v1/settings", {
+      method: "PATCH",
+      headers: { cookie: "unpanel_sid=tok" },
+      body: JSON.stringify({
+        security: { turnstile: { enabled: true, verification: proof.data.verification } },
+      }),
+    });
+    expect(replay.status).toBe(400);
   });
 
   it("lists and removes an IP ban", async () => {

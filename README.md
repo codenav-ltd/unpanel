@@ -2,7 +2,7 @@
 
 **The server panel that doesn't act like one.** Simple, modern, and lightweight: one web UI for the load, alerts, containers, processes, sites, and certificates of all your servers — without turning any of them into a "panel server".
 
-> **Status: 0.1.0-alpha.28 pre-alpha.** Alerts now monitors resource thresholds, offline nodes and panel certificate expiry, with guided Telegram setup and SMTP/Resend/Postmark email notifications. First-run setup creates the owner account with a password and TOTP. Settings includes configurable sign-in restrictions and optional Cloudflare Turnstile. Updates keeps the panel ahead of its remote agents, shows every agent version, and rolls back an agent update that does not stay active. Automatic install stays off until it is turned on. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
+> **Status: 0.1.0-alpha.29 pre-alpha.** Alerts now monitors resource thresholds, offline nodes and panel certificate expiry, with guided Telegram setup and SMTP/Resend/Postmark email notifications. First-run setup creates the owner account with a password and TOTP. Settings includes configurable sign-in restrictions and optional Cloudflare Turnstile. Updates keeps the panel ahead of its remote agents, shows every agent version, and rolls back an agent update that does not stay active. Automatic install stays off until it is turned on. The design and knowledge base live in [`docs/`](./docs/README.md). The public site is [`apps/site`](./apps/site).
 
 ## Install
 
@@ -16,7 +16,9 @@ curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 
 That downloads this version's release package into `/opt/unpanel`, checks its SHA-256, and starts the panel and the local agent. It uses this machine's public IP when the address on the interface is private. It then prints what to do next: allow the panel's TCP port at your server provider and, if enabled, in ufw or firewalld, then open the printed address and create the owner account. New direct-access installs use self-signed HTTPS. Compare the printed certificate fingerprint before trusting the browser warning, then use Certificates to request a trusted domain certificate or import PEM. Pass `--public-url` when the detected address is wrong.
 
-A later release is installed from Settings → Updates, or with `sudo bash /opt/unpanel/scripts/update.sh`. The current install is moved to `/opt/unpanel.previous` before the new package replaces it. If the new process does not come up, that directory, the systemd units, and `panel.env` are restored. The database stays in place. After the panel is current, supported remote agents can be updated one at a time from the same screen.
+A later release is installed from Settings → Updates, or with `sudo unpanel-manage update` (older installs use `sudo bash /opt/unpanel/scripts/update.sh`). The current install is moved to `/opt/unpanel.previous` before the new package replaces it. If the new process does not come up, that directory, the systemd units, and `panel.env` are restored. The database stays in place. After the panel is current, supported remote agents can be updated one at a time from the same screen.
+
+Terminal management also provides service status, start/stop/restart, logs, account recovery and emergency Turnstile disable. Missing administrator privileges produce a clear `sudo` instruction. See `unpanel-manage help` and [terminal management](./docs/kb/terminal-management.md).
 
 ## Why
 

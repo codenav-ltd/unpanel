@@ -93,7 +93,7 @@ function manageScript(plan: InstallPlan): string {
   const entry = plan.bundled
     ? `${plan.nodePath} ${plan.root}/manage.cjs`
     : `${plan.nodePath} ${plan.root}/node_modules/tsx/dist/cli.mjs ${plan.root}/apps/panel/src/manage.ts`;
-  return `#!/bin/sh\nexec ${entry} "$@"\n`;
+  return `#!/bin/sh\nUNPANEL_ENV_FILE='${plan.etc}/panel.env' exec ${entry} "$@"\n`;
 }
 
 function ensureKey(

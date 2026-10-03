@@ -113,7 +113,7 @@ install_official_node() {
   ver=24.21.0
   name="node-v${ver}-${node_arch}"
   base="https://nodejs.org/dist/v${ver}"
-  tmp=$(mktemp -d)
+  tmp=$(mktemp -d) || return 1
   echo "Installing Node.js ${ver} (${node_arch})." >&2
   curl -fsSL "$base/SHASUMS256.txt" -o "$tmp/SHASUMS256.txt" || {
     rm -rf "$tmp"
@@ -124,16 +124,18 @@ install_official_node() {
     return 1
   }
   (
-    cd "$tmp"
-    grep "  ${name}.tar.gz$" SHASUMS256.txt | sha256sum -c -
+    cd "$tmp" || exit 1
+    grep "  ${name}.tar.gz$" SHASUMS256.txt | sha256sum -c - >&2
   ) || {
     rm -rf "$tmp"
     return 1
   }
   dest=/usr/local/lib/unpanel-node
-  rm -rf "$dest"
-  mkdir -p "$dest"
-  tar -xzf "$tmp/${name}.tar.gz" -C "$dest" --strip-components=1 || return 1
+  if ! rm -rf "$dest" || ! mkdir -p "$dest" ||
+    ! tar -xzf "$tmp/${name}.tar.gz" -C "$dest" --strip-components=1; then
+    rm -rf "$tmp"
+    return 1
+  fi
   rm -rf "$tmp"
   if [ ! -x "$dest/bin/node" ]; then
     echo "Node.js ${ver} did not install." >&2
@@ -146,7 +148,24 @@ install_official_node() {
 # to /usr/local/lib/unpanel-node.
 stage_node() {
   src=$1
-  prefix=$(CDPATH= cd -- "$(dirname "$src")/.." && pwd)
+  case "$src" in
+    /*/bin/node) ;;
+    *)
+      echo "Invalid Node.js binary path." >&2
+      return 1
+      ;;
+  esac
+  if [ ! -f "$src" ] || [ ! -x "$src" ]; then
+    echo "Node.js binary is missing or not executable." >&2
+    return 1
+  fi
+  prefix=$(CDPATH= cd -- "$(dirname "$src")/.." && pwd -P) || return 1
+  case "$prefix" in
+    "" | /)
+      echo "Refusing to copy Node.js from the filesystem root." >&2
+      return 1
+      ;;
+  esac
   case "$prefix" in
     /usr | /usr/local | /usr/local/lib/unpanel-node)
       printf '%s\n' "$src"
@@ -154,10 +173,10 @@ stage_node() {
       ;;
   esac
   dest=/usr/local/lib/unpanel-node
-  rm -rf "$dest"
-  mkdir -p "$dest"
-  cp -a "$prefix"/. "$dest"/
-  chmod -R a+rX "$dest"
+  rm -rf "$dest" || return 1
+  mkdir -p "$dest" || return 1
+  cp -a "$prefix"/. "$dest"/ || return 1
+  chmod -R a+rX "$dest" || return 1
   if [ ! -x "$dest/bin/node" ]; then
     echo "Could not copy Node.js from $prefix" >&2
     return 1

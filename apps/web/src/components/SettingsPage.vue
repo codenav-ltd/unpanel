@@ -79,6 +79,7 @@ const emit = defineEmits<{
 }>();
 
 const canManage = computed(() => managesPanel(props.access));
+const currentHostname = globalThis.location.hostname;
 const settingsNav = ref<HTMLElement | null>(null);
 function revealActiveSection(): void {
   const nav = settingsNav.value;
@@ -121,6 +122,8 @@ const turnstileStep = ref(1);
 const challengeToken = ref("");
 const challengeVersion = ref(0);
 const challengeVerified = ref(false);
+const challengeVerification = ref("");
+let verificationTimer: ReturnType<typeof setTimeout> | undefined;
 const current = ref("");
 const next = ref("");
 const busy = ref("");
@@ -162,6 +165,15 @@ const turnstileSiteKey = ref(props.security.turnstile.siteKey);
 const turnstileSecret = ref("");
 const turnstileSecretConfigured = ref(props.security.turnstile.secretConfigured);
 const clearTurnstileSecret = ref(false);
+watch(
+  [turnstileEnabled, turnstileSiteKey, turnstileSecret, clearTurnstileSecret],
+  () => {
+    challengeVerified.value = false;
+    challengeVerification.value = "";
+    clearTimeout(verificationTimer);
+  },
+  { flush: "sync" },
+);
 const restrictionError = ref("");
 const restrictionNote = ref("");
 const turnstileError = ref("");
@@ -262,7 +274,7 @@ watch(banIpEnabled, (enabled) => {
   if (!enabled) bannedIps.value = [];
 });
 
-function applySecurity(next: LoginSecuritySettings): void {
+function applySecurity(next: LoginSecuritySettings, force = false): void {
   restrictionsEnabled.value = next.loginRestrictions.enabled;
   rateEnabled.value = next.loginRestrictions.rateLimit.enabled;
   rateMode.value = next.loginRestrictions.rateLimit.mode;
@@ -276,9 +288,11 @@ function applySecurity(next: LoginSecuritySettings): void {
   banPanelAttempts.value = next.loginRestrictions.banPanel.attempts;
   banPanelDuration.value = next.loginRestrictions.banPanel.duration;
   banPanelSeconds.value = next.loginRestrictions.banPanel.seconds;
-  turnstileEnabled.value = next.turnstile.enabled;
-  turnstileSiteKey.value = next.turnstile.siteKey;
-  turnstileSecretConfigured.value = next.turnstile.secretConfigured;
+  if (force || !turnstileOpen.value) {
+    turnstileEnabled.value = next.turnstile.enabled;
+    turnstileSiteKey.value = next.turnstile.siteKey;
+    turnstileSecretConfigured.value = next.turnstile.secretConfigured;
+  }
 }
 
 function restrictionsPayload(): LoginSecuritySettings["loginRestrictions"] {
@@ -345,6 +359,7 @@ async function saveTurnstile(): Promise<void> {
     const turnstile: Record<string, unknown> = {
       enabled: turnstileEnabled.value,
       siteKey: turnstileSiteKey.value,
+      verification: challengeVerification.value,
     };
     if (turnstileSecret.value.trim()) turnstile["secret"] = turnstileSecret.value;
     if (clearTurnstileSecret.value) turnstile["clearSecret"] = true;
@@ -352,6 +367,7 @@ async function saveTurnstile(): Promise<void> {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ security: { turnstile } }),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) {
       turnstileError.value = await readProblem(response, "save Turnstile settings");
@@ -360,7 +376,7 @@ async function saveTurnstile(): Promise<void> {
     const body = (await response.json()) as { data: { security: LoginSecuritySettings } };
     turnstileSecret.value = "";
     clearTurnstileSecret.value = false;
-    applySecurity(body.data.security);
+    applySecurity(body.data.security, true);
     emit("security", body.data.security);
     turnstileNote.value = en.settings.securitySaved;
     turnstileOpen.value = false;
@@ -397,7 +413,7 @@ function advancePassword(): void {
   else void savePassword();
 }
 function openTurnstile(): void {
-  applySecurity(props.security);
+  applySecurity(props.security, true);
   if (!props.security.turnstile.secretConfigured) turnstileEnabled.value = true;
   turnstileSecret.value = "";
   clearTurnstileSecret.value = false;
@@ -406,6 +422,8 @@ function openTurnstile(): void {
   turnstileStep.value = 1;
   challengeToken.value = "";
   challengeVerified.value = false;
+  challengeVerification.value = "";
+  clearTimeout(verificationTimer);
   turnstileOpen.value = true;
 }
 function closeTurnstile(): void {
@@ -413,10 +431,16 @@ function closeTurnstile(): void {
   turnstileOpen.value = false;
   turnstileSecret.value = "";
   challengeToken.value = "";
+  challengeVerified.value = false;
+  challengeVerification.value = "";
+  clearTimeout(verificationTimer);
 }
 function nextTurnstile(): void {
+  if (busy.value) return;
   turnstileError.value = "";
   challengeVerified.value = false;
+  challengeVerification.value = "";
+  clearTimeout(verificationTimer);
   challengeToken.value = "";
   challengeVersion.value++;
   turnstileStep.value = turnstileEnabled.value ? 2 : 3;
@@ -429,13 +453,41 @@ async function testTurnstile(): Promise<void> {
     const response = await fetch("/api/v1/security/turnstile/test", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: challengeToken.value, secret: turnstileSecret.value }),
+      body: JSON.stringify({
+        token: challengeToken.value,
+        secret: turnstileSecret.value,
+        siteKey: turnstileSiteKey.value.trim(),
+      }),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) {
       turnstileError.value = await readProblem(response, "test Turnstile");
       return;
     }
+    const body = (await response.json()) as {
+      data?: { verified?: boolean; verification?: string; expiresAt?: number };
+    };
+    if (
+      body.data?.verified !== true ||
+      !body.data.verification ||
+      !body.data.expiresAt ||
+      body.data.expiresAt <= Date.now()
+    ) {
+      turnstileError.value =
+        "The test reply was incomplete. Complete a new challenge and try again.";
+      return;
+    }
     challengeVerified.value = true;
+    challengeVerification.value = body.data.verification;
+    clearTimeout(verificationTimer);
+    verificationTimer = setTimeout(
+      () => {
+        challengeVerified.value = false;
+        challengeVerification.value = "";
+        turnstileError.value = "The setup test expired. Test again before saving.";
+      },
+      Math.min(body.data.expiresAt - Date.now(), 5 * 60_000),
+    );
     turnstileStep.value = 3;
   } catch {
     turnstileError.value = couldNotReach("test Turnstile");
@@ -445,12 +497,17 @@ async function testTurnstile(): Promise<void> {
     challengeVersion.value++;
   }
 }
-function removeTurnstileSecret(): void {
-  turnstileEnabled.value = false;
-  turnstileSecret.value = "";
-  clearTurnstileSecret.value = true;
-  turnstileNote.value = en.settings.turnstileSecretWillRemove;
+function backTurnstile(): void {
+  if (busy.value) return;
+  clearTimeout(verificationTimer);
+  challengeVerified.value = false;
+  challengeVerification.value = "";
+  challengeToken.value = "";
+  turnstileError.value = "";
+  turnstileStep.value = 1;
 }
+
+onUnmounted(() => clearTimeout(verificationTimer));
 
 async function loadBans(): Promise<void> {
   if (props.access.role !== "owner") return;
@@ -1682,44 +1739,53 @@ onUnmounted(() => {
                   >Cloudflare Turnstile ↗</a
                 >. Choose Managed mode and add the hostname you use to open this panel.
               </p>
-              <label class="field"
-                ><span
-                  ><input v-model="turnstileEnabled" type="checkbox" /> Enable verification on
-                  sign-in</span
-                ></label
-              >
-              <label class="field"
-                ><span>Site key</span
-                ><input
-                  v-model="turnstileSiteKey"
-                  :required="turnstileEnabled"
-                  maxlength="200"
-                  autocomplete="off"
-              /></label>
-              <label class="field"
-                ><span>Secret key</span
-                ><input
-                  v-model="turnstileSecret"
-                  type="password"
-                  :required="
-                    turnstileEnabled && (!turnstileSecretConfigured || clearTurnstileSecret)
-                  "
-                  maxlength="500"
-                  autocomplete="new-password"
-                  @input="clearTurnstileSecret = false"
-              /></label>
               <p class="hint">
-                {{
-                  turnstileSecretConfigured && !clearTurnstileSecret
-                    ? "Leave the secret blank to keep the saved key."
-                    : "Both keys come from the same Cloudflare widget."
-                }}
+                Hostname to allow: <code>{{ currentHostname }}</code>
               </p>
-              <div v-if="turnstileSecretConfigured && !clearTurnstileSecret" class="actions">
-                <button class="quiet" type="button" @click="removeTurnstileSecret">
-                  Remove saved secret and disable
-                </button>
-              </div>
+              <label class="account-check">
+                <input v-model="turnstileEnabled" type="checkbox" /> Enable verification on sign-in
+              </label>
+              <template v-if="turnstileEnabled">
+                <label class="field"
+                  ><span>Site key</span
+                  ><input
+                    v-model="turnstileSiteKey"
+                    :required="turnstileEnabled"
+                    maxlength="200"
+                    autocomplete="off"
+                /></label>
+                <label class="field"
+                  ><span>Secret key</span
+                  ><input
+                    v-model="turnstileSecret"
+                    type="password"
+                    :required="
+                      turnstileEnabled && (!turnstileSecretConfigured || clearTurnstileSecret)
+                    "
+                    maxlength="500"
+                    autocomplete="new-password"
+                    @input="clearTurnstileSecret = false"
+                /></label>
+                <p class="hint">
+                  {{
+                    turnstileSecretConfigured && !clearTurnstileSecret
+                      ? "Leave the secret blank to keep the saved key."
+                      : "Both keys come from the same Cloudflare widget."
+                  }}
+                </p>
+              </template>
+              <template v-else>
+                <p class="hint">
+                  Verification will be disabled. Your password and second factors still apply.
+                </p>
+                <label v-if="turnstileSecretConfigured" class="account-check">
+                  <input v-model="clearTurnstileSecret" type="checkbox" /> Also remove the saved
+                  secret
+                </label>
+                <p v-if="!clearTurnstileSecret" class="hint">
+                  The saved keys will be kept for later setup.
+                </p>
+              </template>
             </template>
             <template v-else-if="turnstileStep === 2">
               <p>
@@ -1731,9 +1797,9 @@ onUnmounted(() => {
                 v-model="challengeToken"
                 :site-key="turnstileSiteKey.trim()"
                 :theme="theme === 'light' ? 'light' : 'dark'"
-                @error="turnstileError = $event"
+                action="setup"
               />
-              <div class="actions">
+              <div v-if="challengeToken" class="actions">
                 <button
                   class="quiet"
                   type="button"
@@ -1743,13 +1809,17 @@ onUnmounted(() => {
                     turnstileError = '';
                   "
                 >
-                  Reload challenge
+                  Get a new challenge
                 </button>
               </div>
             </template>
             <template v-else>
               <p v-if="turnstileEnabled">
-                The server verified your test. Turnstile will be required on the next sign-in.
+                {{
+                  challengeVerified
+                    ? "The server verified your test. Turnstile will be required on the next sign-in."
+                    : "Test the configuration again before enabling Turnstile."
+                }}
               </p>
               <p v-else class="security-warning">
                 Turnstile verification will be disabled. Your password and authentication methods
@@ -1759,6 +1829,9 @@ onUnmounted(() => {
               <p class="hint">
                 Keep this browser signed in while you test a new sign-in in another browser.
               </p>
+              <div v-if="turnstileEnabled && !challengeVerified" class="actions">
+                <button type="button" class="quiet" @click="nextTurnstile">Test again</button>
+              </div>
             </template>
           </div>
         </fieldset>
@@ -1768,16 +1841,20 @@ onUnmounted(() => {
         <button
           class="quiet"
           :disabled="Boolean(busy)"
-          @click="turnstileStep > 1 ? (turnstileStep = 1) : closeTurnstile()"
+          @click="turnstileStep > 1 ? backTurnstile() : closeTurnstile()"
         >
-          {{ turnstileStep > 1 ? "Back" : "Cancel" }}
+          {{ turnstileStep === 3 ? "Edit configuration" : turnstileStep === 2 ? "Back" : "Cancel" }}
         </button>
         <button
           form="turnstile-guide"
           type="submit"
           class="primary"
           :aria-busy="Boolean(busy)"
-          :disabled="Boolean(busy) || (turnstileStep === 2 && !challengeToken)"
+          :disabled="
+            Boolean(busy) ||
+            (turnstileStep === 2 && !challengeToken) ||
+            (turnstileStep === 3 && turnstileEnabled && !challengeVerified)
+          "
         >
           <span v-if="busy" class="spinner" aria-hidden="true" />{{
             turnstileStep === 1

@@ -6,6 +6,23 @@ import { createAudit } from "./log.ts";
 import { openDatabase } from "../db/open.ts";
 
 describe("audit log", () => {
+  it("keeps the chain valid when the panel and recovery writers alternate", () => {
+    const db = openDatabase(":memory:"),
+      panel = createAudit(db),
+      recovery = createAudit(db);
+    panel.record({ action: "auth.login", result: "ok" });
+    recovery.record({ action: "security.turnstile.disable", result: "ok" });
+    panel.record({ action: "auth.login", result: "ok" });
+    expect(panel.verify()).toBe(true);
+    expect(panel.head()).toBe(recovery.head());
+    db.exec("BEGIN IMMEDIATE");
+    recovery.record({ action: "auth.factors.reset", result: "ok" });
+    db.exec("ROLLBACK");
+    panel.record({ action: "auth.logout", result: "ok" });
+    expect(panel.verify()).toBe(true);
+    expect(panel.list(10)).toHaveLength(4);
+    db.close();
+  });
   it("chains records and notices an edited row", () => {
     const db = openDatabase(":memory:");
     const audit = createAudit(db);

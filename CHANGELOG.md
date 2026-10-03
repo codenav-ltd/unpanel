@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.29] - 2026-10-03
+
+### Added
+
+- Expand `unpanel-manage` with service status/start/stop/restart, bounded or following logs, update checks and installation, security status, account listing, targeted IP unban, Turnstile recovery, private password reset and confirmed 2FA reset.
+- Recovery changes revoke affected sessions and pending challenges, preserve account access settings, and commit their audit record atomically. Database access uses the installed data directory and drops to the service account to preserve SQLite ownership.
+
+### Fixed
+
+- Privileged terminal commands now check administrator access first and suggest the exact `sudo` command instead of throwing filesystem exceptions. Missing databases are refused without creating an empty replacement.
+- Keep the audit chain valid across panel and terminal writers and transaction rollbacks.
+- Turnstile setup uses correctly aligned controls, normal or compact challenge sizes, clear expired/error states and retry controls. Render after the script's load event without calling the `ready()` helper that rejects async/defer scripts. Old widget callbacks cannot alter a newer challenge; failed server tests remain visible during retries.
+- Keep Node installation checksum output out of the returned executable path; reject invalid runtime paths and stop on failed installation or copying.
+
+### Changed
+
+- Terminal updates honor releases requiring review and require approval of the exact available version. Documentation separates available recovery commands from planned runbooks.
+- Enabling or replacing Turnstile keys requires a successful setup test bound to the current session and configuration. Setup verifies its own action and hostname; its short-lived authorization expires after five minutes and is consumed on save.
+
 ## [0.1.0-alpha.28] - 2026-10-03
 
 ### Fixed

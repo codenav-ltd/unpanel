@@ -8,6 +8,15 @@
 # panel.env are put back.
 set -eu
 
+approval=""
+if [ "$#" -ne 0 ]; then
+  if [ "$#" -ne 2 ] || [ "$1" != "--approve" ]; then
+    echo "Usage: sudo unpanel-manage update [--approve VERSION]" >&2
+    exit 1
+  fi
+  approval=$2
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root: sudo bash /opt/unpanel/scripts/update.sh" >&2
   exit 1
@@ -46,7 +55,11 @@ esac
 NODE=$(discover_node)
 NODE=$(stage_node "$NODE")
 
-choice=$("$NODE" "$ROOT/scripts/select-update.mjs" --current "$current" --arch "$arch") || exit 1
+if [ -n "$approval" ]; then
+  choice=$("$NODE" "$ROOT/scripts/select-update.mjs" --current "$current" --arch "$arch" --approve "$approval") || exit 1
+else
+  choice=$("$NODE" "$ROOT/scripts/select-update.mjs" --current "$current" --arch "$arch") || exit 1
+fi
 url=$(printf '%s\n' "$choice" | sed -n '1p')
 if [ "$url" = "current" ]; then
   echo "Already up to date."

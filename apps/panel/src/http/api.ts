@@ -29,6 +29,7 @@ import { CertificateError } from "../tls/material.ts";
 import type { Alerts } from "../alerts/service.ts";
 import { registerAlertApi } from "../alerts/api.ts";
 import { verifyTurnstileToken } from "../auth/turnstile.ts";
+import { createTurnstileSetup } from "../auth/turnstile-setup.ts";
 import { AccountError } from "../auth/account-error.ts";
 import type { Factors } from "../auth/factors.ts";
 import type { EmailMethods } from "../email/store.ts";
@@ -69,6 +70,7 @@ export function createApi(options: {
   onSettings?: () => void;
 }): Hono {
   const app = new Hono();
+  const turnstileSetup = createTurnstileSetup();
   const secureCookie = (): boolean =>
     typeof options.secureCookie === "function" ? options.secureCookie() : options.secureCookie;
   const sessionToken = (c: Context): string | null => readSessionToken(c, secureCookie());
@@ -731,6 +733,27 @@ export function createApi(options: {
     if (options.access && "security" in body && options.access.get(user.id).role !== "owner")
       throw new AccountError("Only an owner can change panel sign-in security.", 403);
     try {
+      let tested = false;
+      if (isRecord(body["security"]) && isRecord(body["security"]["turnstile"])) {
+        const patch = body["security"]["turnstile"];
+        const saved = options.security.runtime().turnstile;
+        const enabled = patch["enabled"] ?? saved.enabled;
+        const siteKey =
+          typeof patch["siteKey"] === "string" ? patch["siteKey"].trim() : saved.siteKey;
+        const secret =
+          patch["clearSecret"] === true
+            ? ""
+            : typeof patch["secret"] === "string" && patch["secret"].trim()
+              ? patch["secret"].trim()
+              : saved.secret;
+        if (
+          enabled === true &&
+          (!saved.enabled || siteKey !== saved.siteKey || secret !== saved.secret)
+        ) {
+          turnstileSetup.require(sessionToken(c) ?? "", siteKey, secret, patch["verification"]);
+          tested = true;
+        }
+      }
       if (typeof body["theme"] === "string") {
         options.settings.setTheme(body["theme"] as Theme, user.username);
       }
@@ -745,6 +768,7 @@ export function createApi(options: {
       if (isRecord(body["security"])) {
         options.security.update(body["security"], user.username);
       }
+      if (tested) turnstileSetup.consume(sessionToken(c) ?? "");
     } catch (error) {
       if (
         error instanceof SettingsError ||
@@ -786,20 +810,54 @@ export function createApi(options: {
     if (!body) return invalid(c);
     const secret = field(body, "secret").trim() || options.security.runtime().turnstile.secret;
     const token = field(body, "token");
-    if (!secret || secret.length > 500 || !token || token.length > 2048) return invalid(c);
+    const siteKey = field(body, "siteKey").trim();
+    if (
+      !secret ||
+      secret.length > 500 ||
+      !token ||
+      token.length > 2048 ||
+      !siteKey ||
+      siteKey.length > 200
+    )
+      return invalid(c);
     try {
-      if (!(await verifyTurnstileToken({ secret, token, ip: clientIp(c) })))
+      const hostnames = [new URL(c.req.url).hostname];
+      const publicUrl = options.settings.view().publicUrl;
+      if (publicUrl) hostnames.push(new URL(publicUrl).hostname);
+      if (
+        !(await verifyTurnstileToken({
+          secret,
+          token,
+          ip: clientIp(c),
+          action: "setup",
+          hostnames,
+        }))
+      )
         return c.json(
           {
             error: {
               code: "E_INVALID_PARAMS",
               message:
-                "The challenge did not match these keys. Check the allowed hostname and try again.",
+                "Cloudflare rejected this challenge. Check that both keys belong to the same widget and that this hostname is allowed, then complete a new challenge.",
             },
           },
           400,
         );
-      return c.json({ data: { verified: true } });
+      const active = options.auth.sessionUser(sessionToken(c));
+      if (!active) return unauthenticated(c);
+      if (options.access && options.access.get(active.id).role !== "owner")
+        return c.json(
+          {
+            error: {
+              code: "E_FORBIDDEN",
+              message: "Only an owner can test panel sign-in security.",
+            },
+          },
+          403,
+        );
+      return c.json({
+        data: { verified: true, ...turnstileSetup.issue(sessionToken(c) ?? "", siteKey, secret) },
+      });
     } catch {
       return c.json(
         {

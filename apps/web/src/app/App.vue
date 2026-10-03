@@ -732,11 +732,6 @@ function resetTurnstile(): void {
   turnstileVersion.value += 1;
 }
 
-function onTurnstileError(message: string): void {
-  error.value = message;
-  turnstileToken.value = "";
-}
-
 function stripToken(): void {
   const url = new URL(globalThis.location.href);
   if (!url.searchParams.has("token")) return;
@@ -2054,14 +2049,16 @@ onUnmounted(() => {
               v-model="turnstileToken"
               :site-key="security.turnstile.siteKey"
               :theme="theme === 'light' ? 'light' : 'dark'"
-              @error="onTurnstileError"
             />
             <div v-if="loginWarnings.length" class="login-warnings" role="status">
               <p v-for="warning in loginWarnings" :key="warning">{{ warning }}</p>
             </div>
             <p v-if="error" class="form-error" role="alert">{{ error }}</p>
             <div class="actions">
-              <button type="submit" :disabled="pending">
+              <button
+                type="submit"
+                :disabled="pending || (security.turnstile.enabled && !turnstileToken)"
+              >
                 <span v-if="pending" class="spinner" aria-hidden="true" />
                 {{ pending ? en.auth.signingIn : en.auth.signIn }}
               </button>

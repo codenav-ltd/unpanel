@@ -33,19 +33,59 @@ function release(version: string, archSha = sha): ReleaseFile {
   };
 }
 
-function cli(current: string, arch: string, channels: ChannelsFile): string {
+function cli(
+  current: string,
+  arch: string,
+  channels: ChannelsFile,
+  options: string[] = [],
+): string {
   const dir = mkdtempSync(join(tmpdir(), "unpanel-select-"));
   const file = join(dir, "channels.json");
   writeFileSync(file, JSON.stringify(channels));
   return execFileSync(
     process.execPath,
-    ["scripts/select-update.mjs", "--current", current, "--arch", arch, "--manifest", file],
+    [
+      "scripts/select-update.mjs",
+      "--current",
+      current,
+      "--arch",
+      arch,
+      "--manifest",
+      file,
+      ...options,
+    ],
     { cwd: repo, encoding: "utf8" },
   ).replace(/\r\n/g, "\n");
 }
 
 describe("select-update", () => {
   const channels: ChannelsFile = { stable: null, beta: release("0.1.0-alpha.12") };
+
+  it("checks a review-required release without installing or bypassing approval", () => {
+    const review = { stable: null, beta: { ...release("0.1.0-alpha.12"), reviewRequired: true } };
+    expect(cli("0.1.0-alpha.11", "linux-x64", review, ["--check"])).toContain(
+      "sudo unpanel-manage update --approve 0.1.0-alpha.12",
+    );
+    expect(() => cli("0.1.0-alpha.11", "linux-x64", review)).toThrow(/requires review/);
+    expect(cli("0.1.0-alpha.11", "linux-x64", review, ["--approve", "0.1.0-alpha.12"])).toContain(
+      `${sha}\n0.1.0-alpha.12\n`,
+    );
+    expect(() =>
+      cli("0.1.0-alpha.11", "linux-x64", review, ["--approve", "0.1.0-alpha.13"]),
+    ).toThrow(/no longer matches/);
+  });
+
+  it("requires review for a breaking changelog even without the flag", () => {
+    const review: ChannelsFile = {
+      stable: null,
+      beta: {
+        ...release("0.1.0-alpha.12"),
+        changelog: [{ kind: "breaking", title: "Fixture breaking change" }],
+      },
+    };
+    expect(() => cli("0.1.0-alpha.11", "linux-x64", review)).toThrow(/requires review/);
+    expect(cli("0.1.0-alpha.12", "linux-x64", review, ["--check"])).toBe("Already up to date.\n");
+  });
 
   it("prints the arm64 package the panel would select", () => {
     const picked = selectUpdate("0.1.0-alpha.11", channels);

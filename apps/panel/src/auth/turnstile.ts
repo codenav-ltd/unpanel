@@ -7,11 +7,14 @@ export type TurnstileVerifier = (input: {
   secret: string;
   token: string;
   ip: string;
+  action?: "login" | "setup";
+  hostnames?: string[];
 }) => Promise<boolean>;
 
 interface SiteverifyResponse {
   success?: boolean;
   action?: string;
+  hostname?: string;
 }
 
 export class TurnstileUnavailableError extends Error {
@@ -43,5 +46,10 @@ export const verifyTurnstileToken: TurnstileVerifier = async (input) => {
   } catch {
     throw new TurnstileUnavailableError();
   }
-  return result.success === true && result.action === "login";
+  if (!result || typeof result !== "object") throw new TurnstileUnavailableError();
+  return (
+    result.success === true &&
+    result.action === (input.action ?? "login") &&
+    (!input.hostnames || input.hostnames.includes(result.hostname ?? ""))
+  );
 };
