@@ -29,7 +29,7 @@ function fixture() {
     reviewRequired: false,
     advisories,
   };
-  let result: UpdateView & { release: ReleaseFile | null } = {
+  let result: UpdateView & { release: ReleaseFile | null; catalog?: ReleaseFile[] } = {
     current: "0.1.0-alpha.25",
     update: { version: release.version, notes: "fixture", changelog: [], reviewRequired: false },
     advisories,
@@ -37,7 +37,10 @@ function fixture() {
     release,
   };
   const check = vi.fn(async () => result),
-    apply = vi.fn(async () => ({ accepted: true as const, version: release.version })),
+    apply = vi.fn(async (target: ReleaseFile) => ({
+      accepted: true as const,
+      version: target.version,
+    })),
     notify = vi.fn(() => 1),
     record = vi.fn();
   const make = () =>
@@ -83,6 +86,48 @@ function fixture() {
   };
 }
 describe("security release policy", () => {
+  it("enforces downgrade compatibility again at installation time", async () => {
+    const f = fixture();
+    const old: ReleaseFile = {
+      version: "0.1.0-alpha.24",
+      url: "https://github.com/codenav-ltd/unpanel/releases/download/v0.1.0-alpha.24/unpanel.tar.gz",
+      sha256: "b".repeat(64),
+      notes: "old",
+    };
+    try {
+      f.result({
+        ...f.getResult(),
+        catalog: [f.release, old],
+        versions: [
+          {
+            version: old.version,
+            available: false,
+            reason: "The installed release does not declare this downgrade compatible.",
+            notes: "old",
+            changelog: [],
+            knownIssues: [],
+            lostFeatures: [],
+            reviewRequired: true,
+          },
+        ],
+      });
+      await expect(f.service.install(old.version)).rejects.toThrow(/does not declare/);
+      expect(f.apply).not.toHaveBeenCalled();
+      f.service.close();
+      f.result({
+        ...f.getResult(),
+        versions: [
+          { ...f.getResult().versions?.[0], version: old.version, available: true },
+        ] as NonNullable<UpdateView["versions"]>,
+      });
+      const restarted = f.make();
+      await expect(restarted.install(old.version)).resolves.toMatchObject({ version: old.version });
+      expect(f.apply).toHaveBeenCalledWith(old);
+      restarted.close();
+    } finally {
+      f.db.close();
+    }
+  });
   it("warns when a valid advisory has no compatible package and refuses unrelated GitHub assets", async () => {
     const f = fixture();
     try {

@@ -256,6 +256,7 @@ describe("multi-user permission boundaries", () => {
         ),
       ).toEqual(["local"]);
       expect((await f.request(token, "/nodes/local")).status).toBe(200);
+      expect((await f.request(token, "/updates/history")).status).toBe(200);
       expect((await f.request(token, "/nodes/" + f.remote)).status).toBe(403);
       expect(
         (await f.request(token, "/nodes/" + encodeURIComponent(f.remote) + "/history")).status,

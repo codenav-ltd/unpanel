@@ -14,6 +14,45 @@ SNAP=/var/lib/unpanel/update-snapshot
 ENV_FILE=/etc/unpanel/panel.env
 PANEL_UNIT=/etc/systemd/system/unpanel.service
 AGENT_UNIT=/etc/systemd/system/unpanel-agent.service
+TRACE=${UNPANEL_UPDATE_TRACE:-}
+UPDATE_STARTED_MS=${UNPANEL_UPDATE_STARTED_MS:-}
+DOWNTIME_STARTED_MS=
+TRACE_FINISHED=0
+
+now_ms() {
+  date +%s%3N
+}
+
+trace_step() {
+  name=$1
+  duration=$2
+  downtime=$3
+  if [ -n "$TRACE" ] && [ -f "$TRACE" ]; then
+    printf '{"type":"step","name":"%s","durationMs":%s,"downtime":%s}\n' "$name" "$duration" "$downtime" >> "$TRACE"
+  fi
+}
+
+trace_result() {
+  status=$1
+  if [ -n "$TRACE" ] && [ -f "$TRACE" ] && [ -n "$UPDATE_STARTED_MS" ]; then
+    ended=$(now_ms)
+    total=$((ended - UPDATE_STARTED_MS))
+    downtime=null
+    if [ -n "$DOWNTIME_STARTED_MS" ]; then
+      downtime=$((ended - DOWNTIME_STARTED_MS))
+    fi
+    printf '{"type":"result","status":"%s","durationMs":%s,"downtimeMs":%s}\n' "$status" "$total" "$downtime" >> "$TRACE"
+    TRACE_FINISHED=1
+  fi
+}
+
+finish_trace() {
+  if [ "$TRACE_FINISHED" -eq 0 ]; then
+    trace_result failed
+  fi
+}
+
+trap finish_trace EXIT
 
 env_value() {
   key=$1
@@ -56,9 +95,11 @@ restore_previous() {
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl start unpanel.service >/dev/null 2>&1 || true
   if ! wait_health; then
+    trace_result failed
     echo "The previous panel did not come back. Saved copy: $SNAP" >&2
     exit 1
   fi
+  trace_result rolled-back
   echo "Restored the previous version. The panel is answering again." >&2
 }
 
@@ -139,11 +180,15 @@ if ! flock -n 9; then
   exit 1
 fi
 
+DOWNTIME_STARTED_MS=$(now_ms)
+step_at=$DOWNTIME_STARTED_MS
 if ! systemctl stop unpanel.service; then
   systemctl start unpanel.service >/dev/null 2>&1 || true
   echo "Could not stop the panel. The running panel was not changed." >&2
   exit 1
 fi
+trace_step stop $(($(now_ms) - step_at)) true
+step_at=$(now_ms)
 rm -rf "$PREV"
 if ! mv "$ROOT" "$PREV"; then
   systemctl start unpanel.service >/dev/null 2>&1 || true
@@ -161,7 +206,9 @@ if ! chmod 755 "$ROOT"; then
   restore_previous
   exit 1
 fi
+trace_step swap $(($(now_ms) - step_at)) true
 
+step_at=$(now_ms)
 if [ -f "$ROOT/install.cjs" ]; then
   NODE=
   if [ -f "$SNAP/unpanel.service" ]; then
@@ -186,12 +233,16 @@ if [ -f "$ROOT/install.cjs" ]; then
 else
   systemctl start unpanel.service
 fi
+trace_step start $(($(now_ms) - step_at)) true
 
+step_at=$(now_ms)
 if ! wait_health; then
   echo "The new panel did not answer. Restoring the previous version." >&2
   restore_previous
   exit 1
 fi
+trace_step ready $(($(now_ms) - step_at)) true
+trace_result succeeded
 
 if command -v systemd-run >/dev/null 2>&1; then
   systemd-run --no-block --collect systemctl restart unpanel-agent.service >/dev/null 2>&1 || true

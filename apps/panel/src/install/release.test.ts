@@ -55,6 +55,7 @@ describe("release tags", () => {
     expect(bundle).toContain('"select-update.mjs"');
     expect(bundle).toContain('join(out, "VERSION")');
     expect(apply).toContain("panel-swap.sh");
+    expect(apply).toContain("UNPANEL_CURRENT_ROOT");
     const swap = readFileSync("scripts/panel-swap.sh", "utf8");
     expect(swap).toContain("Restoring the previous version");
     expect(swap).toContain("update-snapshot");

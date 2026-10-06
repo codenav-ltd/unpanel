@@ -16,11 +16,13 @@ import { compareVersions, product, managesPanel, type UserAccess } from "@unpane
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
-import type { ReleaseChange } from "../release-details.ts";
+import type { KnownIssue, ReleaseChange, ReleaseOption } from "../release-details.ts";
 import type { BanDurationMode, LoginSecuritySettings, RateLimitMode } from "../security.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 import { updateResultVersion, waitForPanelUpdate } from "../update-flow.ts";
+import { formatDuration, type UpdateOperation } from "../update-history.ts";
 import ReleaseDetailsDialog from "./ReleaseDetailsDialog.vue";
+import UpdateDetailsDrawer from "./UpdateDetailsDrawer.vue";
 import SelectField from "./SelectField.vue";
 import AppDialog from "./AppDialog.vue";
 import TurnstileWidget from "./TurnstileWidget.vue";
@@ -140,9 +142,18 @@ const updateVersion = ref("");
 const updateNotes = ref("");
 const updateChanges = ref<ReleaseChange[]>([]);
 const updateReviewRequired = ref(false);
+const releaseVersions = ref<ReleaseOption[]>([]);
+const updateKnownIssues = ref<KnownIssue[]>([]);
+const updateLostFeatures = ref<string[]>([]);
+const updateDowngrade = ref(false);
 const releaseDetailsOpen = ref(false);
 const updateError = ref("");
 const updateSuccessVersion = ref(updateResultVersion(globalThis.location.search, product.version));
+const updateHistory = ref<UpdateOperation[]>([]);
+const updateHistoryError = ref("");
+const selectedOperation = ref<UpdateOperation | null>(null);
+let updateHistoryTimer: ReturnType<typeof setTimeout> | undefined;
+let updateHistoryPolls = 0;
 const agentBusy = ref("");
 const agentResult = ref<Record<string, { kind: "working" | "success" | "error"; text: string }>>(
   {},
@@ -709,6 +720,10 @@ async function checkUpdates(): Promise<void> {
   updateNotes.value = "";
   updateChanges.value = [];
   updateReviewRequired.value = false;
+  releaseVersions.value = [];
+  updateKnownIssues.value = [];
+  updateLostFeatures.value = [];
+  updateDowngrade.value = false;
   releaseDetailsOpen.value = false;
   try {
     const response = await fetch("/api/v1/updates");
@@ -725,9 +740,11 @@ async function checkUpdates(): Promise<void> {
           changelog?: ReleaseChange[];
           reviewRequired?: boolean;
         } | null;
+        versions?: ReleaseOption[];
         error?: string | null;
       };
     };
+    releaseVersions.value = body.data?.versions ?? [];
     if (body.data?.error) {
       updateState.value = "error";
       updateError.value = body.data.error;
@@ -748,6 +765,49 @@ async function checkUpdates(): Promise<void> {
     updateState.value = "error";
     updateError.value = couldNotReach("check for updates");
   }
+}
+
+function chooseRelease(option: ReleaseOption): void {
+  if (!option.available) return;
+  updateVersion.value = option.version;
+  updateNotes.value = option.notes;
+  updateChanges.value = option.changelog;
+  updateReviewRequired.value = option.reviewRequired;
+  updateKnownIssues.value = option.knownIssues;
+  updateLostFeatures.value = option.lostFeatures;
+  updateDowngrade.value = (compareVersions(option.version, product.version) ?? 0) < 0;
+  updateState.value = "available";
+  updateError.value = "";
+}
+
+async function loadUpdateHistory(): Promise<void> {
+  updateHistoryError.value = "";
+  try {
+    const response = await fetch("/api/v1/updates/history");
+    if (!response.ok) {
+      updateHistoryError.value = await readProblem(response, "load update history");
+      return;
+    }
+    const body = (await response.json()) as { data?: UpdateOperation[] };
+    updateHistory.value = Array.isArray(body.data) ? body.data : [];
+    const newest = updateHistory.value[0];
+    if (
+      updateSuccessVersion.value &&
+      newest?.to === updateSuccessVersion.value &&
+      newest.status === "running" &&
+      updateHistoryPolls < 8
+    ) {
+      updateHistoryPolls += 1;
+      clearTimeout(updateHistoryTimer);
+      updateHistoryTimer = setTimeout(() => void loadUpdateHistory(), 500);
+    }
+  } catch {
+    updateHistoryError.value = couldNotReach("load update history");
+  }
+}
+
+function openUpdateDetails(operation?: UpdateOperation): void {
+  selectedOperation.value = operation ?? updateHistory.value[0] ?? null;
 }
 
 function requestPanelUpdate(): void {
@@ -835,7 +895,7 @@ function resumePanelUpdate(): boolean {
     setUpdateMarker(null, "");
     return false;
   }
-  if (runningAgainstTarget >= 0) {
+  if (runningAgainstTarget === 0) {
     setUpdateMarker("updated", product.version);
     updateSuccessVersion.value = product.version;
     void checkUpdates();
@@ -951,11 +1011,13 @@ onMounted(() => {
   revealActiveSection();
   window.addEventListener("resize", revealActiveSection);
   if (canManage.value && !resumePanelUpdate()) void checkUpdates();
+  if (canManage.value) void loadUpdateHistory();
   if (props.section === "security") void loadBans();
 });
 
 onUnmounted(() => {
   settingsUnmounted = true;
+  clearTimeout(updateHistoryTimer);
   window.removeEventListener("resize", revealActiveSection);
 });
 </script>
@@ -1009,6 +1071,33 @@ onUnmounted(() => {
             >
               {{ themeNote }}
             </p>
+            <details v-if="releaseVersions.length" class="version-picker">
+              <summary>Choose another version</summary>
+              <div class="version-picker-list">
+                <button
+                  v-for="release in releaseVersions"
+                  :key="release.version"
+                  type="button"
+                  :disabled="!release.available"
+                  :aria-current="updateVersion === release.version ? 'true' : undefined"
+                  @click="chooseRelease(release)"
+                >
+                  <span>
+                    <strong>v{{ release.version }}</strong>
+                    <small v-if="release.publishedAt">{{
+                      new Date(release.publishedAt).toLocaleDateString()
+                    }}</small>
+                  </span>
+                  <span v-if="!release.available" class="version-unavailable">{{
+                    release.reason
+                  }}</span>
+                  <span v-else-if="(compareVersions(release.version, product.version) ?? 0) < 0"
+                    >Compatible downgrade</span
+                  >
+                  <span v-else>Update</span>
+                </button>
+              </div>
+            </details>
           </section>
           <section class="wide">
             <span class="vital-kicker">{{ en.shell.publicUrl }}</span>
@@ -1366,6 +1455,14 @@ onUnmounted(() => {
                   en.updates.updatedTitle.replace("{version}", updateSuccessVersion)
                 }}</strong>
                 <p>{{ en.updates.updatedHint }}</p>
+                <button
+                  v-if="updateHistory.length"
+                  type="button"
+                  class="update-details-link"
+                  @click="openUpdateDetails()"
+                >
+                  View details
+                </button>
               </div>
             </div>
           </Transition>
@@ -1490,7 +1587,9 @@ onUnmounted(() => {
                       ? en.shell.updateWorking
                       : updateReviewRequired
                         ? en.updates.reviewUpdate
-                        : en.shell.updateAction
+                        : updateDowngrade
+                          ? "Downgrade"
+                          : en.shell.updateAction
                   }}
                 </button>
               </template>
@@ -1505,6 +1604,35 @@ onUnmounted(() => {
               >
                 <span v-if="updateState === 'checking'" class="spinner" aria-hidden="true" />
                 {{ updateState === "checking" ? en.updates.checkingShort : en.shell.updateCheck }}
+              </button>
+            </div>
+          </section>
+
+          <section class="wide">
+            <div class="update-section-head">
+              <div>
+                <span class="vital-kicker">Update history</span>
+                <p class="hint">Recent updates are measured locally on this server.</p>
+              </div>
+            </div>
+            <p v-if="updateHistoryError" class="form-error">{{ updateHistoryError }}</p>
+            <p v-else-if="!updateHistory.length" class="hint">No update operations recorded yet.</p>
+            <div v-else class="update-history-list">
+              <button
+                v-for="operation in updateHistory"
+                :key="operation.id"
+                type="button"
+                class="update-history-row"
+                @click="openUpdateDetails(operation)"
+              >
+                <span>
+                  <strong>v{{ operation.from }} → v{{ operation.to }}</strong>
+                  <small>{{ new Date(operation.startedAt).toLocaleString() }}</small>
+                </span>
+                <span>
+                  <strong>{{ formatDuration(operation.durationMs) }}</strong>
+                  <small>{{ operation.status.replace("-", " ") }}</small>
+                </span>
               </button>
             </div>
           </section>
@@ -1874,8 +2002,16 @@ onUnmounted(() => {
       :notes="updateNotes"
       :review-required="updateReviewRequired"
       :release-url="updateReleaseUrl"
+      :known-issues="updateKnownIssues"
+      :lost-features="updateLostFeatures"
+      :downgrade="updateDowngrade"
       @close="releaseDetailsOpen = false"
       @update="updateFromDetails"
+    />
+    <UpdateDetailsDrawer
+      :open="Boolean(selectedOperation)"
+      :operation="selectedOperation"
+      @close="selectedOperation = null"
     />
   </div>
 </template>
@@ -1904,6 +2040,112 @@ onUnmounted(() => {
   color: var(--text-2);
   font-size: 12px;
   line-height: 1.5;
+}
+.update-details-link {
+  display: inline;
+  width: auto;
+  min-height: 0;
+  margin-top: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.update-history-list {
+  display: grid;
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.update-history-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+  padding: 13px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+  text-align: left;
+}
+.update-history-row:hover {
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+.update-history-row > span {
+  display: grid;
+  gap: 3px;
+}
+.update-history-row > span:last-child {
+  text-align: right;
+}
+.update-history-row small {
+  color: var(--text-3);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.version-picker {
+  margin: 14px 0 0;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.version-picker summary {
+  width: max-content;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.version-picker-list {
+  display: grid;
+  max-height: 300px;
+  margin-top: 10px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.version-picker-list button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 52px;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  text-align: left;
+}
+.version-picker-list button:last-child {
+  border-bottom: 0;
+}
+.version-picker-list button[aria-current="true"] {
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  color: var(--text-1);
+}
+.version-picker-list button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.version-picker-list button > span:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 145px;
+}
+.version-picker-list small {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.version-unavailable {
+  max-width: 260px;
+  color: var(--danger);
+  font-size: 11px;
+  text-align: right;
 }
 .settings-status[data-enabled="true"] {
   color: var(--ok);

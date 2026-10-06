@@ -3,7 +3,15 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,7 +31,9 @@ function shellPath(path) {
 }
 
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "unpanel-node-test-"));
+  // macOS exposes /var through /private/var; use the canonical path so the
+  // shell's `pwd -P` does not make the fixture source and destination alias.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "unpanel-node-test-")));
   dirs.push(root);
   const dest = shellPath(join(root, "installed"));
   // Redirect the fixed system destination into a disposable fixture. No root access is needed.
@@ -110,6 +120,7 @@ printf '%s\\n' "$NODE"
       `
 uname() { case "$1" in -s) echo Linux ;; -m) echo aarch64 ;; esac; }
 curl() { printf '%s\\n' corrupt > "$4"; }
+sha256sum() { echo "sha256sum: fixture checksum mismatch" >&2; return 1; }
 tar() { echo "unexpected tar"; return 1; }
 mkdir() { echo "unexpected mkdir"; return 1; }
 if NODE=$(install_official_node); then exit 99; fi

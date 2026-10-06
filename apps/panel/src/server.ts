@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:http";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { join } from "node:path";
-import { product } from "@unpanel/shared";
+import { compareVersions, product } from "@unpanel/shared";
 import { privateKeyFromPem, publicKeyFromPem } from "@unpanel/protocol";
 import { WebSocketServer } from "ws";
 import { createAudit } from "./audit/log.ts";
@@ -19,6 +19,7 @@ import { createNodes } from "./nodes/store.ts";
 import { createSettings, seedPublicUrl } from "./settings/store.ts";
 import { findUpdate, releaseForVersion, UpdateError } from "./updates/check.ts";
 import { createUpdateSecurity } from "./updates/security.ts";
+import { readUpdateHistory } from "./updates/history.ts";
 import { createApi, sessionTokenFromCookie } from "./http/api.ts";
 import { handleHttp } from "./http/node.ts";
 import { createCertificates } from "./tls/store.ts";
@@ -155,6 +156,9 @@ export async function startPanel(options: {
     apply: async (release) => {
       const result = await hub.upgrade("local", {
         version: release.version,
+        fromVersion: product.version,
+        operation:
+          compareVersions(release.version, product.version) === -1 ? "downgrade" : "update",
         url: release.url,
         sha256: release.sha256,
       });
@@ -196,6 +200,7 @@ export async function startPanel(options: {
     certificates,
     alerts,
     checkUpdate: () => updates.check(),
+    updateHistory: () => readUpdateHistory(options.dataDir),
     applyUpdate: (version) => updates.install(version),
     applyAgentUpdate: async (nodeId) => {
       if (nodeId === "local") {

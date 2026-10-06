@@ -16,4 +16,9 @@ if [ ! -f "$STAGING/panel.cjs" ] || [ ! -f "$STAGING/install.cjs" ] || [ ! -f "$
   echo "The package is missing panel files. The running panel was not changed." >&2
   exit 1
 fi
-exec bash "$STAGING/scripts/panel-swap.sh" "$STAGING"
+CURRENT_ROOT=${UNPANEL_CURRENT_ROOT:-}
+SWAP="$STAGING/scripts/panel-swap.sh"
+if [ -n "$CURRENT_ROOT" ] && [ -f "$CURRENT_ROOT/scripts/panel-swap.sh" ]; then
+  SWAP="$CURRENT_ROOT/scripts/panel-swap.sh"
+fi
+exec bash "$SWAP" "$STAGING"

@@ -63,7 +63,12 @@ export const panelUpgrade = defineMethod({
   permission: "panel:control",
   timeoutMs: 180_000,
   params: z.object({
-    version: z.string().min(1),
+    version: z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/),
+    fromVersion: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/)
+      .default("0.0.0"),
+    operation: z.enum(["update", "downgrade"]).default("update"),
     url: z.string().url(),
     sha256: z.string().regex(/^[0-9a-f]{64}$/),
   }),
@@ -82,7 +87,7 @@ export const agentUpgrade = defineMethod({
   permission: "agent:upgrade",
   timeoutMs: 180_000,
   params: z.object({
-    version: z.string().min(1),
+    version: z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/),
     url: z.string().url(),
     sha256: z.string().regex(/^[0-9a-f]{64}$/),
   }),

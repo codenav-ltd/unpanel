@@ -19,6 +19,7 @@ import {
   legacyReleaseChanges,
   type ReleaseChange,
   type ReleaseChangeKind,
+  type KnownIssue,
 } from "../release-details.ts";
 import AppDialog from "./AppDialog.vue";
 
@@ -30,6 +31,9 @@ const props = defineProps<{
   notes: string;
   reviewRequired: boolean;
   releaseUrl: string;
+  knownIssues?: KnownIssue[];
+  lostFeatures?: string[];
+  downgrade?: boolean;
 }>();
 
 const emit = defineEmits<{ close: []; update: [] }>();
@@ -74,10 +78,52 @@ const changeMeta: Record<ReleaseChangeKind, { label: string; icon: Component }> 
     <div v-if="reviewRequired" class="release-impact-notice" data-impact="breaking" role="alert">
       <StopOutlined aria-hidden="true" />
       <div>
-        <strong>{{ en.updates.reviewRequiredTitle }}</strong>
-        <p>{{ en.updates.reviewRequiredHint }}</p>
+        <strong>{{
+          downgrade ? "Review downgrade impact" : en.updates.reviewRequiredTitle
+        }}</strong>
+        <p>
+          {{
+            downgrade
+              ? "The binary will be replaced only because this release is explicitly marked compatible with the installed data."
+              : en.updates.reviewRequiredHint
+          }}
+        </p>
       </div>
     </div>
+
+    <template v-if="downgrade && lostFeatures?.length">
+      <div class="release-change-heading">
+        <strong>You will lose</strong><span>{{ lostFeatures.length }}</span>
+      </div>
+      <ul class="release-change-list">
+        <li v-for="(feature, index) in lostFeatures" :key="`lost-${index}`" data-kind="deprecation">
+          <span class="release-change-icon" aria-hidden="true"><StopOutlined /></span>
+          <div>
+            <span class="release-change-kind">Feature</span>
+            <p>{{ feature }}</p>
+          </div>
+        </li>
+      </ul>
+    </template>
+
+    <template v-if="downgrade && knownIssues?.length">
+      <div class="release-change-heading">
+        <strong>Known issues in this version</strong><span>{{ knownIssues.length }}</span>
+      </div>
+      <ul class="release-change-list">
+        <li
+          v-for="(issue, index) in knownIssues"
+          :key="`issue-${index}`"
+          :data-kind="issue.severity === 'critical' ? 'critical' : 'fix'"
+        >
+          <span class="release-change-icon" aria-hidden="true"><BugOutlined /></span>
+          <div>
+            <span class="release-change-kind">{{ issue.id || issue.severity }}</span>
+            <p>{{ issue.title }}</p>
+          </div>
+        </li>
+      </ul>
+    </template>
     <div v-else-if="hasCritical" class="release-impact-notice" data-impact="critical">
       <WarningOutlined aria-hidden="true" />
       <div>
@@ -120,7 +166,9 @@ const changeMeta: Record<ReleaseChangeKind, { label: string; icon: Component }> 
       <button type="button" class="quiet" @click="emit('close')">
         {{ en.updates.notNow }}
       </button>
-      <button type="button" @click="emit('update')">{{ en.updates.updateNow }}</button>
+      <button type="button" @click="emit('update')">
+        {{ downgrade ? `Downgrade to v${targetVersion}` : en.updates.updateNow }}
+      </button>
     </template>
   </AppDialog>
 </template>

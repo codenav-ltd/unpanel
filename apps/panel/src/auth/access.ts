@@ -277,7 +277,13 @@ export function createAccess(db: DatabaseSync) {
       if (
         path === "/api/v1/me" ||
         (read &&
-          ["/api/v1/settings", "/api/v1/about", "/api/v1/updates", "/api/v1/nodes"].includes(path))
+          [
+            "/api/v1/settings",
+            "/api/v1/about",
+            "/api/v1/updates",
+            "/api/v1/updates/history",
+            "/api/v1/nodes",
+          ].includes(path))
       )
         return read;
       if (path.startsWith("/api/v1/me/")) return read || !access.locked;

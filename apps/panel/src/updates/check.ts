@@ -32,6 +32,12 @@ export interface ReleaseChange {
   title: string;
 }
 
+export interface KnownIssue {
+  id?: string;
+  severity: "low" | "medium" | "high" | "critical";
+  title: string;
+}
+
 export interface ReleaseFile {
   advisories?: SecurityAdvisory[];
   version: string;
@@ -40,6 +46,11 @@ export interface ReleaseFile {
   notes: string;
   changelog?: ReleaseChange[];
   reviewRequired?: boolean;
+  publishedAt?: string;
+  supported?: boolean;
+  reason?: string;
+  downgrade?: { supported: boolean; minVersion?: string };
+  knownIssues?: KnownIssue[];
   /** Packages other than the x64 url. Absent on manifests written before arm64 builds. */
   assets?: Record<string, ReleaseAsset>;
 }
@@ -47,6 +58,19 @@ export interface ReleaseFile {
 export interface ChannelsFile {
   stable: ReleaseFile | null;
   beta: ReleaseFile | null;
+  versions?: ReleaseFile[];
+}
+
+export interface ReleaseOption {
+  version: string;
+  publishedAt?: string;
+  available: boolean;
+  reason: string | null;
+  notes: string;
+  changelog: ReleaseChange[];
+  knownIssues: KnownIssue[];
+  lostFeatures: string[];
+  reviewRequired: boolean;
 }
 
 export interface UpdateView {
@@ -59,6 +83,7 @@ export interface UpdateView {
     changelog: ReleaseChange[];
     reviewRequired: boolean;
   } | null;
+  versions?: ReleaseOption[];
   error: string | null;
 }
 
@@ -80,6 +105,12 @@ export function parseChannels(value: unknown): ChannelsFile {
   return {
     stable: parseRelease(record["stable"]),
     beta: parseRelease(record["beta"]),
+    versions: Array.isArray(record["versions"])
+      ? record["versions"]
+          .slice(0, 100)
+          .map(parseRelease)
+          .filter((item): item is ReleaseFile => item !== null)
+      : [],
   };
 }
 
@@ -143,23 +174,36 @@ export async function findUpdate(options: {
   sourceUrl: string;
   fetchImpl?: typeof fetch;
   arch?: string;
-}): Promise<UpdateView & { release: ReleaseFile | null }> {
+}): Promise<UpdateView & { release: ReleaseFile | null; catalog: ReleaseFile[] }> {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const runtimeArch = options.arch ?? (process.platform === "linux" ? process.arch : "x64");
   const found: ReleaseFile[] = [];
+  const catalog: ReleaseFile[] = [];
   let sawAnswer = false;
   const site = await readChannels(fetchImpl, options.manifestUrl);
   if (site) {
     sawAnswer = true;
     const release = selectUpdate(options.current, site);
     if (release) found.push(release);
+    catalog.push(...allReleases(site));
   }
   const github = await readGitHubChannels(fetchImpl, options.sourceUrl);
   if (github) {
     sawAnswer = true;
     const release = selectUpdate(options.current, github);
     if (release) found.push(release);
+    catalog.push(...allReleases(github));
   }
   let release = pickNewest(options.current, found);
+  const releases = uniqueReleases(catalog);
+  const versions = releaseOptions(options.current, releases, runtimeArch);
+  const packagedCatalog = releases.flatMap((item) => {
+    try {
+      return [packageForArch(item, runtimeArch)];
+    } catch {
+      return [];
+    }
+  });
   const advisories = mergeSecurityAdvisories(
     ...found.map((item) =>
       (item.advisories ?? []).filter((advisory) => affectedBy(options.current, advisory)),
@@ -174,7 +218,7 @@ export async function findUpdate(options: {
     };
   if (release) {
     try {
-      const packed = packageForArch(release, options.arch ?? process.arch);
+      const packed = packageForArch(release, runtimeArch);
       return {
         current: options.current,
         ...(advisories.length ? { advisories } : {}),
@@ -184,16 +228,20 @@ export async function findUpdate(options: {
           changelog: packed.changelog ?? [],
           reviewRequired: packed.reviewRequired === true,
         },
+        versions,
         error: null,
         release: packed,
+        catalog: packagedCatalog,
       };
     } catch (error) {
       return {
         current: options.current,
         ...(advisories.length ? { advisories } : {}),
         update: null,
+        versions,
         error: error instanceof Error ? error.message : "Could not check for updates.",
         release: null,
+        catalog: packagedCatalog,
       };
     }
   }
@@ -201,15 +249,19 @@ export async function findUpdate(options: {
     return {
       current: options.current,
       update: null,
+      versions: [],
       error: "Could not check for updates.",
       release: null,
+      catalog: [],
     };
   }
   return {
     current: options.current,
     update: null,
+    versions,
     error: null,
     release: null,
+    catalog: packagedCatalog,
   };
 }
 
@@ -261,7 +313,7 @@ export async function releaseForVersion(options: {
 }
 
 function matchingReleases(channels: ChannelsFile, version: string): ReleaseFile[] {
-  return [channels.beta, channels.stable].filter(
+  return allReleases(channels).filter(
     (release): release is ReleaseFile => release?.version === version,
   );
 }
@@ -290,6 +342,24 @@ function parseRelease(value: unknown): ReleaseFile | null {
     reviewRequired:
       record["reviewRequired"] === true || changelog.some((change) => change.kind === "breaking"),
   };
+  if (
+    typeof record["publishedAt"] === "string" &&
+    Number.isFinite(Date.parse(record["publishedAt"]))
+  )
+    release.publishedAt = record["publishedAt"];
+  if (record["supported"] === false) release.supported = false;
+  if (typeof record["reason"] === "string") release.reason = record["reason"].slice(0, 500);
+  const downgrade = record["downgrade"];
+  if (downgrade && typeof downgrade === "object") {
+    const row = downgrade as Record<string, unknown>;
+    release.downgrade = {
+      supported: row["supported"] === true,
+      ...(typeof row["minVersion"] === "string" && isReleaseTag(`v${row["minVersion"]}`)
+        ? { minVersion: row["minVersion"] }
+        : {}),
+    };
+  }
+  release.knownIssues = parseKnownIssues(record["knownIssues"]);
   const assets = parseAssets(record["assets"]);
   if (record["advisories"] !== undefined)
     release.advisories = parseSecurityAdvisories(record["advisories"]);
@@ -297,6 +367,87 @@ function parseRelease(value: unknown): ReleaseFile | null {
     throw new Error("Security advisory fix is newer than its release.");
   if (assets) release.assets = assets;
   return release;
+}
+
+function parseKnownIssues(value: unknown): KnownIssue[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 100).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>,
+      title = row["title"];
+    if (typeof title !== "string" || !title.trim() || title.length > 500) return [];
+    const severity = ["low", "medium", "high", "critical"].includes(String(row["severity"]))
+      ? (row["severity"] as KnownIssue["severity"])
+      : "medium";
+    return [
+      {
+        ...(typeof row["id"] === "string" ? { id: row["id"].slice(0, 80) } : {}),
+        severity,
+        title: title.trim(),
+      },
+    ];
+  });
+}
+
+function allReleases(channels: ChannelsFile): ReleaseFile[] {
+  return [...(channels.versions ?? []), channels.beta, channels.stable].filter(
+    (item): item is ReleaseFile => item !== null,
+  );
+}
+
+function uniqueReleases(input: ReleaseFile[]): ReleaseFile[] {
+  const found = new Map<string, ReleaseFile>();
+  for (const release of input) if (!found.has(release.version)) found.set(release.version, release);
+  return [...found.values()].sort((a, b) => compareVersions(b.version, a.version) ?? 0);
+}
+
+function releaseOptions(current: string, releases: ReleaseFile[], arch: string): ReleaseOption[] {
+  const currentRelease = releases.find((item) => item.version === current);
+  return releases
+    .filter((item) => item.version !== current)
+    .map((item) => {
+      const older = (compareVersions(item.version, current) ?? 0) < 0;
+      let reason: string | null =
+        item.supported === false ? (item.reason ?? "This release is no longer supported.") : null;
+      if (older && !reason) {
+        if (!currentRelease?.downgrade?.supported)
+          reason = "The installed release does not declare this downgrade compatible.";
+        else if (
+          currentRelease.downgrade.minVersion &&
+          (compareVersions(item.version, currentRelease.downgrade.minVersion) ?? -1) < 0
+        )
+          reason = `The installed release only supports downgrade to v${currentRelease.downgrade.minVersion} or newer.`;
+      }
+      if (!reason) {
+        try {
+          packageForArch(item, arch);
+        } catch (error) {
+          reason = error instanceof Error ? error.message : "No compatible package.";
+        }
+      }
+      return {
+        version: item.version,
+        ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}),
+        available: reason === null,
+        reason,
+        notes: item.notes,
+        changelog: item.changelog ?? [],
+        knownIssues: item.knownIssues ?? [],
+        lostFeatures: older
+          ? releases
+              .filter(
+                (candidate) =>
+                  (compareVersions(candidate.version, item.version) ?? 0) > 0 &&
+                  (compareVersions(candidate.version, current) ?? 0) <= 0,
+              )
+              .flatMap((candidate) => candidate.changelog ?? [])
+              .filter((change) => change.kind === "feature")
+              .map((change) => change.title)
+              .slice(0, 100)
+          : [],
+        reviewRequired: item.reviewRequired === true || older,
+      };
+    });
 }
 
 function parseChangelog(value: unknown): ReleaseChange[] {

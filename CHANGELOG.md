@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.30] - 2026-10-06
+
+### Added
+
+- Add a bounded release catalog with fail-closed downgrade compatibility, target-version known issues, lost-feature review, and architecture-aware package selection.
+- Record the newest 50 panel update operations locally with download, verification, staging, extraction, downtime, restart and readiness timings; expose update history and copyable diagnostics in Settings.
+
+### Changed
+
+- Complete updates and compatible downgrades use the same verified, atomic swap and automatic rollback path. The success notice now links to a responsive diagnostics drawer, and unavailable versions remain visible with an explanation.
+- Website deployment merges checksummed release metadata into the canonical catalog while GitHub remains a single-release fallback mirror.
+
 ## [0.1.0-alpha.29] - 2026-10-03
 
 ### Added

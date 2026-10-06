@@ -155,6 +155,7 @@ export const dockerContainerRestart = defineMethod({
 - `risk: "danger"` methods require the user to be in sudo mode, and their `req`/`sopen` frames must carry a `sig` (§4.3).
 - `since`: the protocol version that introduced the method. Calling a newer method on an older agent fails fast on the panel with `E_UNSUPPORTED`.
 - `agent.upgrade` (since `1.1`) downloads the release package for the node's architecture, verifies its published SHA-256, swaps the remote agent install from a transient systemd unit, and reconnects with the same enrollment key. Agents advertise support with `control.meta.agentUpgrade: true`.
+- `panel.upgrade` includes the target artifact plus `fromVersion` and `operation: "update" | "downgrade"`. The latter fields have backward-compatible defaults for older panels. The local root agent uses them only for an append-only timing trace; compatibility authorization stays in the panel and release metadata, before the RPC is sent.
 
 ### 4.3 Signed dangerous requests
 

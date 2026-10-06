@@ -20,7 +20,9 @@ This page describes the current pre-alpha workflow. Signing, bundled Node runtim
 | `stable` | Final releases | Stable installs; pre-release installs also accept a newer stable |
 | `beta` | Pre-releases, including `-alpha` | Existing pre-release installs |
 
-The update check reads `channels.json` from the site and GitHub, chooses a newer compatible channel release and selects the running architecture's package. Metadata includes SHA-256 hashes, structured change notes, manual-review requirements and affected-version security advisories. There is no signature file or enforced minimum direct-upgrade version yet. Older manifests without advisory metadata remain readable.
+The update check reads `channels.json` from the site and GitHub, chooses a newer compatible channel release and selects the running architecture's package. Metadata includes SHA-256 hashes, structured change notes, manual-review requirements, known issues, downgrade compatibility and affected-version security advisories. The website deploy merges up to 50 prior releases into the canonical catalog; GitHub remains a fallback mirror and an older single-release manifest remains readable. There is no signature file or enforced minimum direct-upgrade version yet.
+
+Before tagging, review `releases/release-policy.json`. Keep downgrade disabled unless the installed release's database and stored-data changes are readable by every version at or above the declared `minVersion`. Additive schema changes are candidates; dropped/renamed columns and changed data semantics normally require downgrade to remain disabled. Add target-specific known issues here as structured entries. Never enable application downgrade merely because the updater can restore the previous binary after a failed start—those are separate guarantees.
 
 ### Project endpoints
 

@@ -29,6 +29,7 @@ jobs:
       url: https://unpanel.codenav.dev
     env:
       RELEASE_TAG: ${{ inputs.tag }}
+      SITE_URL: ${{ vars.SITE_URL || 'https://unpanel.codenav.dev' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,7 +60,8 @@ jobs:
           --pattern channels.json --pattern SHA256SUMS --dir metadata
       - name: Prepare and validate website
         run: |
-          node tooling/scripts/site-release.mjs prepare "$RELEASE_TAG" source/apps/site/dist metadata
+          curl -fsS --max-time 15 "$SITE_URL/channels.json" -o metadata/previous-channels.json || true
+          node tooling/scripts/site-release.mjs prepare "$RELEASE_TAG" source/apps/site/dist metadata metadata/previous-channels.json
           tar -czf site.tar.gz -C source/apps/site/dist .
       - name: Deploy and verify public files
         env:

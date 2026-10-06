@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { releaseMetadata } from "./release-notes.mjs";
 import { parseSecurityAdvisories } from "../packages/shared/src/update-security.ts";
 import { compareVersions } from "../packages/shared/src/version.ts";
+import { validateReleasePolicy } from "./release-policy.mjs";
 
 // The bundle is built on linux-x64. The arm64 package is the same bundle with
 // the glibc arm64 argon2 binary from the lockfile swapped in.
@@ -81,6 +82,10 @@ const x64Hash = sha256(readFileSync(x64Archive));
 const armHash = sha256(readFileSync(join(releaseDir, armAsset)));
 const base = `https://github.com/codenav-ltd/unpanel/releases/download/v${version}`;
 const releaseNotes = releaseMetadata(readFileSync(join(root, "CHANGELOG.md"), "utf8"), version);
+const releasePolicy = validateReleasePolicy(
+  JSON.parse(readFileSync(join(root, "releases", "release-policy.json"), "utf8")),
+  version,
+);
 const advisories = parseSecurityAdvisories(
   JSON.parse(readFileSync(join(root, "releases", "security-advisories.json"), "utf8")),
 );
@@ -93,13 +98,20 @@ const file = {
   notes: releaseNotes.notes,
   changelog: releaseNotes.changes,
   reviewRequired: releaseNotes.reviewRequired,
+  publishedAt: new Date(Number(process.env["SOURCE_DATE_EPOCH"] ?? Date.now() / 1000) * 1000)
+    .toISOString()
+    .replace(".000Z", "Z"),
+  downgrade: releasePolicy.downgrade,
+  knownIssues: Array.isArray(releasePolicy.knownIssues) ? releasePolicy.knownIssues : [],
   advisories,
   assets: {
     "linux-arm64": { url: `${base}/${armAsset}`, sha256: armHash },
   },
 };
 const channelsJson = `${JSON.stringify(
-  version.includes("-") ? { stable: null, beta: file } : { stable: file, beta: null },
+  version.includes("-")
+    ? { schemaVersion: 1, stable: null, beta: file, versions: [file] }
+    : { schemaVersion: 1, stable: file, beta: null, versions: [file] },
   null,
   2,
 )}\n`;

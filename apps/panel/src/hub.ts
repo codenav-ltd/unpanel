@@ -239,7 +239,13 @@ export function createHub(options: {
   ) => Promise<void>;
   upgrade: (
     nodeId: string,
-    release: { version: string; url: string; sha256: string },
+    release: {
+      version: string;
+      fromVersion: string;
+      operation: "update" | "downgrade";
+      url: string;
+      sha256: string;
+    },
   ) => Promise<PanelUpgradeResult>;
   upgradeAgent: (
     nodeId: string,
@@ -557,7 +563,13 @@ export function createHub(options: {
 
   function upgrade(
     nodeId: string,
-    release: { version: string; url: string; sha256: string },
+    release: {
+      version: string;
+      fromVersion: string;
+      operation: "update" | "downgrade";
+      url: string;
+      sha256: string;
+    },
   ): Promise<PanelUpgradeResult> {
     const link = links.get(nodeId);
     if (!link?.socket || link.socket.readyState !== WebSocket.OPEN) {

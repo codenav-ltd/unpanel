@@ -1,4 +1,5 @@
 docs
+.pnpm-store/
 pnpm-lock.yaml
 LICENSE
 *.md

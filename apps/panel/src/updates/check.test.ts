@@ -179,6 +179,47 @@ describe("GitHub release lookup", () => {
 });
 
 describe("findUpdate", () => {
+  it("offers only explicitly compatible downgrades and explains blocked versions", async () => {
+    const release = (version: string, extra: Record<string, unknown> = {}) => ({
+      version,
+      url: `https://github.com/codenav-ltd/unpanel/releases/download/v${version}/unpanel-linux-x64.tar.gz`,
+      sha256: sha,
+      notes: "",
+      ...extra,
+    });
+    const manifest = {
+      stable: null,
+      beta: release("0.1.0-alpha.30", {
+        downgrade: { supported: true, minVersion: "0.1.0-alpha.28" },
+      }),
+      versions: [
+        release("0.1.0-alpha.30", {
+          downgrade: { supported: true, minVersion: "0.1.0-alpha.28" },
+          changelog: [{ kind: "feature", title: "Fast update diagnostics." }],
+        }),
+        release("0.1.0-alpha.29", {
+          knownIssues: [{ id: "#29", severity: "medium", title: "Fixture issue." }],
+        }),
+        release("0.1.0-alpha.27"),
+      ],
+    };
+    const result = await findUpdate({
+      current: "0.1.0-alpha.30",
+      arch: "x64",
+      manifestUrl: "https://unpanel.codenav.dev/channels.json",
+      sourceUrl: "https://github.com/codenav-ltd/unpanel",
+      fetchImpl: async (input) =>
+        String(input).includes("api.github.com") ? Response.json([]) : Response.json(manifest),
+    });
+    expect(result.versions?.find((item) => item.version.endsWith(".29"))).toMatchObject({
+      available: true,
+      knownIssues: [{ id: "#29" }],
+    });
+    expect(result.versions?.find((item) => item.version.endsWith(".27"))).toMatchObject({
+      available: false,
+      reason: expect.stringContaining("alpha.28"),
+    });
+  });
   it("cancels oversized metadata streams before parsing or offering an update", async () => {
     let cancelled = 0;
     const result = await findUpdate({

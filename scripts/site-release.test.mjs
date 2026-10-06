@@ -5,7 +5,13 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { assertForwardVersion, prepareSite, releaseVersion, sha256 } from "./site-release.mjs";
+import {
+  assertForwardVersion,
+  mergeChannels,
+  prepareSite,
+  releaseVersion,
+  sha256,
+} from "./site-release.mjs";
 
 const dirs = [];
 afterEach(async () => {
@@ -24,13 +30,58 @@ async function fixture() {
   }
   await writeFile(join(site, "index.html"), '<script src="/assets/site.js"></script>');
   await writeFile(join(site, "assets/site.js"), 'console.log("website");');
-  const manifest = JSON.stringify({ stable: null, beta: { version: "0.1.0-alpha.19" } });
+  const manifest = JSON.stringify({
+    stable: null,
+    beta: {
+      version: "0.1.0-alpha.19",
+      url: "https://github.com/codenav-ltd/unpanel/releases/download/v0.1.0-alpha.19/unpanel.tar.gz",
+      sha256: "a".repeat(64),
+    },
+  });
   await writeFile(join(metadata, "channels.json"), manifest);
   await writeFile(join(metadata, "SHA256SUMS"), `${sha256(manifest)}  channels.json\n`);
   return { site, metadata, manifest };
 }
 
 describe("website releases", () => {
+  it("merges the previous release catalog without replacing new channel pointers", () => {
+    const release = (version) => ({
+      version,
+      url: `https://github.com/codenav-ltd/unpanel/releases/download/v${version}/unpanel.tar.gz`,
+      sha256: "a".repeat(64),
+    });
+    const current = release("0.1.0-alpha.20"),
+      previous = release("0.1.0-alpha.19");
+    const merged = mergeChannels(
+      { stable: null, beta: current, versions: [current] },
+      { stable: null, beta: previous, versions: [previous] },
+    );
+    expect(merged.beta.version).toBe(current.version);
+    expect(merged.versions.map((item) => item.version)).toEqual([
+      current.version,
+      previous.version,
+    ]);
+  });
+
+  it("does not carry untrusted previous release URLs or channel pointers forward", () => {
+    const current = {
+      version: "0.1.0-alpha.20",
+      url: "https://github.com/codenav-ltd/unpanel/releases/download/v0.1.0-alpha.20/unpanel.tar.gz",
+      sha256: "a".repeat(64),
+    };
+    const hostile = {
+      version: "9.0.0",
+      url: "https://github.com/another-project/releases/download/v9.0.0/unpanel.tar.gz",
+      sha256: "b".repeat(64),
+    };
+    const merged = mergeChannels(
+      { stable: null, beta: current, versions: [current] },
+      { stable: hostile, beta: hostile, versions: [hostile] },
+    );
+    expect(merged.stable).toBeNull();
+    expect(merged.beta).toEqual(current);
+    expect(merged.versions).toEqual([current]);
+  });
   it("packages the published manifest and checksums every public file", async () => {
     const { site, metadata, manifest } = await fixture();
     const files = await prepareSite("v0.1.0-alpha.19", site, metadata);

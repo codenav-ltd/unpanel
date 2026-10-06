@@ -22,7 +22,7 @@ export function createUpdateSecurity(options: {
   current: string;
   sourceUrl: string;
   now?: () => number;
-  check: () => Promise<UpdateView & { release: ReleaseFile | null }>;
+  check: () => Promise<UpdateView & { release: ReleaseFile | null; catalog?: ReleaseFile[] }>;
   apply: (release: ReleaseFile) => Promise<{ accepted: true; version: string }>;
   maintenance: () => boolean;
   notify: (advisory: SecurityAdvisory, installAt: number | null) => number;
@@ -34,10 +34,11 @@ export function createUpdateSecurity(options: {
     CREATE TABLE IF NOT EXISTS update_advisory_receipts (id TEXT PRIMARY KEY,first_seen INTEGER NOT NULL,notified INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS update_attempts (version TEXT PRIMARY KEY,window_at INTEGER NOT NULL,count INTEGER NOT NULL,last_at INTEGER NOT NULL,error TEXT);
     CREATE TABLE IF NOT EXISTS update_last_check (id INTEGER PRIMARY KEY CHECK(id=1),current TEXT NOT NULL,result TEXT NOT NULL,checked_at INTEGER NOT NULL);`);
-  let last: UpdateView = { current, update: null, error: null },
+  let last: UpdateView = { current, update: null, versions: [], error: null },
     checkedAt: number | null = null,
     cachedAt = 0,
     release: ReleaseFile | null = null,
+    catalog: ReleaseFile[] = [],
     checking: Promise<UpdateView> | null = null,
     installing = false,
     acceptedAt = 0,
@@ -163,6 +164,7 @@ export function createUpdateSecurity(options: {
     current,
     update: last.update,
     error: last.error,
+    versions: last.versions ?? [],
     security: security(),
   });
   async function check(): Promise<UpdateView> {
@@ -170,19 +172,28 @@ export function createUpdateSecurity(options: {
     if (checking) return checking;
     if (cachedAt && now() - cachedAt < 60_000) return view();
     checking = (async () => {
-      let found: UpdateView & { release: ReleaseFile | null };
+      let found: UpdateView & { release: ReleaseFile | null; catalog?: ReleaseFile[] };
       try {
         found = await options.check();
       } catch {
-        found = { current, update: null, error: "Could not check for updates.", release: null };
+        found = {
+          current,
+          update: null,
+          versions: [],
+          error: "Could not check for updates.",
+          release: null,
+          catalog: [],
+        };
       }
       if (closed) return last;
       checkedAt = now();
       cachedAt = now();
       release = found.error ? null : found.release;
+      catalog = found.error ? [] : (found.catalog ?? (found.release ? [found.release] : []));
       last = {
         current,
         update: found.error ? last.update : found.update,
+        versions: found.error ? (last.versions ?? []) : (found.versions ?? []),
         error: found.error,
         advisories: mergeSecurityAdvisories(
           found.error ? (last.advisories ?? []) : [],
@@ -242,12 +253,33 @@ export function createUpdateSecurity(options: {
     await check();
     if (closed || installing)
       throw new UpdateError("E_CONFLICT", "An update is already running or the panel is stopping.");
-    if (!release || last.error)
+    if (expectedVersion === current)
+      throw new UpdateError("E_CONFLICT", "This panel is already running the selected version.");
+    if (
+      expectedVersion &&
+      expectedVersion !== release?.version &&
+      !catalog.some((item) => item.version === expectedVersion)
+    )
+      throw new UpdateError(
+        "E_CONFLICT",
+        "The offered version changed. Review the new release before installing.",
+      );
+    const requested =
+      expectedVersion && expectedVersion !== release?.version
+        ? catalog.find((item) => item.version === expectedVersion)
+        : release;
+    const offered = last.versions?.find((item) => item.version === expectedVersion);
+    if (offered && !offered.available)
+      throw new UpdateError(
+        "E_CONFLICT",
+        offered.reason ?? "The selected release is not compatible with this installation.",
+      );
+    if (!requested || last.error)
       throw new UpdateError(
         "E_EXTERNAL",
-        last.error ?? "No compatible update package is available.",
+        last.error ?? "No compatible release package is available.",
       );
-    const target = release;
+    const target = requested;
     if (automatic && !officialAsset(target))
       throw new UpdateError(
         "E_CONFLICT",

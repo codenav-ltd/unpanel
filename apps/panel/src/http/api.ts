@@ -37,6 +37,7 @@ import { registerAccountApi } from "../auth/account-api.ts";
 import type { Access } from "../auth/access.ts";
 import { registerUsersApi } from "../auth/users-api.ts";
 import type { UpdateSecurity } from "../updates/security.ts";
+import type { UpdateOperation } from "../updates/history.ts";
 import { digest } from "../auth/factors.ts";
 
 const AUDIT_PAGE = 100;
@@ -65,6 +66,7 @@ export function createApi(options: {
   factors?: Factors;
   email?: EmailMethods;
   checkUpdate: () => Promise<UpdateView>;
+  updateHistory?: () => UpdateOperation[];
   applyUpdate: (expectedVersion?: string) => Promise<{ accepted: true; version: string }>;
   applyAgentUpdate: (nodeId: string) => Promise<{ accepted: true; version: string }>;
   onSettings?: () => void;
@@ -591,6 +593,12 @@ export function createApi(options: {
     const user = options.auth.sessionUser(sessionToken(c));
     if (!user) return unauthenticated(c);
     return c.json({ data: await options.checkUpdate() });
+  });
+
+  app.get("/api/v1/updates/history", (c) => {
+    const user = options.auth.sessionUser(sessionToken(c));
+    if (!user) return unauthenticated(c);
+    return c.json({ data: options.updateHistory?.() ?? [] });
   });
 
   if (options.updateSecurity && options.access) {
