@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.31] - 2026-10-06
+
+### Fixed
+
+- Move version history out of Panel appearance and into Updates, replace the internal compatibility-policy error with actionable language, and keep version rows readable on narrow mobile screens.
+- Prevent mobile browsers from independently enlarging selected text blocks, keeping the interface typography consistent with the designed scale.
+
+### Changed
+
+- Build the public version history from every GitHub release whose metadata matches its published SHA-256, while rejecting corrupted metadata and assets outside the official repository.
+
 ## [0.1.0-alpha.30] - 2026-10-06
 
 ### Added

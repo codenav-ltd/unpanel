@@ -411,7 +411,7 @@ function releaseOptions(current: string, releases: ReleaseFile[], arch: string):
         item.supported === false ? (item.reason ?? "This release is no longer supported.") : null;
       if (older && !reason) {
         if (!currentRelease?.downgrade?.supported)
-          reason = "The installed release does not declare this downgrade compatible.";
+          reason = "Safe downgrade from the installed version has not been verified.";
         else if (
           currentRelease.downgrade.minVersion &&
           (compareVersions(item.version, currentRelease.downgrade.minVersion) ?? -1) < 0

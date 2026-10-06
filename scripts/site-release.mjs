@@ -26,7 +26,7 @@ export function sha256(bytes) {
 }
 
 /** Uses the exact manifest published with the release, never a locally regenerated one. */
-export async function prepareSite(tag, siteDir, metadataDir, previousManifest) {
+export async function prepareSite(tag, siteDir, metadataDir, ...previousManifests) {
   const version = releaseVersion(tag);
   const manifest = await readFile(join(metadataDir, "channels.json"));
   const sums = await readFile(join(metadataDir, "SHA256SUMS"), "utf8");
@@ -47,7 +47,7 @@ export async function prepareSite(tag, siteDir, metadataDir, previousManifest) {
   }
   await readFile(join(siteDir, "index.html"));
   let output = manifest;
-  if (previousManifest) {
+  for (const previousManifest of previousManifests.filter(Boolean)) {
     try {
       const previous = JSON.parse(await readFile(previousManifest, "utf8"));
       channels = mergeChannels(channels, previous);

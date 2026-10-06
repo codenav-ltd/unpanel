@@ -102,7 +102,7 @@ describe("security release policy", () => {
           {
             version: old.version,
             available: false,
-            reason: "The installed release does not declare this downgrade compatible.",
+            reason: "Safe downgrade from the installed version has not been verified.",
             notes: "old",
             changelog: [],
             knownIssues: [],
@@ -111,7 +111,7 @@ describe("security release policy", () => {
           },
         ],
       });
-      await expect(f.service.install(old.version)).rejects.toThrow(/does not declare/);
+      await expect(f.service.install(old.version)).rejects.toThrow(/has not been verified/);
       expect(f.apply).not.toHaveBeenCalled();
       f.service.close();
       f.result({

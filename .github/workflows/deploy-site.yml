@@ -58,10 +58,14 @@ jobs:
         run: >-
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
           --pattern channels.json --pattern SHA256SUMS --dir metadata
+      - name: Build verified historical release catalog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tooling/scripts/release-catalog.mjs "$GITHUB_REPOSITORY" metadata/catalog.json
       - name: Prepare and validate website
         run: |
           curl -fsS --max-time 15 "$SITE_URL/channels.json" -o metadata/previous-channels.json || true
-          node tooling/scripts/site-release.mjs prepare "$RELEASE_TAG" source/apps/site/dist metadata metadata/previous-channels.json
+          node tooling/scripts/site-release.mjs prepare "$RELEASE_TAG" source/apps/site/dist metadata metadata/previous-channels.json metadata/catalog.json
           tar -czf site.tar.gz -C source/apps/site/dist .
       - name: Deploy and verify public files
         env:

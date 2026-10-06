@@ -63,6 +63,26 @@ describe("website releases", () => {
     ]);
   });
 
+  it("merges more than one verified history source into the deployed catalog", async () => {
+    const { site, metadata } = await fixture();
+    const release = (version) => ({
+      version,
+      url: `https://github.com/codenav-ltd/unpanel/releases/download/v${version}/unpanel.tar.gz`,
+      sha256: "b".repeat(64),
+    });
+    const first = join(metadata, "first.json");
+    const second = join(metadata, "second.json");
+    await writeFile(first, JSON.stringify({ versions: [release("0.1.0-alpha.18")] }));
+    await writeFile(second, JSON.stringify({ versions: [release("0.1.0-alpha.17")] }));
+    await prepareSite("v0.1.0-alpha.19", site, metadata, first, second);
+    const output = JSON.parse(await readFile(join(site, "channels.json"), "utf8"));
+    expect(output.versions.map((item) => item.version)).toEqual([
+      "0.1.0-alpha.19",
+      "0.1.0-alpha.18",
+      "0.1.0-alpha.17",
+    ]);
+  });
+
   it("does not carry untrusted previous release URLs or channel pointers forward", () => {
     const current = {
       version: "0.1.0-alpha.20",

@@ -1071,33 +1071,6 @@ onUnmounted(() => {
             >
               {{ themeNote }}
             </p>
-            <details v-if="releaseVersions.length" class="version-picker">
-              <summary>Choose another version</summary>
-              <div class="version-picker-list">
-                <button
-                  v-for="release in releaseVersions"
-                  :key="release.version"
-                  type="button"
-                  :disabled="!release.available"
-                  :aria-current="updateVersion === release.version ? 'true' : undefined"
-                  @click="chooseRelease(release)"
-                >
-                  <span>
-                    <strong>v{{ release.version }}</strong>
-                    <small v-if="release.publishedAt">{{
-                      new Date(release.publishedAt).toLocaleDateString()
-                    }}</small>
-                  </span>
-                  <span v-if="!release.available" class="version-unavailable">{{
-                    release.reason
-                  }}</span>
-                  <span v-else-if="(compareVersions(release.version, product.version) ?? 0) < 0"
-                    >Compatible downgrade</span
-                  >
-                  <span v-else>Update</span>
-                </button>
-              </div>
-            </details>
           </section>
           <section class="wide">
             <span class="vital-kicker">{{ en.shell.publicUrl }}</span>
@@ -1608,6 +1581,45 @@ onUnmounted(() => {
             </div>
           </section>
 
+          <section v-if="releaseVersions.length" class="wide version-picker">
+            <div class="update-section-head">
+              <div>
+                <span class="vital-kicker">Version history</span>
+                <p class="hint">
+                  Select only versions verified for this installation. Other releases remain visible
+                  so it is clear why they cannot be installed.
+                </p>
+              </div>
+              <span class="fleet-count">
+                {{ releaseVersions.length }} release{{ releaseVersions.length === 1 ? "" : "s" }}
+              </span>
+            </div>
+            <div class="version-picker-list">
+              <button
+                v-for="release in releaseVersions"
+                :key="release.version"
+                type="button"
+                :disabled="!release.available"
+                :aria-current="updateVersion === release.version ? 'true' : undefined"
+                @click="chooseRelease(release)"
+              >
+                <span>
+                  <strong>v{{ release.version }}</strong>
+                  <small v-if="release.publishedAt">{{
+                    new Date(release.publishedAt).toLocaleDateString()
+                  }}</small>
+                </span>
+                <span v-if="!release.available" class="version-unavailable">{{
+                  release.reason
+                }}</span>
+                <span v-else-if="(compareVersions(release.version, product.version) ?? 0) < 0"
+                  >Compatible downgrade</span
+                >
+                <span v-else>Update</span>
+              </button>
+            </div>
+          </section>
+
           <section class="wide">
             <div class="update-section-head">
               <div>
@@ -2088,15 +2100,7 @@ onUnmounted(() => {
   text-transform: capitalize;
 }
 .version-picker {
-  margin: 14px 0 0;
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-}
-.version-picker summary {
-  width: max-content;
-  cursor: pointer;
-  color: var(--text-2);
-  font-size: 13px;
+  overflow: hidden;
 }
 .version-picker-list {
   display: grid;
@@ -2191,6 +2195,22 @@ onUnmounted(() => {
   }
   .settings-content :deep(.account-method-list .actions) {
     justify-content: flex-start;
+  }
+  .version-picker-list button {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+  }
+  .version-picker-list button > span:first-child {
+    min-width: 0;
+  }
+  .version-picker-list small,
+  .version-unavailable {
+    max-width: none;
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: left;
   }
 }
 </style>
