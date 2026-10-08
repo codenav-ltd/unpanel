@@ -5,7 +5,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { decryptSecret, encryptSecret } from "./secret.ts";
 import { hashPassword, passwordProblem, usernameProblem, verifyPassword } from "./password.ts";
-import type { LoginBlock, LoginSecurity } from "./security.ts";
+import type { LoginBlock, LoginRestriction, LoginSecurity } from "./security.ts";
 import { matchTotp, totpSecret, totpSecretText, totpUri } from "./totp.ts";
 import type { FactorView } from "@unpanel/shared";
 import type { Factors } from "./factors.ts";
@@ -32,6 +32,7 @@ export interface AuthFailure {
   retryAfter?: number;
   ipAttemptsLeft?: number;
   panelAttemptsLeft?: number;
+  restrictionWarnings?: LoginRestriction[];
 }
 
 export interface SessionUser {
@@ -399,17 +400,7 @@ export async function createAuth(options: {
         !unchanged
       ) {
         const failure = options.security.noteFailure(input.ip, input.username);
-        if (failure.block) {
-          return {
-            ...blockFailure(failure.block),
-            ...(failure.ipAttemptsLeft === undefined
-              ? {}
-              : { ipAttemptsLeft: failure.ipAttemptsLeft }),
-            ...(failure.panelAttemptsLeft === undefined
-              ? {}
-              : { panelAttemptsLeft: failure.panelAttemptsLeft }),
-          };
-        }
+        if (failure.block) return blockFailure(failure.block);
         return {
           ok: false,
           status: 401,
@@ -715,6 +706,13 @@ function blockFailure(block: LoginBlock): AuthFailure {
     code: block.code,
     message: block.message,
     ...(block.retryAfter === undefined ? {} : { retryAfter: block.retryAfter }),
+    ...(block.ipAttemptsLeft === undefined ? {} : { ipAttemptsLeft: block.ipAttemptsLeft }),
+    ...(block.panelAttemptsLeft === undefined
+      ? {}
+      : { panelAttemptsLeft: block.panelAttemptsLeft }),
+    ...(block.restrictionWarnings === undefined
+      ? {}
+      : { restrictionWarnings: block.restrictionWarnings }),
   };
 }
 

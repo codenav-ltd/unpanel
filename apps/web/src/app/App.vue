@@ -362,6 +362,7 @@ async function submitLogin(): Promise<void> {
     if (!response.ok) {
       const problem = await loginProblem(response);
       error.value = problem.message;
+      loginWarnings.value = problem.restrictionWarnings ?? [];
       if (problem.ipAttemptsLeft !== undefined) {
         loginWarnings.value.push(
           en.settings.deviceAttemptsLeft.replace("{count}", String(problem.ipAttemptsLeft)),
@@ -691,6 +692,7 @@ async function loginProblem(response: Response): Promise<{
   message: string;
   ipAttemptsLeft?: number;
   panelAttemptsLeft?: number;
+  restrictionWarnings?: string[];
 }> {
   try {
     const body = (await response.json()) as {
@@ -699,6 +701,7 @@ async function loginProblem(response: Response): Promise<{
         retryAfter?: number;
         ipAttemptsLeft?: number;
         panelAttemptsLeft?: number;
+        restrictionWarnings?: { message: string; retryAfter?: number }[];
       };
     };
     const retry = body.error?.retryAfter;
@@ -714,6 +717,17 @@ async function loginProblem(response: Response): Promise<{
         : {}),
       ...(typeof body.error?.panelAttemptsLeft === "number"
         ? { panelAttemptsLeft: body.error.panelAttemptsLeft }
+        : {}),
+      ...(Array.isArray(body.error?.restrictionWarnings)
+        ? {
+            restrictionWarnings: body.error.restrictionWarnings
+              .filter((warning) => typeof warning?.message === "string" && warning.message.trim())
+              .map((warning) =>
+                typeof warning.retryAfter === "number" && warning.retryAfter > 0
+                  ? `${warning.message} Try again in ${waitText(warning.retryAfter)}.`
+                  : warning.message,
+              ),
+          }
         : {}),
     };
   } catch {

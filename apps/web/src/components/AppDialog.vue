@@ -15,10 +15,18 @@ const emit = defineEmits<{ close: [] }>();
 
 const root = ref<HTMLDialogElement | null>(null);
 const titleId = useId();
+let pointerStart: { id: number; backdrop: boolean } | null = null;
+let backdropRelease = false;
+
+function resetPointer(): void {
+  pointerStart = null;
+  backdropRelease = false;
+}
 
 watch(
   () => props.open,
   (open) => {
+    resetPointer();
     // Parents may immediately remove their slotted content when closing.
     // Keep the fading shell at its previous size without delaying native close().
     if (!open && root.value?.open)
@@ -40,12 +48,40 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  resetPointer();
   if (root.value?.open) root.value.close();
 });
 
-/** A click whose target is the dialog itself landed on the backdrop, not the panel. */
-function onClick(event: Event): void {
-  if (event.target === root.value) emit("close");
+function onBackdrop(event: MouseEvent): boolean {
+  const dialog = root.value;
+  if (!dialog || event.target !== dialog) return false;
+  const bounds = dialog.getBoundingClientRect();
+  return (
+    event.clientX < bounds.left ||
+    event.clientX > bounds.right ||
+    event.clientY < bounds.top ||
+    event.clientY > bounds.bottom
+  );
+}
+
+function onPointerDown(event: PointerEvent): void {
+  resetPointer();
+  if (event.isPrimary && event.button === 0)
+    pointerStart = { id: event.pointerId, backdrop: onBackdrop(event) };
+}
+
+function onPointerUp(event: PointerEvent): void {
+  backdropRelease = Boolean(
+    pointerStart?.id === event.pointerId && pointerStart.backdrop && onBackdrop(event),
+  );
+  pointerStart = null;
+}
+
+/** A drag can synthesize a click on the dialog even when it began inside it. */
+function onClick(event: MouseEvent): void {
+  const dismiss = backdropRelease && event.detail > 0 && onBackdrop(event);
+  resetPointer();
+  if (dismiss) emit("close");
 }
 </script>
 
@@ -56,6 +92,9 @@ function onClick(event: Event): void {
     :aria-labelledby="titleId"
     :class="{ 'dialog-narrow': narrow }"
     @cancel.prevent="emit('close')"
+    @pointerdown.capture="onPointerDown"
+    @pointerup.capture="onPointerUp"
+    @pointercancel.capture="resetPointer"
     @click="onClick"
   >
     <div class="dialog-panel">

@@ -13,6 +13,7 @@ The implemented interaction rules are:
 - `.spinner` has an explicit inline box and a visible ring. Async controls expose pending state and block duplicate submissions. Initial account/email/user content has a loading state; failed requests have a distinct error and retry rather than looking like an empty list.
 - Page and settings navigation use 200 ms entry and 120 ms exit transitions. Step forms keep required fields mounted immediately and animate only their entry. Navigation keys exclude live sample timestamps, so polling never replays page transitions.
 - Native dialogs retain modal focus behavior and immediate `close()` semantics; supporting browsers animate the closing surface using discrete display/overlay transitions. Select menus keep focus on the combobox, support keyboard navigation, and fit scrollable dialog and viewport bounds. The mobile drawer makes underlying content inert while open.
+- Backdrop dismissal requires a primary pointer press and release both outside the dialog. A drag across the boundary, right click or cancelled gesture leaves it open; close buttons and Escape keep their usual behavior. Pointer state is reset when a dialog closes or reopens.
 - Transitions use shared motion tokens and honor `prefers-reduced-motion`. No animation library or full UI framework is added for these interactions.
 
 ## 1. Stack

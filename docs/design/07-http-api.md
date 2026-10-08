@@ -18,6 +18,10 @@ All routes below are prefixed with `/api/v1/alerts`, require an owner or adminis
 
 Payload and response types are in `packages/shared/src/alerts.ts`. Setup sessions expire after ten minutes and are never persisted. All alert settings mutations and setup lifecycle actions are audited; routine polling is omitted from success logs.
 
+## Current sign-in restriction errors
+
+Password login errors may include `ipAttemptsLeft` and `panelAttemptsLeft`. From alpha.32, these warnings are retained on retries blocked by existing restrictions. Concurrent active restrictions are returned as `restrictionWarnings: [{ code, message, retryAfter? }]`, in addition to the primary error; wait times are seconds for each restriction. Clients should show every warning and omit expired or disabled restrictions.
+
 ## Current security update API
 
 All paths below have the `/api/v1` prefix. `GET /updates` requires a session and returns `{ data: { current, update, versions, error, security } }`. `versions` is the bounded release catalog with compatibility availability, reason, changes, known issues, and features lost by a downgrade. Security includes only affected, published advisories, the effective policy, last check time, automatic-install eligibility time and any hold reason. Network failures retain known warnings and pause unattended installation. Checks are coalesced and cached for 60 seconds. `GET /updates/history` requires a session and returns the newest 50 locally measured update/downgrade operations; traces contain versions, status and step durations, not logs or secrets.

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.32] - 2026-10-08
+
+### Fixed
+
+- Keep IP and whole-panel remaining-attempt warnings on login retries during a username cooldown. Show concurrent rate limits, address bans and panel locks together, with each restriction's retry time; blocked retries do not add failures.
+- Dismiss shared dialogs only when a primary pointer press and release both land on the backdrop. Dragging from the dialog to its backdrop or back into the dialog, and cancelled pointer gestures, keep it open. Close buttons, Escape and intentional backdrop clicks or taps still work.
+
 ## [0.1.0-alpha.31] - 2026-10-06
 
 ### Fixed

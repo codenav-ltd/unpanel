@@ -1439,6 +1439,9 @@ function failure(c: Context, result: AuthFailure): Response {
         ...(result.panelAttemptsLeft === undefined
           ? {}
           : { panelAttemptsLeft: result.panelAttemptsLeft }),
+        ...(result.restrictionWarnings === undefined
+          ? {}
+          : { restrictionWarnings: result.restrictionWarnings }),
       },
     },
     result.status,

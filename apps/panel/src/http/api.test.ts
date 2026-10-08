@@ -7,7 +7,7 @@ import { writeFileSync } from "node:fs";
 import { createApi } from "./api.ts";
 import { createAudit, type Audit } from "../audit/log.ts";
 import { openDatabase } from "../db/open.ts";
-import type { Auth } from "../auth/service.ts";
+import { createAuth, type Auth } from "../auth/service.ts";
 import { createLoginSecurity, type LoginSecurity } from "../auth/security.ts";
 import { HubCallError, type LocalSnapshot, type NodeLive } from "../hub.ts";
 import { createNodes, type NodeCatalog } from "../nodes/store.ts";
@@ -41,6 +41,7 @@ function appWith(
   audit: Audit,
   session: string | null,
   extras: {
+    auth?: Auth;
     control?: (
       nodeId: string,
       action: "restart" | "stop",
@@ -76,7 +77,7 @@ function appWith(
   } = {},
 ): ReturnType<typeof createApi> {
   return createApi({
-    auth: stubAuth(session),
+    auth: extras.auth ?? stubAuth(session),
     audit,
     snapshot: () => snapshot,
     live: extras.live ?? (() => []),
@@ -115,6 +116,65 @@ function appWith(
       }),
   });
 }
+
+describe("login restriction responses", () => {
+  it("serializes cooldown warnings and simultaneous lockouts on every blocked login", async () => {
+    const db = openDatabase(":memory:");
+    const masterKey = randomBytes(32);
+    const security = createLoginSecurity({ db, masterKey, now: () => 1_700_000_000_000 });
+    security.update(
+      { loginRestrictions: { banPanel: { enabled: true, attempts: 12 } } },
+      "fixture",
+    );
+    const auth = await createAuth({
+      db,
+      masterKey,
+      security,
+      setupToken: () => null,
+      clearSetupToken: () => undefined,
+    });
+    const app = appWith(createAudit(db), null, { auth, security });
+    const request = () =>
+      app.request("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: "unknown", password: "incorrect-password" }),
+      });
+    try {
+      await request();
+      await request();
+      const limited = await request();
+      expect(limited.status).toBe(429);
+      expect(limited.headers.get("retry-after")).toBe("30");
+      expect(await limited.json()).toMatchObject({
+        error: { code: "E_RATE_LIMITED", ipAttemptsLeft: 7, panelAttemptsLeft: 9 },
+      });
+      expect(await (await request()).json()).toMatchObject({
+        error: { code: "E_RATE_LIMITED", ipAttemptsLeft: 7, panelAttemptsLeft: 9 },
+      });
+      security.update({ loginRestrictions: { banIp: { attempts: 4 } } }, "fixture");
+      db.prepare("UPDATE auth_attempts SET next_allowed_at=0 WHERE scope='user'").run();
+      const banned = await request();
+      expect(banned.status).toBe(429);
+      expect(await banned.json()).toMatchObject({
+        error: {
+          code: "E_IP_BANNED",
+          panelAttemptsLeft: 8,
+          restrictionWarnings: [{ code: "E_RATE_LIMITED", retryAfter: 60 }],
+        },
+      });
+      expect(await (await request()).json()).toMatchObject({
+        error: {
+          code: "E_IP_BANNED",
+          panelAttemptsLeft: 8,
+          restrictionWarnings: [{ code: "E_RATE_LIMITED", retryAfter: 60 }],
+        },
+      });
+    } finally {
+      auth.close();
+    }
+  });
+});
 
 describe("Turnstile setup verification", () => {
   it("verifies candidate keys without saving them and rejects anonymous or foreign-origin tests", async () => {
@@ -331,7 +391,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const app = appWith(audit, "tok", {
       applyAgentUpdate: async (nodeId) => ({
         accepted: true,
-        version: nodeId === "nd_1" ? "0.1.0-alpha.31" : "unexpected",
+        version: nodeId === "nd_1" ? "0.1.0-alpha.32" : "unexpected",
       }),
     });
 
@@ -342,7 +402,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const body = (await response.json()) as { data: { version: string } };
 
     expect(response.status).toBe(200);
-    expect(body.data.version).toBe("0.1.0-alpha.31");
+    expect(body.data.version).toBe("0.1.0-alpha.32");
     expect(audit.list(1)[0]).toMatchObject({ action: "agent.update", nodeId: "nd_1" });
   });
 

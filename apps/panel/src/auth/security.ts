@@ -46,10 +46,16 @@ export interface LoginSecurityRuntime extends LoginSecurityView {
   turnstile: LoginSecurityView["turnstile"] & { secret: string };
 }
 
-export interface LoginBlock {
+export interface LoginRestriction {
   code: "E_RATE_LIMITED" | "E_IP_BANNED" | "E_PANEL_LOCKED";
   message: string;
   retryAfter?: number;
+}
+
+export interface LoginBlock extends LoginRestriction {
+  ipAttemptsLeft?: number;
+  panelAttemptsLeft?: number;
+  restrictionWarnings?: LoginRestriction[];
 }
 
 export interface LoginFailureState {
@@ -274,26 +280,29 @@ export function createLoginSecurity(options: {
     if (!policy.enabled) return null;
     const now = seconds();
     cleanupExpired(now);
+    const blocks: LoginRestriction[] = [];
     if (policy.banPanel.enabled) {
       const ban = banRow("panel", PANEL_KEY);
-      if (ban) return panelBlock(ban, now);
+      if (ban) blocks.push(panelBlock(ban, now));
     }
     if (policy.banIp.enabled) {
       const ban = banRow("ip", ip);
-      if (ban) return ipBlock(ban, now);
+      if (ban) blocks.push(ipBlock(ban, now));
     }
     if (policy.rateLimit.enabled) {
       const row = attemptRow("user", normalizeUsername(username));
       const wait = Number(row?.next_allowed_at ?? 0) - now;
-      if (wait > 0) {
-        return {
-          code: "E_RATE_LIMITED",
-          message: "Too many failed sign-in attempts. Wait before trying again.",
-          retryAfter: wait,
-        };
-      }
+      if (wait > 0) blocks.push(rateBlock(wait));
     }
-    return null;
+    if (!blocks.length) return null;
+    return combineBlocks(
+      blocks,
+      attemptWarnings(
+        policy,
+        Number(attemptRow("ip", ip)?.failures ?? 0),
+        Number(attemptRow("panel", PANEL_KEY)?.failures ?? 0),
+      ),
+    );
   }
 
   function noteFailure(ip: string, username: string): LoginFailureState {
@@ -337,19 +346,13 @@ export function createLoginSecurity(options: {
       throw error;
     }
 
-    if (panelBan) return { block: panelBlock(panelBan, now) };
-    if (ipBan) return { block: ipBlock(ipBan, now) };
-    if (rateWait > 0) {
-      return {
-        block: {
-          code: "E_RATE_LIMITED",
-          message: "Too many failed sign-in attempts. Wait before trying again.",
-          retryAfter: rateWait,
-        },
-        ...attemptWarnings(policy, ipFailures, panelFailures),
-      };
-    }
-    return attemptWarnings(policy, ipFailures, panelFailures);
+    const warnings = attemptWarnings(policy, ipFailures, panelFailures);
+    const blocks: LoginRestriction[] = [];
+    if (panelBan) blocks.push(panelBlock(panelBan, now));
+    if (ipBan) blocks.push(ipBlock(ipBan, now));
+    if (rateWait > 0) blocks.push(rateBlock(rateWait));
+    const block = combineBlocks(blocks, warnings);
+    return { ...warnings, ...(block ? { block } : {}) };
   }
 
   function resetFailures(ip: string, username: string): void {
@@ -588,6 +591,27 @@ function rateDelay(
   if (policy.mode === "custom") return failures >= policy.attempts ? policy.waitSec : 0;
   if (failures < 3) return 0;
   return Math.min(60 * 60, 30 * 2 ** (failures - 3));
+}
+
+function rateBlock(wait: number): LoginRestriction {
+  return {
+    code: "E_RATE_LIMITED",
+    message: "Too many failed sign-in attempts. Wait before trying again.",
+    retryAfter: wait,
+  };
+}
+
+function combineBlocks(
+  blocks: LoginRestriction[],
+  warnings: Pick<LoginFailureState, "ipAttemptsLeft" | "panelAttemptsLeft">,
+): LoginBlock | null {
+  const first = blocks[0];
+  if (!first) return null;
+  return {
+    ...first,
+    ...warnings,
+    ...(blocks.length > 1 ? { restrictionWarnings: blocks.slice(1) } : {}),
+  };
 }
 
 function panelBlock(row: BanRow, now: number): LoginBlock {

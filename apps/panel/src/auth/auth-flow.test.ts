@@ -10,6 +10,55 @@ import { createLoginSecurity } from "./security.ts";
 import { openDatabase } from "../db/open.ts";
 
 describe("setup and login", () => {
+  it("preserves every applicable restriction in real login responses, including blocked retries", async () => {
+    const db = openDatabase(":memory:");
+    const masterKey = randomBytes(32);
+    const security = createLoginSecurity({ db, masterKey, now: () => 1_700_000_000_000 });
+    security.update(
+      { loginRestrictions: { banPanel: { enabled: true, attempts: 12 } } },
+      "fixture",
+    );
+    const auth = await createAuth({
+      db,
+      masterKey,
+      security,
+      setupToken: () => null,
+      clearSetupToken: () => undefined,
+    });
+    const input = {
+      username: "unknown",
+      password: "incorrect-password",
+      turnstileToken: "",
+      ip: "192.0.2.1",
+      userAgent: "fixture",
+    };
+    try {
+      await auth.login(input);
+      await auth.login(input);
+      const failed = await auth.login(input);
+      expect(failed).toMatchObject({
+        ok: false,
+        status: 429,
+        code: "E_RATE_LIMITED",
+        ipAttemptsLeft: 7,
+        panelAttemptsLeft: 9,
+      });
+      expect(await auth.login(input)).toEqual(failed);
+      security.update({ loginRestrictions: { banPanel: { enabled: false } } }, "fixture");
+      db.prepare("UPDATE auth_attempts SET next_allowed_at=0 WHERE scope='user'").run();
+      security.update({ loginRestrictions: { banIp: { attempts: 4 } } }, "fixture");
+      const banned = await auth.login(input);
+      expect(banned).toMatchObject({
+        ok: false,
+        code: "E_IP_BANNED",
+        restrictionWarnings: [{ code: "E_RATE_LIMITED", retryAfter: 60 }],
+      });
+      expect(await auth.login(input)).toEqual(banned);
+    } finally {
+      auth.close();
+    }
+  });
+
   it("ends other sessions and pending MFA sign-ins when a password changes, keeping the caller signed in", async () => {
     const db = openDatabase(":memory:");
     const masterKey = randomBytes(32);

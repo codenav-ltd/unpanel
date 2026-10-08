@@ -174,6 +174,7 @@ The owner can configure these controls independently in **Settings → Security*
 | TOTP replay | Always on | The last used time step is stored per user; that step and earlier ones are rejected |
 
 - Failure counters and bans live in SQLite so restarting the service does not remove a lockout.
+- From alpha.32, failed and blocked sign-in responses preserve IP and panel remaining-attempt warnings. Simultaneous cooldowns and bans are displayed together with their own retry times; an attempt rejected by an existing restriction does not increment failure counters. Expired or disabled restrictions are omitted.
 - A successful password verification resets the consecutive username, address, and panel failure counters.
 - Expired temporary bans are removed automatically. IP bans can also be removed from Settings.
 - A whole-panel lock can be cleared from an SSH session with `sudo unpanel-manage unlock`.

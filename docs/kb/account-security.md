@@ -16,6 +16,8 @@ Shared email methods hold sender/provider credentials once. Consumers hold only 
 
 ## Recovery and compatibility
 
+From alpha.32, sign-in shows applicable cooldowns, IP bans and panel locks together. Remaining-attempt warnings stay visible when another sign-in is blocked during a cooldown. Each active restriction has its own wait or recovery instruction; a blocked retry does not count as another failed password attempt.
+
 From alpha.29, the Turnstile guide names the browser hostname to allow, tests the challenge on the panel server, and requires that test before enabling or replacing keys. Testing does not save the configuration. Setup authorization is bound to the session and configuration, expires after five minutes and is consumed on save; editing either key requires another test. Turning verification off preserves saved keys unless the owner also chooses to remove the secret. A new sign-in should be tested in a separate browser while the owner remains signed in.
 
 Challenges use normal size when space permits and compact size on narrow screens, with explicit loading, error, expired and retry states. These sizes and the single-use token requirement follow [Cloudflare's widget configuration](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/) and [server validation](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/) documentation (verified 2026-10-03).

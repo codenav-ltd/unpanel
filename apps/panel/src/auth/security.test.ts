@@ -7,6 +7,128 @@ import { openDatabase } from "../db/open.ts";
 import { createLoginSecurity, LoginSecurityError, unlockPanelLock } from "./security.ts";
 
 describe("login security", () => {
+  it("keeps IP and panel warnings during a username cooldown without counting blocked attempts", () => {
+    let now = 1_700_000_000_000;
+    const db = openDatabase(":memory:");
+    const security = createLoginSecurity({ db, masterKey: randomBytes(32), now: () => now });
+    try {
+      security.update({ loginRestrictions: { banPanel: { enabled: true, attempts: 12 } } }, "ada");
+      security.noteFailure("192.0.2.1", "ada");
+      security.noteFailure("192.0.2.1", "ada");
+      const failed = security.noteFailure("192.0.2.1", "ada");
+      expect(failed).toMatchObject({
+        ipAttemptsLeft: 7,
+        panelAttemptsLeft: 9,
+        block: { code: "E_RATE_LIMITED", retryAfter: 30, ipAttemptsLeft: 7, panelAttemptsLeft: 9 },
+      });
+      for (let i = 0; i < 3; i++)
+        expect(security.beforeAttempt("192.0.2.1", "ADA")).toEqual(failed.block);
+      expect(
+        db
+          .prepare("SELECT failures FROM auth_attempts")
+          .all()
+          .map((row) => row["failures"]),
+      ).toEqual([3, 3, 3]);
+      now += 30_000;
+      expect(security.beforeAttempt("192.0.2.1", "ada")).toBeNull();
+      expect(security.noteFailure("192.0.2.1", "ada")).toMatchObject({
+        ipAttemptsLeft: 6,
+        panelAttemptsLeft: 8,
+        block: { retryAfter: 60 },
+      });
+      security.resetFailures("192.0.2.1", "ada");
+      expect(security.beforeAttempt("192.0.2.1", "ada")).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("shows an IP ban alongside its cooldown and remaining panel attempts", () => {
+    const db = openDatabase(":memory:");
+    const security = createLoginSecurity({
+      db,
+      masterKey: randomBytes(32),
+      now: () => 1_700_000_000_000,
+    });
+    try {
+      security.update(
+        {
+          loginRestrictions: {
+            banIp: { attempts: 3, duration: "permanent" },
+            banPanel: { enabled: true, attempts: 5 },
+          },
+        },
+        "ada",
+      );
+      security.noteFailure("192.0.2.1", "ada");
+      security.noteFailure("192.0.2.1", "ada");
+      const failed = security.noteFailure("192.0.2.1", "ada");
+      expect(failed.block).toMatchObject({
+        code: "E_IP_BANNED",
+        panelAttemptsLeft: 2,
+        restrictionWarnings: [{ code: "E_RATE_LIMITED", retryAfter: 30 }],
+      });
+      expect(failed.ipAttemptsLeft).toBeUndefined();
+      expect(security.beforeAttempt("192.0.2.1", "ada")).toEqual(failed.block);
+      security.update(
+        { loginRestrictions: { banIp: { enabled: false }, banPanel: { enabled: false } } },
+        "ada",
+      );
+      expect(security.beforeAttempt("192.0.2.1", "ada")).toEqual({
+        code: "E_RATE_LIMITED",
+        message: expect.any(String),
+        retryAfter: 30,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("reports all active restrictions and removes expired or disabled warnings", () => {
+    let now = 1_700_000_000_000;
+    const db = openDatabase(":memory:");
+    const security = createLoginSecurity({ db, masterKey: randomBytes(32), now: () => now });
+    try {
+      security.update(
+        {
+          loginRestrictions: {
+            banIp: { attempts: 3, seconds: 120 },
+            banPanel: { enabled: true, attempts: 3, seconds: 90 },
+          },
+        },
+        "ada",
+      );
+      security.noteFailure("192.0.2.1", "ada");
+      security.noteFailure("192.0.2.1", "ada");
+      const failed = security.noteFailure("192.0.2.1", "ada");
+      expect(failed.block).toMatchObject({
+        code: "E_PANEL_LOCKED",
+        retryAfter: 90,
+        restrictionWarnings: [
+          { code: "E_IP_BANNED", retryAfter: 120 },
+          { code: "E_RATE_LIMITED", retryAfter: 30 },
+        ],
+      });
+      expect(security.beforeAttempt("192.0.2.1", "ada")).toEqual(failed.block);
+      now += 31_000;
+      expect(security.beforeAttempt("192.0.2.1", "ada")).toMatchObject({
+        code: "E_PANEL_LOCKED",
+        retryAfter: 59,
+        restrictionWarnings: [{ code: "E_IP_BANNED", retryAfter: 89 }],
+      });
+      security.update({ loginRestrictions: { banPanel: { enabled: false } } }, "ada");
+      expect(security.beforeAttempt("192.0.2.1", "ada")).toEqual({
+        code: "E_IP_BANNED",
+        message: expect.any(String),
+        retryAfter: 89,
+      });
+      now += 90_000;
+      expect(security.beforeAttempt("192.0.2.1", "ada")).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
   it("stores policy and encrypts the Turnstile secret", () => {
     const db = openDatabase(":memory:");
     const security = createLoginSecurity({ db, masterKey: randomBytes(32) });
