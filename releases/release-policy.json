@@ -1,7 +1,8 @@
 {
   "schemaVersion": 1,
   "downgrade": {
-    "supported": false
+    "supported": true,
+    "minVersion": "0.1.0-alpha.29"
   },
   "knownIssues": []
 }

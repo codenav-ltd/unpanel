@@ -410,8 +410,10 @@ function releaseOptions(current: string, releases: ReleaseFile[], arch: string):
       let reason: string | null =
         item.supported === false ? (item.reason ?? "This release is no longer supported.") : null;
       if (older && !reason) {
-        if (!currentRelease?.downgrade?.supported)
-          reason = "Safe downgrade from the installed version has not been verified.";
+        if (!currentRelease?.downgrade)
+          reason = `Downgrade compatibility metadata for installed v${current} is unavailable.`;
+        else if (!currentRelease.downgrade.supported)
+          reason = `Installed v${current} does not support application downgrade.`;
         else if (
           currentRelease.downgrade.minVersion &&
           (compareVersions(item.version, currentRelease.downgrade.minVersion) ?? -1) < 0

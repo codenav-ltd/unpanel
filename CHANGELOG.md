@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.33] - 2026-10-08
+
+### Fixed
+
+- Declare the verified application downgrade range back to alpha.29. Distinguish unavailable compatibility metadata from a release that explicitly disables downgrade; older targets retain a minimum-version explanation.
+
 ## [0.1.0-alpha.32] - 2026-10-08
 
 ### Fixed

@@ -24,6 +24,8 @@ The update check reads `channels.json` from the site and GitHub, chooses a newer
 
 Before tagging, review `releases/release-policy.json`. Keep downgrade disabled unless the installed release's database and stored-data changes are readable by every version at or above the declared `minVersion`. Additive schema changes are candidates; dropped/renamed columns and changed data semantics normally require downgrade to remain disabled. Add target-specific known issues here as structured entries. Never enable application downgrade merely because the updater can restore the previous binary after a failed start—those are separate guarantees.
 
+Alpha.33 declares compatibility back to alpha.29. The stored-data code was reviewed against all four intervening release tags, and each tag's implementation was tested against a database populated by the current implementation: owner TOTP login, read-only demo restrictions, encrypted email and Turnstile settings, and the active TLS certificate remained readable. Repeat the audit before extending this range or retaining it after a data migration. This declaration belongs to alpha.33; alpha.30–alpha.32 retain their original disabled policies, so installations on those versions must first upgrade to alpha.33 to use its downgrade range. Downgrades still require explicit review and can restore bugs fixed by later versions.
+
 ### Project endpoints
 
 | URL | Contents |

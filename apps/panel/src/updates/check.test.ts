@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   channelsAssetUrl,
@@ -179,6 +180,79 @@ describe("GitHub release lookup", () => {
 });
 
 describe("findUpdate", () => {
+  it("applies the published policy to the verified range, including its exact lower boundary", async () => {
+    const policy = JSON.parse(
+      readFileSync(new URL("../../../../releases/release-policy.json", import.meta.url), "utf8"),
+    );
+    const release = (version: string) => ({
+      version,
+      url: `https://github.com/codenav-ltd/unpanel/releases/download/v${version}/unpanel-linux-x64.tar.gz`,
+      sha256: sha,
+      notes: "",
+    });
+    const installed = { ...release("0.1.0-alpha.33"), downgrade: policy.downgrade };
+    const result = await findUpdate({
+      current: installed.version,
+      arch: "x64",
+      manifestUrl: "https://unpanel.codenav.dev/channels.json",
+      sourceUrl: "https://github.com/codenav-ltd/unpanel",
+      fetchImpl: async (input) =>
+        String(input).includes("api.github.com")
+          ? Response.json([])
+          : Response.json({
+              stable: null,
+              beta: installed,
+              versions: [
+                installed,
+                ...[28, 29, 30, 31, 32].map((number) => release(`0.1.0-alpha.${number}`)),
+              ],
+            }),
+    });
+    for (const number of [29, 30, 31, 32])
+      expect(
+        result.versions?.find((item) => item.version === `0.1.0-alpha.${number}`),
+      ).toMatchObject({ available: true, reason: null, reviewRequired: true });
+    expect(result.versions?.find((item) => item.version === "0.1.0-alpha.28")).toMatchObject({
+      available: false,
+      reason: expect.stringContaining("alpha.29"),
+    });
+  });
+  it.each([
+    [undefined, "compatibility metadata"],
+    [{ supported: false }, "does not support application downgrade"],
+  ])(
+    "distinguishes missing and disabled downgrade policy without blocking updates (%j)",
+    async (downgrade, reason) => {
+      const release = (version: string) => ({
+        version,
+        url: `https://github.com/codenav-ltd/unpanel/releases/download/v${version}/unpanel-linux-x64.tar.gz`,
+        sha256: sha,
+        notes: "",
+      });
+      const result = await findUpdate({
+        current: "0.1.0-alpha.32",
+        arch: "x64",
+        manifestUrl: "https://unpanel.codenav.dev/channels.json",
+        sourceUrl: "https://github.com/codenav-ltd/unpanel",
+        fetchImpl: async (input) =>
+          String(input).includes("api.github.com")
+            ? Response.json([])
+            : Response.json({
+                stable: null,
+                beta: release("0.1.0-alpha.33"),
+                versions: [{ ...release("0.1.0-alpha.32"), downgrade }, release("0.1.0-alpha.31")],
+              }),
+      });
+      expect(result.versions?.find((item) => item.version.endsWith(".31"))).toMatchObject({
+        available: false,
+        reason: expect.stringContaining(reason),
+      });
+      expect(result.versions?.find((item) => item.version.endsWith(".33"))).toMatchObject({
+        available: true,
+        reason: null,
+      });
+    },
+  );
   it("offers only explicitly compatible downgrades and explains blocked versions", async () => {
     const release = (version: string, extra: Record<string, unknown> = {}) => ({
       version,
