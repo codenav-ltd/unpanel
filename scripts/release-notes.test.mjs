@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { product } from "../packages/shared/src/product.ts";
 import { releaseMetadata } from "./release-notes.mjs";
 
 describe("releaseMetadata", () => {
+  it("can package the current product version's actual changelog", () => {
+    const result = releaseMetadata(readFileSync("CHANGELOG.md", "utf8"), product.version);
+    expect(result.changes.length).toBeGreaterThan(0);
+    expect(result.markdown).toContain(`# Unpanel v${product.version}`);
+  });
   it("turns changelog categories into readable manifest rows", () => {
     const result = releaseMetadata(
       `# Changelog
