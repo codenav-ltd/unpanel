@@ -6,8 +6,14 @@ import { generateKeyPairSync } from "node:crypto";
 import { chmodSync, chownSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { product } from "@unpanel/shared";
-import { installPanel, type InstallHost } from "./apply.ts";
-import { InstallUsage, installHelp, installSummary, parseInstallArgs } from "./layout.ts";
+import { installPanel, matchesInstallation, type InstallHost } from "./apply.ts";
+import {
+  InstallUsage,
+  assertServiceNode,
+  installHelp,
+  installSummary,
+  parseInstallArgs,
+} from "./layout.ts";
 
 function packageRoot(): string {
   const invoked = process.argv[1];
@@ -27,7 +33,30 @@ async function installCommand(argv: string[]): Promise<void> {
     argv.filter((arg) => arg !== "--keep-agent"),
     { root, nodePath: process.execPath, bundled: existsSync(join(root, "panel.cjs")) },
   );
-  await installPanel(plan, systemHost, { restartAgent: !keepAgent });
+  assertServiceNode(plan.nodePath);
+  // Older updaters call the target installer after swapping. They can use the
+  // same optimization even before the installed swap script has been upgraded.
+  if (
+    keepAgent &&
+    plan.bundled &&
+    ["panel.cjs", "agent.cjs", "manage.cjs", "web/index.html"].every((file) =>
+      existsSync(join(plan.root, file)),
+    ) &&
+    matchesInstallation(plan, {
+      exists: existsSync,
+      read(file) {
+        try {
+          return readFileSync(file, "utf8");
+        } catch {
+          return null;
+        }
+      },
+    })
+  ) {
+    await systemHost.command("systemctl", ["start", product.units.panel], plan.root);
+  } else {
+    await installPanel(plan, systemHost, { restartAgent: !keepAgent });
+  }
   const health = await waitHealthy(plan.port);
   if (!health) {
     throw new Error(
@@ -119,11 +148,13 @@ async function waitHealthy(
   port: number,
 ): Promise<{ fingerprint?: string; publicUrl?: string; selfSigned?: boolean } | null> {
   const url = `http://127.0.0.1:${port}/api/v1/health`;
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  const deadline = Date.now() + 30_000;
+  for (let attempt = 0; Date.now() < deadline; attempt += 1) {
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: AbortSignal.timeout(1000) });
       if (response.ok) {
         const body = (await response.json()) as {
+          version?: string;
           tls?: {
             enabled: boolean;
             fingerprint: string | null;
@@ -131,18 +162,19 @@ async function waitHealthy(
             selfSigned?: boolean;
           };
         };
-        return body.tls?.enabled
-          ? {
-              ...(body.tls.fingerprint ? { fingerprint: body.tls.fingerprint } : {}),
-              publicUrl: body.tls.publicUrl,
-              selfSigned: body.tls.selfSigned ?? false,
-            }
-          : {};
+        if (body.version === product.version)
+          return body.tls?.enabled
+            ? {
+                ...(body.tls.fingerprint ? { fingerprint: body.tls.fingerprint } : {}),
+                publicUrl: body.tls.publicUrl,
+                selfSigned: body.tls.selfSigned ?? false,
+              }
+            : {};
       }
     } catch {
       // The process is still opening its port.
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, attempt < 20 ? 50 : 250));
   }
   return null;
 }

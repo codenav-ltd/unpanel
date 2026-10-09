@@ -7,7 +7,7 @@
 #     --panel URL --token TOKEN --agent-id ID --agent-url WS
 set -eu
 
-VERSION="0.1.0-alpha.33"
+VERSION="0.1.0-alpha.34"
 REF="v${VERSION}"
 RELEASE="https://github.com/codenav-ltd/unpanel/releases/download/${REF}"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"

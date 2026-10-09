@@ -78,7 +78,9 @@ export async function performUpgrade(
     trace,
   );
   const apply = options.apply ?? applyReleaseArchive;
+  const replyAt = Date.now();
   const timer = setTimeout(() => {
+    trace.steps.push({ name: "reply-grace", durationMs: Date.now() - replyAt, downtime: false });
     void apply(bytes, trace).catch((error: unknown) => {
       process.stderr.write(`${error instanceof Error ? error.message : "update failed"}\n`);
     });

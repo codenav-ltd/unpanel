@@ -20,7 +20,8 @@ DOWNTIME_STARTED_MS=
 TRACE_FINISHED=0
 
 now_ms() {
-  date +%s%3N
+  # Older coreutils ignores the precision in %3N and emits nanoseconds.
+  date +%s%N | cut -c1-13
 }
 
 trace_step() {
@@ -61,13 +62,20 @@ env_value() {
 }
 
 wait_health() {
+  deadline=$(($(now_ms) + 30000))
+  expected_version=
+  if [ -f "$ROOT/VERSION" ]; then
+    expected_version=$(tr -d '[:space:]' < "$ROOT/VERSION")
+  fi
   n=0
-  while [ "$n" -lt 60 ]; do
-    if curl -fsS "http://127.0.0.1:${port}/api/v1/health" >/dev/null 2>&1; then
-      return 0
+  while [ "$(now_ms)" -lt "$deadline" ]; do
+    if health=$(curl -fsS --connect-timeout 1 --max-time 1 "http://127.0.0.1:${port}/api/v1/health" 2>/dev/null); then
+      if [ -z "$expected_version" ] || printf '%s' "$health" | tr -d '[:space:]' | grep -Fq "\"version\":\"${expected_version}\""; then
+        return 0
+      fi
     fi
     n=$((n + 1))
-    sleep 0.5
+    if [ "$n" -lt 20 ]; then sleep 0.05; else sleep 0.25; fi
   done
   return 1
 }
@@ -168,17 +176,36 @@ fi
 
 mkdir -p "$SNAP"
 chmod 700 "$SNAP"
+exec 9>"$SNAP/lock"
+if ! flock -n 9; then
+  echo "An update is already running. The running panel was not changed." >&2
+  exit 1
+fi
 cp -a "$PANEL_UNIT" "$SNAP/unpanel.service"
 if [ -f "$AGENT_UNIT" ]; then
   cp -a "$AGENT_UNIT" "$SNAP/unpanel-agent.service"
 fi
 cp -a "$ENV_FILE" "$SNAP/panel.env"
 
-exec 9>"$SNAP/lock"
-if ! flock -n 9; then
-  echo "An update is already running. The running panel was not changed." >&2
-  exit 1
+# Resolve the existing runtime and compare the target's installation layout
+# before downtime. Reuse unchanged env files, keys, wrapper and systemd units.
+step_at=$(now_ms)
+NODE=
+REUSE_INSTALL=0
+if [ -f "$NEW/install.cjs" ]; then
+  NODE=$(awk -F= '/^ExecStart=/ {print substr($0, index($0, "=")+1); exit}' "$PANEL_UNIT" | awk '{print $1}')
+  if [ ! -x "$NODE" ] && [ -x /usr/local/lib/unpanel-node/bin/node ]; then NODE=/usr/local/lib/unpanel-node/bin/node; fi
+  if [ ! -x "$NODE" ]; then NODE=$(command -v node || true); fi
+  if [ -z "$public_url" ] || [ -z "$NODE" ] || [ ! -x "$NODE" ]; then
+    echo "The panel address or Node runtime is missing. The running panel was not changed." >&2
+    exit 1
+  fi
+  if [ -f "$NEW/check-update.cjs" ] && "$NODE" "$NEW/check-update.cjs" "$ROOT" "$public_url" "$listen" "$port"; then
+    REUSE_INSTALL=1
+  fi
 fi
+rm -rf "$PREV"
+trace_step prepare-install $(($(now_ms) - step_at)) false
 
 DOWNTIME_STARTED_MS=$(now_ms)
 step_at=$DOWNTIME_STARTED_MS
@@ -189,7 +216,6 @@ if ! systemctl stop unpanel.service; then
 fi
 trace_step stop $(($(now_ms) - step_at)) true
 step_at=$(now_ms)
-rm -rf "$PREV"
 if ! mv "$ROOT" "$PREV"; then
   systemctl start unpanel.service >/dev/null 2>&1 || true
   echo "Could not move the running install aside. It was started again." >&2
@@ -209,22 +235,12 @@ fi
 trace_step swap $(($(now_ms) - step_at)) true
 
 step_at=$(now_ms)
-if [ -f "$ROOT/install.cjs" ]; then
-  NODE=
-  if [ -f "$SNAP/unpanel.service" ]; then
-    NODE=$(awk -F= '/^ExecStart=/ {print substr($0, index($0, "=")+1); exit}' "$SNAP/unpanel.service" | awk '{print $1}')
-  fi
-  if [ ! -x "$NODE" ] && [ -x /usr/local/lib/unpanel-node/bin/node ]; then
-    NODE=/usr/local/lib/unpanel-node/bin/node
-  fi
-  if [ ! -x "$NODE" ]; then
-    NODE=$(command -v node || true)
-  fi
-  if [ -z "$public_url" ] || [ -z "$NODE" ] || [ ! -x "$NODE" ]; then
-    echo "The new panel did not start. Restoring the previous version." >&2
+if [ "$REUSE_INSTALL" -eq 1 ]; then
+  if ! systemctl start unpanel.service; then
     restore_previous
     exit 1
   fi
+elif [ -f "$ROOT/install.cjs" ]; then
   if ! "$NODE" "$ROOT/install.cjs" install --keep-agent --public-url "$public_url" --listen "$listen" --port "$port"; then
     echo "The new panel did not start. Restoring the previous version." >&2
     restore_previous

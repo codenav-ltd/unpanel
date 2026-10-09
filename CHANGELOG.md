@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.34] - 2026-10-09
+
+### Improved
+
+- Reuse unchanged installation configuration during panel updates, checking the target layout before downtime and starting the new binary directly. Existing updaters also avoid repeating installation when applying this release. Changed layouts retain the full installer and rollback path.
+- Probe readiness every 50 ms during early startup, bound health requests, and check the expected release version. Record preparation outside downtime and keep update timing accurate on older Linux coreutils.
+
 ## [0.1.0-alpha.33] - 2026-10-08
 
 ### Fixed

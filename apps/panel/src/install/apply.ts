@@ -96,6 +96,29 @@ function manageScript(plan: InstallPlan): string {
   return `#!/bin/sh\nUNPANEL_ENV_FILE='${plan.etc}/panel.env' exec ${entry} "$@"\n`;
 }
 
+/** A code-only update can reuse these files without re-running installation. */
+export function matchesInstallation(
+  plan: InstallPlan,
+  host: { read(file: string): string | null; exists(file: string): boolean },
+): boolean {
+  const files: [string, string][] = [
+    [`${plan.etc}/panel.env`, panelEnvironment(plan)],
+    [`${plan.agentEtc}/agent.env`, agentEnvironment(plan)],
+    [product.paths.manageBin, manageScript(plan)],
+    [`/etc/systemd/system/${product.units.panel}`, panelService(plan)],
+    [`/etc/systemd/system/${product.units.agent}`, agentService(plan)],
+  ];
+  return (
+    files.every(([file, expected]) => host.read(file) === expected) &&
+    [
+      `${plan.etc}/panel.pem`,
+      `${plan.etc}/panel.pub.pem`,
+      `${plan.etc}/agent.pub.pem`,
+      `${plan.agentLib}/agent.pem`,
+    ].every((file) => host.exists(file))
+  );
+}
+
 function ensureKey(
   host: InstallHost,
   privatePath: string,

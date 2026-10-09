@@ -39,6 +39,7 @@ await build({
     panel: join(root, "apps", "panel", "src", "entry.ts"),
     agent: join(root, "apps", "agent", "src", "main.ts"),
     install: join(root, "apps", "panel", "src", "install", "cli.ts"),
+    "check-update": join(root, "apps", "panel", "src", "install", "check-update.ts"),
     manage: join(root, "apps", "panel", "src", "manage.ts"),
     "public-ip": join(root, "apps", "panel", "src", "install", "public-ip.ts"),
   },

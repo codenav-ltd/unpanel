@@ -40,14 +40,16 @@ describe("downloadRelease", () => {
 describe("performUpgrade", () => {
   it("does not apply the package until after the reply delay, and refuses a remote agent", async () => {
     let applied = 0;
+    let steps: { name: string; durationMs: number; downtime: boolean }[] = [];
     const result = await performUpgrade(
       { version: "0.1.0-alpha.8", url, sha256: sha },
       {
         platform: "linux",
         agentId: "local",
         fetchImpl: fetchBytes(body),
-        apply: async () => {
+        apply: async (_bytes, trace) => {
           applied += 1;
+          steps = trace.steps;
         },
       },
     );
@@ -55,6 +57,8 @@ describe("performUpgrade", () => {
     expect(applied).toBe(0);
     await new Promise((resolve) => setTimeout(resolve, result.delayMs + 50));
     expect(applied).toBe(1);
+    expect(steps.map((step) => step.name)).toEqual(["download", "verify", "reply-grace"]);
+    expect(steps.at(-1)).toMatchObject({ downtime: false, durationMs: expect.any(Number) });
     await expect(
       performUpgrade(
         { version: "0.1.0-alpha.8", url, sha256: sha },

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { product } from "@unpanel/shared";
-import { installPanel, type InstallHost } from "./apply.ts";
+import { installPanel, matchesInstallation, type InstallHost } from "./apply.ts";
 import { parseInstallArgs } from "./layout.ts";
 
 const plan = parseInstallArgs(["--public-url", "http://203.0.113.10:28517"], {
@@ -56,6 +56,41 @@ function installHost(options: { keys?: boolean; user?: boolean } = {}): {
 }
 
 describe("installPanel", () => {
+  it("reuses installation only when every generated file and key is still present", async () => {
+    const fake = installHost({ user: true });
+    await installPanel(plan, fake.host);
+    const reader = {
+      read: (file: string) => fake.files.get(file) ?? null,
+      exists: fake.host.exists,
+    };
+    expect(matchesInstallation(plan, reader)).toBe(true);
+    const files = [...fake.files];
+    for (const [file, original] of files.filter(
+      ([file]) =>
+        file.endsWith(".env") || file.endsWith(".service") || file === product.paths.manageBin,
+    )) {
+      fake.files.set(file, original + "\n# changed\n");
+      expect(matchesInstallation(plan, reader), file).toBe(false);
+      fake.files.set(file, original);
+    }
+    fake.files.delete("/etc/unpanel/agent.pub.pem");
+    expect(matchesInstallation(plan, reader)).toBe(false);
+  });
+
+  it("does not reuse services generated for a different runtime, root or port", async () => {
+    const fake = installHost({ user: true });
+    await installPanel(plan, fake.host);
+    const reader = {
+      read: (file: string) => fake.files.get(file) ?? null,
+      exists: fake.host.exists,
+    };
+    for (const patch of [
+      { nodePath: "/usr/local/bin/node" },
+      { root: "/opt/another-panel" },
+      { port: 12345 },
+    ])
+      expect(matchesInstallation({ ...plan, ...patch }, reader)).toBe(false);
+  });
   it("writes units and starts both services", async () => {
     const fake = installHost({ user: true });
     await installPanel(plan, fake.host);

@@ -28,6 +28,8 @@ Alpha.33 declares compatibility back to alpha.29. The stored-data code was revie
 
 ### Project endpoints
 
+For updates starting with alpha.34, unchanged service configuration uses a shorter restart path. Releases that change service units, environment or runtime paths still run the installer. Validate both paths and failed-start/wrong-version rollback with `node scripts/check-panel-swap.mjs` on Linux; CI runs this fixture with isolated directories and mocked host commands. Keep real systemd timing measurements separate from this functional fixture. In an isolated WSL Linux/systemd benchmark using three runs per path, the old flow took 938–947 ms of downtime, the initial upgrade through an older updater took 369–388 ms, and the new swap path took 302–366 ms. These measurements exclude download time and do not predict another server's boot speed.
+
 | URL | Contents |
 |---|---|
 | `https://unpanel.codenav.dev/install.sh` | Panel installer. It downloads the linux-x64 or linux-arm64 package for the pinned version and checks `SHA256SUMS`. |
