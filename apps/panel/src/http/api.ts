@@ -39,6 +39,7 @@ import { registerUsersApi } from "../auth/users-api.ts";
 import type { UpdateSecurity } from "../updates/security.ts";
 import type { UpdateOperation } from "../updates/history.ts";
 import { digest } from "../auth/factors.ts";
+import { dockerMethods, dockerOperations, type DockerOperation } from "@unpanel/protocol";
 
 const AUDIT_PAGE = 100;
 const HISTORY_WINDOWS = new Set([60, 1440, 10080]);
@@ -52,6 +53,11 @@ export function createApi(options: {
   live: () => NodeLive[];
   control: (nodeId: string, action: "restart" | "stop") => Promise<ServiceControlResult>;
   configureSwap: (nodeId: string, sizeGib: 1 | 2 | 4 | 8) => Promise<SwapResult>;
+  docker?: (
+    nodeId: string,
+    operation: DockerOperation,
+    params: Record<string, unknown>,
+  ) => Promise<unknown>;
   exportDb: (dest: string) => Promise<void>;
   stageRestore: (bytes: Uint8Array) => void;
   settings: Settings;
@@ -1150,6 +1156,77 @@ export function createApi(options: {
   }
 
   app.notFound((c) => c.json({ error: { code: "E_NOT_FOUND", message: "Not found." } }, 404));
+
+  for (const operation of dockerOperations) {
+    const method = dockerMethods[operation];
+    app.on(
+      method.risk === "read" ? "GET" : "POST",
+      `/api/v1/nodes/:id/docker/${operation}`,
+      async (c) => {
+        const user = options.auth.sessionUser(sessionToken(c));
+        if (!user) return unauthenticated(c);
+        const body = method.risk === "read" ? c.req.query() : await readJson(c);
+        const params = method.params.safeParse(body);
+        if (!params.success) return invalid(c);
+        if (
+          (method.risk === "danger" || operation === "composeGet") &&
+          !options.factors?.view(user.id, digest(sessionToken(c) ?? "")).elevated
+        )
+          return c.json(
+            {
+              error: {
+                code: "E_FORBIDDEN",
+                message: "Confirm your identity before this Docker operation.",
+              },
+            },
+            403,
+          );
+        try {
+          if (!options.docker)
+            throw new HubCallError(
+              "E_UNSUPPORTED",
+              "Docker support is unavailable. Update the panel and this node's agent.",
+            );
+          const data = await options.docker(c.req.param("id"), operation, params.data);
+          if (method.risk !== "read")
+            options.audit.record({
+              action: method.name,
+              result: "ok",
+              actorKind: "user",
+              actorId: user.username,
+              nodeId: c.req.param("id"),
+              target: String(
+                params.data["id"] ?? params.data["name"] ?? params.data["image"] ?? operation,
+              ),
+              ip: clientIp(c),
+            });
+          return c.json({ data });
+        } catch (error) {
+          const failure =
+            error instanceof HubCallError
+              ? error
+              : new HubCallError("E_EXTERNAL", "Docker request failed. Refresh before retrying.");
+          if (method.risk !== "read")
+            options.audit.record({
+              action: method.name,
+              result: "error",
+              actorKind: "user",
+              actorId: user.username,
+              nodeId: c.req.param("id"),
+              target: String(
+                params.data["id"] ?? params.data["name"] ?? params.data["image"] ?? operation,
+              ),
+              ip: clientIp(c),
+              errorCode: failure.code,
+            });
+          return c.json(
+            { error: { code: failure.code, message: failure.message } },
+            failure.status as 400 | 403 | 404 | 409 | 500 | 501 | 502 | 503 | 504,
+          );
+        }
+      },
+    );
+  }
 
   async function swapRoute(c: Context): Promise<Response> {
     const user = options.auth.sessionUser(sessionToken(c));

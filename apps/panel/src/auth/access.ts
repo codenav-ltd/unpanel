@@ -11,6 +11,7 @@ import {
   type UserRole,
 } from "@unpanel/shared";
 import { AccountError } from "./account-error.ts";
+import { dockerMethods, dockerOperations, dockerManageOperations } from "@unpanel/protocol";
 import { hashPassword, passwordProblem, usernameProblem } from "./password.ts";
 
 const denied: UserAccess = { role: "viewer", nodeIds: [], locked: true };
@@ -304,6 +305,15 @@ export function createAccess(db: DatabaseSync) {
           return false;
         }
         if (!seesNode(access, id)) return false;
+        const dockerMatch = /^\/docker\/([a-zA-Z]+)$/.exec(node[2] ?? "");
+        if (dockerMatch) {
+          const operation = dockerOperations.find((value) => value === dockerMatch[1]);
+          if (!operation) return false;
+          const definition = dockerMethods[operation];
+          if (read !== (definition.risk === "read")) return false;
+          if (dockerManageOperations.includes(operation)) return managesPanel(access);
+          return read || (!access.locked && access.role === "operator") || managesPanel(access);
+        }
         if (read) return node[2] === "" || node[2] === "/history";
         if (managesPanel(access)) return true;
         return (

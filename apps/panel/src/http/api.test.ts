@@ -54,6 +54,7 @@ function appWith(
       nodeId: string,
       sizeGib: 1 | 2 | 4 | 8,
     ) => Promise<{ path: string; sizeGib: 1 | 2 | 4 | 8; fstab: boolean }>;
+    docker?: Parameters<typeof createApi>[0]["docker"];
     exportDb?: (dest: string) => Promise<void>;
     stageRestore?: (bytes: Uint8Array) => void;
     settings?: Settings;
@@ -78,6 +79,7 @@ function appWith(
 ): ReturnType<typeof createApi> {
   return createApi({
     auth: extras.auth ?? stubAuth(session),
+    ...(extras.docker ? { docker: extras.docker } : {}),
     audit,
     snapshot: () => snapshot,
     live: extras.live ?? (() => []),
@@ -118,6 +120,39 @@ function appWith(
 }
 
 describe("login restriction responses", () => {
+  it("authenticates Docker reads, validates container IDs and blocks deletion without elevation", async () => {
+    const db = openDatabase(":memory:");
+    const docker = vi.fn(async () => []);
+    const app = appWith(createAudit(db), "fixture", { docker });
+    const headers = { cookie: "unpanel_sid=fixture", "content-type": "application/json" };
+    try {
+      expect((await app.request("/api/v1/nodes/local/docker/containers")).status).toBe(401);
+      expect((await app.request("/api/v1/nodes/local/docker/containers", { headers })).status).toBe(
+        200,
+      );
+      expect(
+        (
+          await app.request("/api/v1/nodes/local/docker/stop", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ id: "bad" }),
+          })
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await app.request("/api/v1/nodes/local/docker/remove", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ id: "a".repeat(64) }),
+          })
+        ).status,
+      ).toBe(403);
+      expect(docker).toHaveBeenCalledTimes(1);
+    } finally {
+      db.close();
+    }
+  });
   it("serializes cooldown warnings and simultaneous lockouts on every blocked login", async () => {
     const db = openDatabase(":memory:");
     const masterKey = randomBytes(32);
@@ -391,7 +426,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const app = appWith(audit, "tok", {
       applyAgentUpdate: async (nodeId) => ({
         accepted: true,
-        version: nodeId === "nd_1" ? "0.1.0-alpha.34" : "unexpected",
+        version: nodeId === "nd_1" ? "0.1.0-alpha.35" : "unexpected",
       }),
     });
 
@@ -402,7 +437,7 @@ describe("POST /api/v1/nodes/:id/update", () => {
     const body = (await response.json()) as { data: { version: string } };
 
     expect(response.status).toBe(200);
-    expect(body.data.version).toBe("0.1.0-alpha.34");
+    expect(body.data.version).toBe("0.1.0-alpha.35");
     expect(audit.list(1)[0]).toMatchObject({ action: "agent.update", nodeId: "nd_1" });
   });
 

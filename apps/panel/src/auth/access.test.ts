@@ -68,6 +68,7 @@ async function fixture() {
     action,
     delayMs: 100,
   }));
+  const docker = vi.fn(async () => ({ status: "ok" }));
   const snapshot: LocalSnapshot = {
     online: false,
     info: null,
@@ -102,6 +103,7 @@ async function fixture() {
     snapshot: () => snapshot,
     live: () => [],
     control,
+    docker,
     configureSwap: async () => ({ path: "/swap", sizeGib: 1, fstab: true }),
     exportDb: async () => {},
     stageRestore: () => {},
@@ -163,12 +165,84 @@ async function fixture() {
     ownerToken: setup.token,
     remote,
     control,
+    docker,
     request,
     create,
     login,
   };
 }
 describe("multi-user permission boundaries", () => {
+  it("requires current owner verification for Docker deletion and enforces permissions on HTTP routes", async () => {
+    const f = await fixture();
+    try {
+      const input = { id: "a".repeat(64) };
+      await f.create("docker-read", "viewer", ["local"]);
+      const viewerToken = await f.login("docker-read");
+      expect(
+        (await f.request(viewerToken, "/nodes/local/docker/start", "POST", input)).status,
+      ).toBe(403);
+      expect((await f.request(viewerToken, `/nodes/${f.remote}/docker/containers`)).status).toBe(
+        403,
+      );
+      expect(f.docker).not.toHaveBeenCalled();
+      f.db.prepare("UPDATE sessions SET elevated_until=0 WHERE id=?").run(f.session);
+      expect(
+        (await f.request(f.ownerToken, "/nodes/local/docker/remove", "POST", input)).status,
+      ).toBe(403);
+      expect(f.docker).not.toHaveBeenCalled();
+      await f.factors.beginReauth(f.actor.id, f.session, "fixture-owner-password");
+      expect(
+        (await f.request(f.ownerToken, "/nodes/local/docker/remove", "POST", input)).status,
+      ).toBe(200);
+      expect(f.docker).toHaveBeenCalledOnce();
+    } finally {
+      f.auth.close();
+    }
+  });
+  it("scopes Docker reads and lifecycle actions while rejecting viewer writes and operator deletion", async () => {
+    const f = await fixture();
+    try {
+      const viewer = await f.create("docker-viewer", "viewer", ["local"]);
+      const operator = await f.create("docker-operator", "operator", ["local"]);
+      expect(f.access.permits(viewer.id, "GET", "/api/v1/nodes/local/docker/containers")).toBe(
+        true,
+      );
+      expect(
+        f.access.permits(viewer.id, "GET", `/api/v1/nodes/${f.remote}/docker/containers`),
+      ).toBe(false);
+      expect(f.access.permits(viewer.id, "POST", "/api/v1/nodes/local/docker/start")).toBe(false);
+      expect(f.access.permits(operator.id, "POST", "/api/v1/nodes/local/docker/restart")).toBe(
+        true,
+      );
+      expect(f.access.permits(operator.id, "POST", "/api/v1/nodes/local/docker/remove")).toBe(
+        false,
+      );
+      expect(
+        f.access.permits(operator.id, "POST", `/api/v1/nodes/${f.remote}/docker/restart`),
+      ).toBe(false);
+      expect(f.access.permits(viewer.id, "GET", "/api/v1/nodes/local/docker/unknown")).toBe(false);
+      for (const read of ["stats", "top", "networks", "volumes", "diskUsage", "composeList"])
+        expect(f.access.permits(viewer.id, "GET", `/api/v1/nodes/local/docker/${read}`)).toBe(true);
+      for (const read of ["composeGet", "job"])
+        expect(f.access.permits(viewer.id, "GET", `/api/v1/nodes/local/docker/${read}`)).toBe(
+          false,
+        );
+      for (const operation of [
+        "create",
+        "exec",
+        "recreate",
+        "pull",
+        "composeSave",
+        "volumeRemove",
+        "serviceStart",
+      ])
+        expect(
+          f.access.permits(operator.id, "POST", `/api/v1/nodes/local/docker/${operation}`),
+        ).toBe(false);
+    } finally {
+      f.auth.close();
+    }
+  });
   it("keeps MFA usable for normal viewers and rejects password writes after a concurrent demo lock", async () => {
     const f = await fixture();
     try {

@@ -47,3 +47,15 @@ export { hostInfoSchema, systemInfo, type HostInfo } from "./methods/system.ts";
 export { metricsCpu } from "./methods/metrics.ts";
 export { PROTOCOL_VERSION } from "./version.ts";
 export { certHttp01Put, certHttp01Remove } from "./methods/cert.ts";
+export {
+  dockerMethods,
+  dockerName,
+  dockerImage,
+  dockerCreateParams,
+  dockerReadOperations,
+  dockerDangerOperations,
+  dockerManageOperations,
+  dockerOperations,
+  dockerId,
+  type DockerOperation,
+} from "./methods/docker.ts";

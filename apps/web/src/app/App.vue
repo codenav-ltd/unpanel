@@ -59,6 +59,7 @@ import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import { applyTheme, savedTheme, type ThemeName } from "../theme/tokens.ts";
 import { defaultLoginSecurity, type LoginSecuritySettings } from "../security.ts";
 const AlertsPage = defineAsyncComponent(() => import("../components/AlertsPage.vue"));
+const DockerPage = defineAsyncComponent(() => import("../components/DockerPage.vue"));
 const SecurityUpdateNotice = defineAsyncComponent(
   () => import("../components/SecurityUpdateNotice.vue"),
 );
@@ -624,7 +625,7 @@ async function refreshList(): Promise<void> {
 
 function openNode(id: string): void {
   nodeId.value = id;
-  page.value = "dashboard";
+  if (page.value !== "docker") page.value = "dashboard";
   void refresh();
 }
 
@@ -955,7 +956,7 @@ function layoutHint(size: OverviewLayout): string {
 }
 
 function chooseNode(id: string): void {
-  const stay = page.value === "dashboard" || page.value === "host";
+  const stay = page.value === "dashboard" || page.value === "host" || page.value === "docker";
   nodeId.value = id;
   if (!stay) page.value = "dashboard";
   void refresh();
@@ -1109,7 +1110,12 @@ const pageTitle = computed(() => {
   if (page.value === "alerts") return en.nav.alerts;
   if (page.value === "overview") return en.nav.overview;
   if (page.value === "settings") return en.nav.settings;
-  const section = page.value === "host" ? en.nav.host : en.nav.dashboard;
+  const section =
+    page.value === "docker"
+      ? en.nav.docker
+      : page.value === "host"
+        ? en.nav.host
+        : en.nav.dashboard;
   return `${section} · ${nodeLabel.value}`;
 });
 
@@ -1246,7 +1252,7 @@ function restrictPage(): void {
   )
     settingsSection.value = "security";
   if (
-    (page.value === "dashboard" || page.value === "host") &&
+    (page.value === "dashboard" || page.value === "host" || page.value === "docker") &&
     access.value.nodeIds !== null &&
     !access.value.nodeIds.includes(nodeId.value)
   )
@@ -1625,6 +1631,13 @@ onUnmounted(() => {
               @public-url="publicUrl = $event"
             />
             <AlertsPage v-else-if="page === 'alerts' && canManage" />
+            <DockerPage
+              v-else-if="page === 'docker'"
+              :key="nodeId"
+              :node-id="nodeId"
+              :can-operate="canOperate"
+              :can-manage="canManage"
+            />
             <SettingsPage
               v-else-if="page === 'settings'"
               :access="access"

@@ -188,6 +188,7 @@ export async function startPanel(options: {
     live: () => hub.live(),
     control: (nodeId, action) => hub.control(nodeId, action),
     configureSwap: (nodeId, sizeGib) => hub.configureSwap(nodeId, sizeGib),
+    docker: (nodeId, operation, params) => hub.docker(nodeId, operation, params),
     disconnect: (nodeId, code) => hub.disconnect(nodeId, code),
     exportDb: (dest) => exportPanelDb(data.db, dest),
     stageRestore: (bytes) => stageRestore(options.dataDir, bytes),

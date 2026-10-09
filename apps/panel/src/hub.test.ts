@@ -86,6 +86,35 @@ function fixture() {
 }
 
 describe("hub connection lifecycle", () => {
+  it("routes Docker results, rejects invalid replies and settles requests on disconnect", async () => {
+    const { hub, attach } = fixture();
+    try {
+      const peer = attach();
+      const result = hub.docker("local", "info", {});
+      const req = peer.requests("docker.info")[0];
+      if (!req) throw new Error("Missing Docker request");
+      const info = {
+        availability: "ready",
+        version: "27.0",
+        apiVersion: "1.45",
+        composeVersion: null,
+        distro: "ubuntu",
+        message: "Docker is ready.",
+      };
+      peer.receive({ t: "res", id: req.id, ok: true, r: info });
+      await expect(result).resolves.toEqual(info);
+      const malformed = hub.docker("local", "info", {});
+      const bad = peer.requests("docker.info")[1];
+      if (!bad) throw new Error("Missing Docker request");
+      peer.receive({ t: "res", id: bad.id, ok: true, r: {} });
+      await expect(malformed).rejects.toMatchObject({ code: "E_EXTERNAL" });
+      const interrupted = hub.docker("local", "containers", {});
+      peer.terminate();
+      await expect(interrupted).rejects.toMatchObject({ code: "E_NODE_OFFLINE" });
+    } finally {
+      hub.close();
+    }
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-03T00:00:00Z"));

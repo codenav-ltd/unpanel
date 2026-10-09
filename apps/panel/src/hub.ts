@@ -35,6 +35,7 @@ import {
   type TextFrame,
 } from "@unpanel/protocol";
 import { liveSampleMs } from "@unpanel/shared";
+import { dockerMethods, type DockerOperation } from "@unpanel/protocol";
 import type { HistorySample, HistorySeries } from "./metrics/history.ts";
 import type { NodeStatus } from "./nodes/store.ts";
 
@@ -161,6 +162,12 @@ function agentRefusal(error: { code: ErrorCode; msg: string } | undefined): HubC
 }
 
 type Pending =
+  | {
+      kind: "docker";
+      operation: DockerOperation;
+      resolve: (value: unknown) => void;
+      reject: (error: HubCallError) => void;
+    }
   | { kind: "info" }
   | { kind: "challenge"; resolve: () => void; reject: (error: HubCallError) => void }
   | { kind: "cpu" }
@@ -234,6 +241,11 @@ export function createHub(options: {
   live: () => NodeLive[];
   control: (nodeId: string, action: "restart" | "stop") => Promise<ServiceControlResult>;
   configureSwap: (nodeId: string, sizeGib: 1 | 2 | 4 | 8) => Promise<SwapResult>;
+  docker: (
+    nodeId: string,
+    operation: DockerOperation,
+    params: Record<string, unknown>,
+  ) => Promise<unknown>;
   http01: (
     params: { domain: string; token: string; keyAuthorization: string } | { token: string },
   ) => Promise<void>;
@@ -366,7 +378,14 @@ export function createHub(options: {
     link.readTimeouts.clear();
     link.cpuInflight = false;
     for (const wait of link.pending.values()) {
-      if (wait.kind === "challenge") {
+      if (wait.kind === "docker") {
+        wait.reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The agent disconnected. Refresh before retrying; a requested change may already have occurred.",
+          ),
+        );
+      } else if (wait.kind === "challenge") {
         wait.reject(
           new HubCallError(
             "E_NODE_OFFLINE",
@@ -555,6 +574,57 @@ export function createHub(options: {
           new HubCallError(
             "E_NODE_OFFLINE",
             "The node is offline, so the request was not sent and no swap file was created.",
+          ),
+        );
+      }
+    });
+  }
+
+  function docker(
+    nodeId: string,
+    operation: DockerOperation,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const link = links.get(nodeId);
+    if (!link?.socket || link.socket.readyState !== WebSocket.OPEN)
+      return Promise.reject(
+        new HubCallError("E_NODE_OFFLINE", "The node is offline. Start its agent and retry."),
+      );
+    const method = dockerMethods[operation];
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (id !== null) link.pending.delete(id);
+        reject(
+          new HubCallError(
+            "E_TIMEOUT",
+            "The agent did not answer the Docker request. Refresh before retrying; a requested change may already have occurred.",
+          ),
+        );
+      }, method.timeoutMs);
+      const id = request(
+        link,
+        method.name,
+        method.timeoutMs,
+        {
+          kind: "docker",
+          operation,
+          resolve: (value) => {
+            clearTimeout(timer);
+            resolve(value);
+          },
+          reject: (error) => {
+            clearTimeout(timer);
+            reject(error);
+          },
+        },
+        params,
+      );
+      if (id === null) {
+        clearTimeout(timer);
+        reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The node disconnected before the Docker request was sent.",
           ),
         );
       }
@@ -827,6 +897,7 @@ export function createHub(options: {
             ? error.message
             : "The panel failed while reading the agent's reply.";
         if (
+          wait.kind === "docker" ||
           wait.kind === "control" ||
           wait.kind === "upgrade" ||
           wait.kind === "swap" ||
@@ -844,6 +915,21 @@ export function createHub(options: {
       current: Link,
       id: string,
     ): void {
+      if (wait.kind === "docker") {
+        if (!frame.ok) wait.reject(agentRefusal(frame.e));
+        else {
+          const parsed = dockerMethods[wait.operation].result.safeParse(frame.r);
+          if (parsed.success) wait.resolve(parsed.data);
+          else
+            wait.reject(
+              new HubCallError(
+                "E_EXTERNAL",
+                "The agent returned an invalid Docker response. Refresh before retrying.",
+              ),
+            );
+        }
+        return;
+      }
       if (wait.kind === "info") {
         if (!frame.ok) {
           current.error = frame.e.msg || "The agent refused system.info and did not say why.";
@@ -1024,6 +1110,7 @@ export function createHub(options: {
       });
     },
     control,
+    docker,
     configureSwap,
     http01,
     upgrade,

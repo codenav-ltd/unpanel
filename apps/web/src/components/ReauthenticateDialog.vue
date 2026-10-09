@@ -8,7 +8,7 @@ import type { FactorView } from "@unpanel/shared";
 import { accountRequest } from "../account-client.ts";
 import AppDialog from "./AppDialog.vue";
 import MfaChallenge from "./MfaChallenge.vue";
-const props = defineProps<{ open: boolean }>(),
+const props = defineProps<{ open: boolean; reason?: string }>(),
   emit = defineEmits<{ close: []; verified: [] }>();
 const password = ref(""),
   ticket = ref(""),
@@ -49,7 +49,10 @@ async function begin(): Promise<void> {
 <template>
   <AppDialog :open="open" title="Verify your identity" narrow @close="!busy && emit('close')">
     <p class="hint">
-      Security changes affect access to this account. Verification allows changes for five minutes.
+      {{
+        reason ||
+        "Security changes affect access to this account. Verification allows changes for five minutes."
+      }}
     </p>
     <MfaChallenge
       v-if="ticket"

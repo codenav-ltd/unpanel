@@ -10,6 +10,7 @@ describe("shell routes", () => {
       { page: "overview" as const, nodeId: "local", settings: "panel" as const, unknown: null },
       { page: "dashboard" as const, nodeId: "nd_1", settings: "panel" as const, unknown: null },
       { page: "host" as const, nodeId: "nd_1", settings: "panel" as const, unknown: null },
+      { page: "docker" as const, nodeId: "nd_1", settings: "panel" as const, unknown: null },
       { page: "settings" as const, nodeId: "local", settings: "security" as const, unknown: null },
       { page: "settings" as const, nodeId: "local", settings: "updates" as const, unknown: null },
       { page: "settings" as const, nodeId: "local", settings: "about" as const, unknown: null },

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.35] - 2026-10-09
+
+### Added
+
+- Add node-scoped Docker management with container search, lifecycle controls, guided creation, resource settings, recent/live-refreshed logs, statistics, processes and verified command execution. Standalone image updates preserve volumes and restore the original container when replacement startup fails.
+- Add image pulls and cleanup, bridge networks, named volumes, storage usage and managed Compose stacks with validation, task progress and preservation of volume data. External Compose projects remain read-only; permissions follow node scopes and administrative operations require identity verification.
+- Add Docker availability detection and a three-step setup guide for missing Engine, stopped services, denied socket access and missing Compose. Docker requests, command output, task concurrency and polling are bounded; observations run on demand.
+
 ## [0.1.0-alpha.34] - 2026-10-09
 
 ### Changed

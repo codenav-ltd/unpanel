@@ -41,7 +41,7 @@ export function parsePath(path: string): ShellLocation {
       return { page: "overview", nodeId: "local", settings: "panel", unknown: path };
     }
     return {
-      page: parts[2] === "host" ? "host" : "dashboard",
+      page: parts[2] === "docker" ? "docker" : parts[2] === "host" ? "host" : "dashboard",
       nodeId,
       settings: "panel",
       unknown: null,
@@ -59,9 +59,13 @@ export function formatPath(location: ShellLocation): string {
   if (location.page === "settings") {
     return location.settings === "panel" ? "/settings" : `/settings/${location.settings}`;
   }
-  if (location.page === "dashboard" || location.page === "host") {
+  if (location.page === "dashboard" || location.page === "host" || location.page === "docker") {
     const id = encodeURIComponent(location.nodeId || "local");
-    return location.page === "host" ? `/nodes/${id}/host` : `/nodes/${id}`;
+    return location.page === "docker"
+      ? `/nodes/${id}/docker`
+      : location.page === "host"
+        ? `/nodes/${id}/host`
+        : `/nodes/${id}`;
   }
   return "/";
 }

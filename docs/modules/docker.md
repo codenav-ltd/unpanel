@@ -1,6 +1,25 @@
 # Module · Docker
 
-> Status: Draft · Agent module: `docker` · Capability: `docker` · External details: [kb/docker-engine-api.md](../kb/docker-engine-api.md)
+> Status: Core implemented; advanced roadmap below · Agent module: `docker` · Capability: `docker` · External details: [kb/docker-engine-api.md](../kb/docker-engine-api.md)
+
+## Implementation status
+
+The Docker page supports the following core workflows. Update the panel and node agents together. Sections 1 onward describe the broader target design; their proposed method names and options are not the current API contract.
+
+- **Availability and setup:** distinguish a missing Engine, stopped daemon, denied socket access, unreachable socket and unsupported node. A three-step guide links to distribution-specific official installation instructions, explains service/socket checks and rechecks the node. Administrators can start an installed systemd Docker service after identity verification. Installing packages remains an explicit terminal operation. Missing Compose does not block ordinary container management.
+- **Containers:** include stopped containers, search by name/image/project and filter state. Inspect exposes identity, state, restart policy and published ports. Operators can start, stop, restart, pause, resume, rename and change CPU/memory limits or restart policy. Administrators create containers through a three-step review flow with image, command arguments, variables, port binding, named volumes, network and resource settings; host privileges and host-directory mounts are excluded.
+- **Observation:** recent logs include the last 200 lines, bounded to 100,000 characters; optional live refresh runs every two seconds while the log dialog is open. Statistics sample every five seconds only while their tab is visible; CPU needs two samples. Processes load on demand. Commands run noninteractively through `/bin/sh -lc`, require administrator verification and report exit status through task progress. A command exceeding its response deadline may still run inside the container; refresh before retrying.
+- **Image updates:** pull the original image tag before stopping a standalone container. If unchanged, leave it untouched. Otherwise retain the old container until the replacement stays running for ten seconds or passes its health check (one-minute deadline). Failed startup restores the original name and running state. Named and anonymous volumes are retained; writable container layers are not migrated. Compose containers, host mounts/privileges and static network addresses must be updated through their stack or terminal. Restoration cannot undo application writes already made to a shared volume by the replacement.
+- **Resources:** list/pull/remove images, prune dangling images, create ordinary bridge networks and local volumes, connect/disconnect containers, and remove unused resources after review. Removing containers never forces a running container or removes volumes. Storage cleanup removes stopped containers, unused networks and dangling images, retaining all volumes. Anonymous-volume pruning requires Engine API 1.42 or newer; named volumes are preserved. Removing an individual volume permanently deletes its data.
+- **Compose:** discover external projects as read-only and manage panel-created stacks under `/var/lib/unpanel-agent/stacks/<name>`. Stack names use lowercase letters/numbers/underscores/hyphens. YAML and environment variables are saved with owner-only permissions after bounded YAML parsing and Compose validation. Host binds, privileges, builds, included/external configuration files and custom volume drivers are rejected before deployment; file-reading directives are rejected before calling Compose. Failed validation preserves saved files. Deploy, pull, start, stop, restart and Down use task progress. Down and stack-file removal preserve volumes. An existing external project's name cannot be taken over.
+- **Permissions:** viewers read resources only on permitted nodes; operators control existing containers and networking; owners/administrators manage images, volumes, stacks and creation. Commands, recreation, deletion, cleanup, service start and stack configuration reads/writes require administrator identity verification. Task output is administrator-only. Successful and failed write requests are audited without recording command, variable, YAML or environment contents. Logs and process listings can include application-generated sensitive information.
+- **Lightweight execution:** native HTTP over `/var/run/docker.sock`, no Docker client library and no shell interpolation. Ordinary socket calls have a 30-second deadline, four-request limit and 700,000-byte response limit. Pull/recreation/Compose/command work uses at most two concurrent in-memory tasks, bounded 64,000-character output and bounded retention; closing progress does not cancel a task. Docker CLI/Compose commands have bounded output/deadlines. YAML parsing adds one focused dependency; no background Docker event stream runs.
+
+The current RPC contract is [packages/protocol/src/methods/docker.ts](../../packages/protocol/src/methods/docker.ts). HTTP routes use `/api/v1/nodes/:id/docker/:operation`: GET for reads with query parameters, POST for writes with a JSON body. Container/network IDs must be full 64-character IDs. Long operations return `jobId`; read status with `docker.job`.
+
+Validation covers simulated socket responses, permissions, parsing/policy boundaries, task bounds and recovery. Real isolated Docker 28.5.2 + Compose 2.40.3 checks cover container creation/lifecycle/resources/commands, named-volume persistence, networks, Compose deployment/Down and cleanup. A local registry fixture verifies real image pulls, successful replacement and failed-start restoration with volume data intact. Desktop/mobile browser checks use real panel/authentication with mocked node replies. Public Docker Hub connectivity timed out in this environment, so public-registry connectivity is not a passed check.
+
+Remaining advanced work: interactive terminal/stream transport, private-registry credential forms, proactive digest update checks, batch actions, richer inspect/history/options, event-driven refresh and rootless socket selection. These are roadmap items, not enabled controls.
 
 ## 1. Detection
 
@@ -8,7 +27,7 @@
 - Capability metadata: Engine version, API version, storage driver, cgroup version and driver (`systemd` / `cgroupfs`), Compose plugin version (`docker compose version --short`; Compose v2 only);
 - When the Docker daemon restarts, the agent reconnects the event stream and refreshes the capability.
 
-Client: `dockerode` (Unix socket via `docker-modem`).
+Planned richer client: `dockerode` (Unix socket via `docker-modem`), only if the expanded operations warrant a dependency. The first batch uses Node's HTTP client directly.
 
 ## 2. Features and methods
 

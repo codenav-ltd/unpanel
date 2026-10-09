@@ -30,7 +30,8 @@ import { product } from "@unpanel/shared";
 import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch, type Component } from "vue";
 import { en } from "../i18n/en.ts";
 
-export type ShellPage = "overview" | "dashboard" | "host" | "settings" | "certificates" | "alerts";
+export type ShellPage =
+  "overview" | "dashboard" | "host" | "docker" | "settings" | "certificates" | "alerts";
 
 export interface SideNode {
   id: string;
@@ -64,7 +65,8 @@ const emit = defineEmits<{
 }>();
 
 const sectionLabel = computed(() => {
-  if (props.page !== "dashboard" && props.page !== "host") return en.nav.node;
+  if (props.page !== "dashboard" && props.page !== "host" && props.page !== "docker")
+    return en.nav.node;
   const node = props.nodes.find((item) => item.id === props.nodeId);
   return node?.name || node?.hostname || en.shell.localNode;
 });
@@ -110,7 +112,7 @@ const items: Item[] = [
     id: "docker",
     label: en.nav.docker,
     group: "node",
-    enabled: false,
+    enabled: true,
     icon: ContainerOutlined,
   },
   {

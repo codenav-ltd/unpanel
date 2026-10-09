@@ -11,6 +11,8 @@ import { sampleHost } from "./cpu.ts";
 import { SwapRefused, configureSwap } from "./swap.ts";
 import { performAgentUpgrade, performUpgrade } from "./upgrade.ts";
 import { createHttp01Responder } from "./cert.ts";
+import { createDocker, DockerError } from "./docker.ts";
+import { dockerMethods, dockerOperations } from "@unpanel/protocol";
 import {
   agentUpgrade,
   certHttp01Put,
@@ -36,6 +38,7 @@ import {
 } from "@unpanel/protocol";
 
 const agentMethods = new Set([
+  ...dockerOperations.map((operation) => dockerMethods[operation].name),
   systemInfo.name,
   metricsCpu.name,
   panelUpgrade.name,
@@ -68,6 +71,7 @@ export function connectAgent(options: {
 }): { stop: () => void } {
   const agentId = options.agentId ?? "local";
   const challenges = createHttp01Responder();
+  const docker = createDocker();
   const hostInfo =
     options.hostInfo ??
     (() => {
@@ -129,6 +133,7 @@ export function connectAgent(options: {
             t: "auth",
             sigA: signMessage(authMessage(agentId, frame.nonceM, nonceA), options.agentKey),
             caps: [
+              { name: "docker", version: product.version, meta: { availability: "on-demand" } },
               { name: "cert", version: product.version },
               { name: "system", version: product.version },
               {
@@ -259,6 +264,30 @@ export function connectAgent(options: {
             },
           }),
         );
+      }
+      if (frame.t === "req") {
+        const operation = dockerOperations.find((value) => dockerMethods[value].name === frame.m);
+        if (operation) {
+          const replySocket = socket;
+          const reply = (result: Extract<TextFrame, { t: "res" }>): void => {
+            if (replySocket?.readyState === WebSocket.OPEN)
+              replySocket.send(encodeTextFrame(result));
+          };
+          void docker
+            .run(operation, frame.p)
+            .then((r) => reply({ t: "res", id: frame.id, ok: true, r }))
+            .catch((error: unknown) =>
+              reply({
+                t: "res",
+                id: frame.id,
+                ok: false,
+                e: {
+                  code: error instanceof DockerError ? error.code : "E_EXTERNAL",
+                  msg: error instanceof Error ? error.message : "Docker request failed.",
+                },
+              }),
+            );
+        }
       }
       if (
         frame.t === "req" &&
