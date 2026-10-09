@@ -2,7 +2,7 @@
 
 > Status: Draft · Related ADRs: [0003](../adr/0003-unprivileged-panel-local-agent.md), [0010](../adr/0010-https-by-default.md) · Release process: [kb/release-process.md](../kb/release-process.md)
 
-**Shipped now (0.1.0-alpha.36 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
+**Shipped now (0.1.0-alpha.37 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
 
 ```bash
 curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
@@ -27,6 +27,8 @@ The root local agent writes append-only update traces under `/var/lib/unpanel/up
 Alpha.34 adds a small staged `check-update.cjs` entry that compares the target's generated panel/agent environment, both systemd units and management wrapper with the installed files, and checks key/package presence without writing configuration or opening the database. An exact match lets the swap script start the new panel directly; a missing checker or changed layout uses full installation. The check and previous-tree cleanup appear as `prepare-install` outside downtime. The target installer also recognizes unchanged installations when older swap scripts call it after the swap, so the first upgrade benefits too. Readiness probes initially wait 50 ms between attempts, then 250 ms after the first second, with bounded HTTP requests and a 30-second budget; the swap verifies that the health endpoint reports the version in the new tree. Failure still restores the old tree and configuration and verifies its health before reporting rollback.
 
 The agent retains a 500 ms reply grace period before applying the package so the accepted update response can reach the browser. Alpha.34 records this as `reply-grace`, outside downtime, rather than leaving it as unexplained time between the measured steps. Smaller file/command handoff overhead can still remain between step totals and elapsed duration.
+
+Alpha.37 checks readiness immediately after the update response, then retries every 250 ms with a one-second request timeout and a two-minute overall budget. It reloads as soon as the target version answers; rollback requires a matching update trace, not merely failed network probes. Leaving Settings cancels monitoring. Recorded service downtime excludes browser detection, network latency and loading the new frontend. The faster monitoring applies once the alpha.37 frontend has loaded; a browser still running an older frontend uses its previous polling behavior for that upgrade.
 
 The browser records the target as `/settings/updates?updating=<version>` before it starts the request, probes `/api/v1/health` through the restart, and reloads the frontend from `/settings/updates?updated=<version>` only after that version answers. Reloading during the restart resumes the probe. If the previous version returns after the outage, the page reports that the update rolled back instead of claiming success.
 

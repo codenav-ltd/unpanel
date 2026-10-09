@@ -10,46 +10,74 @@ interface HealthReply {
   version?: unknown;
 }
 
-/**
- * Waits across the panel restart. Two consecutive unreachable probes followed
- * by the old version means the rollback path brought the previous panel back.
- */
+/** Poll readiness promptly; only an observed update trace can prove rollback. */
 export async function waitForPanelUpdate(
   targetVersion: string,
   options: {
     fetchImpl?: typeof fetch;
-    wait?: () => Promise<void>;
+    wait?: (milliseconds: number) => Promise<void>;
     attempts?: number;
+    signal?: AbortSignal;
+    previousOperationIds?: readonly string[];
   } = {},
 ): Promise<PanelUpdateOutcome> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const wait = options.wait ?? (() => new Promise((resolve) => setTimeout(resolve, 1_000)));
-  const attempts = options.attempts ?? 120;
-  let consecutiveUnavailable = 0;
-  let outageConfirmed = false;
+  const wait =
+    options.wait ??
+    ((ms) =>
+      new Promise<void>((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          options.signal?.removeEventListener("abort", finish);
+          resolve();
+        };
+        const timer = setTimeout(finish, ms);
+        options.signal?.addEventListener("abort", finish, { once: true });
+        if (options.signal?.aborted) finish();
+      }));
+  const deadline = Date.now() + 120_000;
+  const attempts = options.attempts ?? Infinity;
+  let operationId: string | null = null;
+  const previousIds = options.previousOperationIds ? new Set(options.previousOperationIds) : null;
+  let nextHistoryCheck = 0;
   let lastVersion: string | null = null;
 
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    await wait();
+  for (let attempt = 0; attempt < attempts && Date.now() < deadline; attempt += 1) {
+    if (options.signal?.aborted) break;
+    if (attempt > 0) await wait(Math.min(250, deadline - Date.now()));
+    if (options.signal?.aborted || Date.now() >= deadline) break;
     try {
+      const timeout = AbortSignal.timeout(Math.min(1_000, deadline - Date.now()));
+      const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout;
       const response = await fetchImpl("/api/v1/health", {
         cache: "no-store",
-        signal: AbortSignal.timeout(3_000),
+        signal,
       });
-      if (!response.ok) {
-        consecutiveUnavailable += 1;
-        outageConfirmed ||= consecutiveUnavailable >= 2;
-        continue;
-      }
+      if (!response.ok) continue;
       const body = (await response.json()) as HealthReply;
       const version = typeof body.version === "string" ? body.version : null;
       if (version === targetVersion) return { kind: "updated", version };
       lastVersion = version;
-      if (outageConfirmed && version) return { kind: "rolled-back", version };
-      consecutiveUnavailable = 0;
+      if (version && Date.now() >= nextHistoryCheck) {
+        nextHistoryCheck = Date.now() + 1_000;
+        const history = await fetchImpl("/api/v1/updates/history", { cache: "no-store", signal });
+        if (!history.ok) continue;
+        const body = (await history.json()) as {
+          data?: Array<{ id: string; to: string; status: string }>;
+        };
+        const operation = Array.isArray(body.data)
+          ? body.data.find((entry) => entry.to === targetVersion)
+          : undefined;
+        if (operation?.status === "running") operationId = operation.id;
+        if (
+          operation?.status === "rolled-back" &&
+          (operation.id === operationId || (previousIds && !previousIds.has(operation.id)))
+        ) {
+          return { kind: "rolled-back", version };
+        }
+      }
     } catch {
-      consecutiveUnavailable += 1;
-      outageConfirmed ||= consecutiveUnavailable >= 2;
+      // Restart and transient network failures are expected; keep probing.
     }
   }
 

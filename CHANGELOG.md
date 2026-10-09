@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.37] - 2026-10-09
+
+### Fixed
+
+- Check panel readiness immediately after accepting an update, retry every 250 ms and bound stalled probes to one second. Preserve the two-minute recovery budget, cancel monitoring when leaving Settings, and confirm rollback from the current update trace instead of treating brief network failures as rollback.
+
 ## [0.1.0-alpha.36] - 2026-10-09
 
 ### Fixed

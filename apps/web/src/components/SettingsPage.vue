@@ -204,6 +204,8 @@ const updateReleaseUrl = computed(
 );
 let updateMonitorTarget = "";
 let settingsUnmounted = false;
+const updateMonitorAbort = new AbortController();
+let updateHistoryLoaded = false;
 
 const themes: { id: ThemeName; label: string }[] = [
   { id: "dark", label: en.shell.themeDark },
@@ -790,6 +792,7 @@ async function loadUpdateHistory(): Promise<void> {
     }
     const body = (await response.json()) as { data?: UpdateOperation[] };
     updateHistory.value = Array.isArray(body.data) ? body.data : [];
+    updateHistoryLoaded = true;
     const newest = updateHistory.value[0];
     if (
       updateSuccessVersion.value &&
@@ -856,7 +859,12 @@ async function monitorPanelUpdate(target: string): Promise<void> {
   updateError.value = "";
   emit("updateFound", "");
   setUpdateMarker("updating", target);
-  const outcome = await waitForPanelUpdate(target);
+  const outcome = await waitForPanelUpdate(target, {
+    signal: updateMonitorAbort.signal,
+    ...(updateHistoryLoaded
+      ? { previousOperationIds: updateHistory.value.map((operation) => operation.id) }
+      : {}),
+  });
   if (settingsUnmounted) return;
   updateMonitorTarget = "";
   if (outcome.kind === "updated") {
@@ -1017,6 +1025,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   settingsUnmounted = true;
+  updateMonitorAbort.abort();
   clearTimeout(updateHistoryTimer);
   window.removeEventListener("resize", revealActiveSection);
 });
