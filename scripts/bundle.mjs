@@ -72,6 +72,13 @@ for (const name of [
   cpSync(join(root, "scripts", name), join(out, "scripts", name));
 }
 cpSync(join(root, "LICENSE"), join(out, "LICENSE"));
+// YAML is bundled into the agent; its copyright and permission notice must accompany it.
+const agentRequire = createRequire(join(root, "apps", "agent", "package.json"));
+mkdirSync(join(out, "licenses"), { recursive: true });
+cpSync(
+  join(dirname(agentRequire.resolve("yaml/package.json")), "LICENSE"),
+  join(out, "licenses", "yaml.txt"),
+);
 const version = readFileSync(join(root, "packages", "shared", "src", "product.ts"), "utf8").match(
   /version: "([^"]+)"/,
 )?.[1];

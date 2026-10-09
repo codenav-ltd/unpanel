@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.36] - 2026-10-09
+
+### Fixed
+
+- Include the bundled YAML parser's copyright and permission notice in both architecture packages. This packaging correction retains the Docker management functionality introduced in alpha.35.
+
 ## [0.1.0-alpha.35] - 2026-10-09
 
 ### Added
