@@ -435,7 +435,8 @@ export function createDockerResources(options: {
       }
       if (operation === "volumePrune") {
         const version = (await call("/version")) as { ApiVersion: string };
-        if (Number(version.ApiVersion) < 1.42)
+        const api = /^(\d+)\.(\d+)$/.exec(version.ApiVersion);
+        if (!api || Number(api[1]) !== 1 || Number(api[2]) < 42)
           throw new DockerError(
             "E_UNSUPPORTED",
             "Anonymous-volume cleanup requires Docker API 1.42 or newer. Remove individual volumes after reviewing their contents.",

@@ -130,14 +130,17 @@ describe("Docker jobs and recovery", () => {
     });
     await vi.waitFor(() => expect(jobs.get(failed.jobId).status).toBe("failed"));
   });
-  it("does not invoke legacy volume pruning that could remove named volumes", async () => {
-    const f = fixture();
-    f.call.mockResolvedValue({ ApiVersion: "1.41" });
-    await expect(f.resources.run("volumePrune", {})).rejects.toMatchObject({
-      code: "E_UNSUPPORTED",
-    });
-    expect(f.call).toHaveBeenCalledTimes(1);
-  });
+  it.each(["1.9", "1.41", "invalid"])(
+    "does not invoke unsafe volume pruning on API %s",
+    async (ApiVersion) => {
+      const f = fixture();
+      f.call.mockResolvedValue({ ApiVersion });
+      await expect(f.resources.run("volumePrune", {})).rejects.toMatchObject({
+        code: "E_UNSUPPORTED",
+      });
+      expect(f.call).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 describe("Docker host access policy", () => {
   it.each([
