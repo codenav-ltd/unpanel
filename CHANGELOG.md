@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.38] - 2026-10-10
+
+### Changed
+
+- Move Docker container creation beside Refresh and make desktop/mobile container lists compact, with IDs, image and creation information, Compose ownership, state indicators and port details. Distinguish start/resume, danger-styled stop/delete and secondary actions; expose logs, statistics, processes, commands, settings and lifecycle actions through keyboard-accessible row menus without extra background polling.
+- Put Version history and Update history last in Settings → Updates. Add a top warning banner explaining the active security policy and linking to its preferences; distinguish saved policy, unsaved changes and ordinary automatic updates, and rename the save action to Review and save policy.
+
+### Fixed
+
+- Refresh the selected Docker resource tab from the page header, load the actual restart policy before opening container settings, and keep mobile warning text readable beside its action.
+
 ## [0.1.0-alpha.37] - 2026-10-09
 
 ### Fixed

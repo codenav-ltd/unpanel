@@ -16,9 +16,9 @@ High/critical notifications reuse enabled Telegram and email Alert channels, the
 
 ## Owner-controlled critical updates
 
-1. Open **Settings → Updates → Security update policy**.
-2. Choose **Notify me · I install the update** (the default), or **Install automatically after the grace period**.
-3. For unattended critical fixes, choose a minimum **6, 24 or 72 hours**. Review the policy and verify your identity before saving. A required second factor also applies to verification.
+1. Open **Settings → Updates**. The top warning banner explains the saved policy; **Review preferences** moves focus to **Security update policy**. Version and update histories sit below the update controls and preferences.
+2. Choose **Notify me about critical vulnerabilities** (the default), or **Install automatically after the grace period**. Default notices and enabled Alert delivery do not need a review button to activate.
+3. For unattended critical fixes, choose a minimum **6, 24 or 72 hours**. **Review and save policy** opens a confirmation, then requires identity verification before saving. A required second factor also applies to verification. Until saving succeeds, the active-policy summary and banner retain the previous settings; unsaved edits do not authorize installation.
 
 Unattended authorization is an explicit owner decision. The publisher cannot remotely enable it or lock users out of the panel. Its earliest eligibility time is the later of:
 

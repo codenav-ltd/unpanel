@@ -4,7 +4,14 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from "vue";
-import { ContainerOutlined, ReloadOutlined } from "@ant-design/icons-vue";
+import {
+  ContainerOutlined,
+  ReloadOutlined,
+  PlusOutlined,
+  FileTextOutlined,
+  CaretRightOutlined,
+  StopOutlined,
+} from "@ant-design/icons-vue";
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
@@ -13,6 +20,7 @@ import { dockerClient, DockerRequestError, type DockerAvailability } from "../do
 import DockerSetupGuide from "./DockerSetupGuide.vue";
 import DockerCreateDialog from "./DockerCreateDialog.vue";
 import DockerTaskDialog from "./DockerTaskDialog.vue";
+import DockerActionMenu from "./DockerActionMenu.vue";
 const DockerResources = defineAsyncComponent(() => import("./DockerResources.vue"));
 const DockerContainerTools = defineAsyncComponent(() => import("./DockerContainerTools.vue"));
 
@@ -23,6 +31,7 @@ interface Container {
   State: string;
   Status: string;
   Project: string;
+  Created?: number;
   Ports: { IP?: string; PrivatePort: number; PublicPort?: number; Type: string }[];
 }
 interface Image {
@@ -111,11 +120,59 @@ const visible = computed(() =>
   containers.value.filter(
     (row) =>
       (filter.value === "all" || row.State === filter.value) &&
-      `${row.Names.join(" ")} ${row.Image} ${row.Project}`
+      `${row.Names.join(" ")} ${row.Id} ${row.Image} ${row.Project} ${row.Ports.map((port) => `${port.IP ?? ""}:${port.PublicPort ?? ""}:${port.PrivatePort}`).join(" ")}`
         .toLowerCase()
         .includes(search.value.toLowerCase()),
   ),
 );
+const runningCount = computed(
+  () => containers.value.filter((row) => row.State === "running").length,
+);
+function rowActions(row: Container): { id: string; label: string; danger?: boolean }[] {
+  return [
+    { id: "overview", label: "Inspect container" },
+    { id: "logs", label: "View logs" },
+    { id: "stats", label: "Resource statistics" },
+    { id: "processes", label: "Running processes" },
+    ...(props.canManage ? [{ id: "commands", label: "Run command" }] : []),
+    ...(props.canOperate ? [{ id: "settings", label: "Rename and resource limits" }] : []),
+    ...(props.canManage && !row.Project && ["running", "exited", "created"].includes(row.State)
+      ? [{ id: "recreate", label: "Update image" }]
+      : []),
+    ...(props.canOperate && row.State === "running"
+      ? [{ id: "pause", label: "Pause container" }]
+      : []),
+    ...(props.canManage && ["exited", "created", "dead"].includes(row.State)
+      ? [{ id: "remove", label: "Delete container", danger: true }]
+      : []),
+  ];
+}
+function rowAction(row: Container, action: string): void {
+  if (["recreate", "pause", "remove"].includes(action)) ask(row, action);
+  else void openDetail(row, action);
+}
+function created(row: Container): string {
+  return row.Created ? new Date(row.Created * 1000).toLocaleDateString() : "Unknown";
+}
+function portLabel(port: Container["Ports"][number]): string {
+  return `${port.PublicPort ? `${port.IP || "*"}:${port.PublicPort} → ` : ""}${port.PrivatePort}/${port.Type}`;
+}
+function portDisplay(port: Container["Ports"][number]): string {
+  return port.PublicPort && (!port.IP || ["0.0.0.0", "::"].includes(port.IP))
+    ? `${port.PublicPort} → ${port.PrivatePort}/${port.Type}`
+    : portLabel(port);
+}
+function confirmationLabel(action: string): string {
+  const labels: Record<string, string> = {
+    remove: "Verify and delete",
+    recreate: "Verify and update image",
+    serviceStart: "Verify and start Docker",
+    stop: "Stop container",
+    restart: "Restart container",
+    pause: "Pause container",
+  };
+  return labels[action] ?? "Confirm";
+}
 const facts = computed(() => {
   const row = detail.value;
   if (!row) return [];
@@ -174,6 +231,7 @@ async function refresh(): Promise<void> {
     containers.value = rows;
     images.value = layers;
     error.value = "";
+    resourceRevision.value++;
   } catch (failure) {
     if (!disposed && current === revision) {
       availability.value = null;
@@ -194,17 +252,17 @@ async function refresh(): Promise<void> {
     if (current === revision) loading.value = false;
   }
 }
-async function openDetail(row: Container): Promise<void> {
+async function openDetail(row: Container, initialTab = "overview"): Promise<void> {
   selected.value = row;
   detail.value = null;
   logs.value = "";
-  detailTab.value = "overview";
+  detailTab.value = initialTab;
   await loadDetail();
 }
 async function loadDetail(): Promise<void> {
   const row = selected.value;
   if (!row) return;
-  if (!["overview", "logs"].includes(detailTab.value)) {
+  if (!["overview", "logs", "settings"].includes(detailTab.value)) {
     detailRevision++;
     detailBusy.value = false;
     return;
@@ -375,15 +433,24 @@ onBeforeUnmount(() => {
           }}
         </p>
       </div>
-      <button
-        class="btn quiet"
-        aria-label="Refresh Docker"
-        :disabled="loading || !!busy"
-        @click="refresh"
-      >
-        <span v-if="loading" class="spinner" aria-hidden="true" /><ReloadOutlined v-else />
-        Refresh
-      </button>
+      <div class="docker-head-actions">
+        <button
+          v-if="availability?.availability === 'ready' && canManage"
+          :disabled="loading || !!busy"
+          @click="createOpen = true"
+        >
+          <PlusOutlined aria-hidden="true" />Create container
+        </button>
+        <button
+          class="btn quiet"
+          aria-label="Refresh Docker"
+          :disabled="loading || !!busy"
+          @click="refresh"
+        >
+          <span v-if="loading" class="spinner" aria-hidden="true" /><ReloadOutlined v-else />
+          Refresh
+        </button>
+      </div>
     </header>
     <p v-if="error" class="docker-error" role="alert">{{ error }}</p>
     <p v-if="note" class="docker-success" role="status">{{ note }}</p>
@@ -423,11 +490,11 @@ onBeforeUnmount(() => {
         ><button class="quiet" :disabled="loading" @click="refresh">Check again</button>
       </div>
     </div>
-    <div v-if="availability?.availability === 'ready' && canManage" class="docker-actions">
-      <button :disabled="loading || !!busy" @click="createOpen = true">Create container</button
-      ><button v-if="!availability.composeVersion" class="quiet" @click="setupOpen = true">
-        Set up Compose
-      </button>
+    <div
+      v-if="availability?.availability === 'ready' && canManage && !availability.composeVersion"
+      class="docker-actions"
+    >
+      <button class="quiet" @click="setupOpen = true">Set up Compose</button>
     </div>
     <div class="docker-tabs" aria-label="Docker resources">
       <button
@@ -457,8 +524,12 @@ onBeforeUnmount(() => {
             ><input
               v-model="search"
               type="search"
-              placeholder="Name, image or Compose project" /></label
+              placeholder="Name, ID, image, project or port" /></label
           ><SelectField v-model="filter" label="State" :options="states" />
+        </div>
+        <div class="docker-list-summary">
+          <span>{{ visible.length }} of {{ containers.length }} containers</span>
+          <span><i class="docker-running-dot" aria-hidden="true" />{{ runningCount }} running</span>
         </div>
         <div v-if="!visible.length" class="docker-empty">
           <ContainerOutlined />
@@ -486,6 +557,7 @@ onBeforeUnmount(() => {
             <thead>
               <tr>
                 <th>Container</th>
+                <th>Image</th>
                 <th>State</th>
                 <th>Ports</th>
                 <th>Actions</th>
@@ -494,80 +566,102 @@ onBeforeUnmount(() => {
             <tbody>
               <tr v-for="row in visible" :key="row.Id">
                 <td>
-                  <button class="docker-name" @click="openDetail(row)">{{ name(row) }}</button
-                  ><small>{{ row.Image }}</small
-                  ><small v-if="row.Project">Compose · {{ row.Project }}</small>
+                  <button class="docker-name" @click="openDetail(row)">{{ name(row) }}</button>
+                  <div class="docker-identity">
+                    <code :title="row.Id">{{ row.Id.slice(0, 12) }}</code>
+                    <span
+                      v-if="row.Project"
+                      class="docker-project"
+                      :title="`Compose project: ${row.Project}`"
+                      >{{ row.Project }}</span
+                    >
+                    <span v-else>Standalone</span>
+                  </div>
                 </td>
-                <td>
-                  <span class="docker-state" :data-state="row.State">{{ row.State }}</span
-                  ><small>{{ row.Status }}</small>
-                </td>
-                <td>
+                <td class="docker-image-cell" data-label="Image">
+                  <span class="docker-image" :title="row.Image">{{ row.Image }}</span>
                   <small
-                    v-for="port in row.Ports"
-                    :key="`${port.PublicPort}:${port.PrivatePort}:${port.Type}`"
-                    >{{ port.PublicPort ? `${port.IP || "*"}:${port.PublicPort} → ` : ""
-                    }}{{ port.PrivatePort }}/{{ port.Type }}</small
-                  ><span v-if="!row.Ports.length">—</span>
+                    :title="row.Created ? new Date(row.Created * 1000).toLocaleString() : undefined"
+                    >Created {{ created(row) }}</small
+                  >
+                </td>
+                <td data-label="State">
+                  <span class="docker-state" :data-state="row.State"
+                    ><i aria-hidden="true" />{{
+                      row.State === "exited" ? "Stopped" : row.State
+                    }}</span
+                  ><small class="docker-status-detail" :title="row.Status">{{ row.Status }}</small>
+                </td>
+                <td data-label="Ports" class="docker-ports">
+                  <small
+                    v-for="port in row.Ports.slice(0, 2)"
+                    :key="`${port.IP}:${port.PublicPort}:${port.PrivatePort}:${port.Type}`"
+                    :title="portLabel(port)"
+                    >{{ portDisplay(port) }}</small
+                  >
+                  <button
+                    v-if="row.Ports.length > 2"
+                    class="docker-port-more"
+                    @click="openDetail(row)"
+                  >
+                    +{{ row.Ports.length - 2 }} more ports
+                  </button>
+                  <span v-if="!row.Ports.length" class="hint">None</span>
                 </td>
                 <td>
-                  <div class="docker-actions">
-                    <span v-if="busy === row.Id" class="spinner" aria-label="Working" /><template
-                      v-if="canOperate"
-                      ><button
-                        v-if="
-                          canManage &&
-                          !row.Project &&
-                          ['running', 'exited', 'created'].includes(row.State)
-                        "
-                        class="quiet"
-                        :disabled="!!busy || loading"
-                        @click="ask(row, 'recreate')"
-                      >
-                        Update image</button
-                      ><button
+                  <div class="docker-row-actions">
+                    <span
+                      v-if="busy === row.Id"
+                      class="spinner"
+                      role="status"
+                      :aria-label="`Working on ${name(row)}`"
+                    />
+                    <template v-if="canOperate">
+                      <button
                         v-if="['exited', 'created'].includes(row.State)"
-                        class="btn quiet"
+                        class="docker-start"
                         :disabled="!!busy || loading"
                         @click="act(row, 'start')"
                       >
-                        Start</button
+                        <CaretRightOutlined aria-hidden="true" />Start</button
                       ><template v-if="row.State === 'running'"
                         ><button
-                          class="btn quiet"
+                          class="danger docker-stop"
                           :disabled="!!busy || loading"
                           @click="ask(row, 'stop')"
                         >
-                          Stop</button
+                          <StopOutlined aria-hidden="true" />Stop</button
                         ><button
                           class="btn quiet"
                           :disabled="!!busy || loading"
                           @click="ask(row, 'restart')"
                         >
-                          Restart</button
-                        ><button
-                          class="btn quiet"
-                          :disabled="!!busy || loading"
-                          @click="ask(row, 'pause')"
-                        >
-                          Pause
+                          <ReloadOutlined aria-hidden="true" />Restart
                         </button></template
                       ><button
                         v-if="row.State === 'paused'"
-                        class="btn quiet"
+                        class="docker-start"
                         :disabled="!!busy || loading"
                         @click="act(row, 'unpause')"
                       >
-                        Resume</button
-                      ><button
-                        v-if="canManage && ['exited', 'created', 'dead'].includes(row.State)"
-                        class="btn quiet"
-                        :disabled="!!busy || loading"
-                        @click="ask(row, 'remove')"
-                      >
-                        Delete
-                      </button></template
-                    ><span v-else class="hint">Read only</span>
+                        <CaretRightOutlined aria-hidden="true" />Resume
+                      </button>
+                    </template>
+                    <button
+                      class="quiet docker-log-button"
+                      :disabled="!!busy || loading"
+                      :aria-label="`View logs for ${name(row)}`"
+                      title="View logs"
+                      @click="openDetail(row, 'logs')"
+                    >
+                      <FileTextOutlined aria-hidden="true" />
+                    </button>
+                    <DockerActionMenu
+                      :name="name(row)"
+                      :disabled="!!busy || loading"
+                      :actions="rowActions(row)"
+                      @action="rowAction(row, $event)"
+                    />
                   </div>
                 </td>
               </tr>
@@ -613,7 +707,11 @@ onBeforeUnmount(() => {
       <p v-if="detailBusy" class="hint"><span class="spinner" /> Loading {{ detailTab }}…</p>
       <template v-else
         ><DockerContainerTools
-          v-if="selected && !['overview', 'logs'].includes(detailTab)"
+          v-if="
+            selected &&
+            !['overview', 'logs'].includes(detailTab) &&
+            (detailTab !== 'settings' || detail)
+          "
           :id="selected.Id"
           :key="selected.Id"
           :tab="detailTab"
@@ -634,8 +732,7 @@ onBeforeUnmount(() => {
             >Live refresh every two seconds</span
           ></label
         >
-        >
-        <p class="hint">
+        <p v-if="['overview', 'logs'].includes(detailTab)" class="hint">
           {{
             detailTab === "logs"
               ? "Last 200 lines, including timestamps. Refresh to fetch recent output."
@@ -658,7 +755,7 @@ onBeforeUnmount(() => {
           ? 'Start Docker Engine?'
           : confirmation?.action === 'recreate'
             ? 'Update container image?'
-            : `${confirmation?.action === 'remove' ? 'Delete' : confirmation?.action} container?`
+            : `${confirmation?.action === 'remove' ? 'Delete' : confirmation?.action === 'stop' ? 'Stop' : confirmation?.action === 'restart' ? 'Restart' : 'Pause'} container?`
       "
       narrow
       @close="!busy && (confirmation = null)"
@@ -677,10 +774,12 @@ onBeforeUnmount(() => {
       <p v-if="error" class="docker-error" role="alert">{{ error }}</p>
       <template #footer
         ><button class="btn quiet" :disabled="!!busy" @click="confirmation = null">Cancel</button
-        ><button class="btn primary" :disabled="!!busy" @click="confirm">
-          <span v-if="busy" class="spinner" />{{
-            confirmation?.action === "remove" ? "Verify and delete" : "Confirm"
-          }}
+        ><button
+          :class="['stop', 'remove'].includes(confirmation?.action ?? '') ? 'danger' : 'primary'"
+          :disabled="!!busy"
+          @click="confirm"
+        >
+          <span v-if="busy" class="spinner" />{{ confirmationLabel(confirmation?.action ?? "") }}
         </button></template
       ></AppDialog
     >
@@ -711,10 +810,7 @@ onBeforeUnmount(() => {
       :job-id="taskOpen ? lastJob : ''"
       :request="resourceRequest"
       @close="taskOpen = false"
-      @complete="
-        resourceRevision++;
-        refresh();
-      "
+      @complete="refresh()"
     />
   </section>
 </template>
@@ -743,6 +839,116 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+.docker-head-actions,
+.docker-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.docker-head-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.docker-row-actions {
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+.docker-row-actions > button {
+  min-height: 32px;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+.docker-row-actions > .docker-log-button {
+  width: 32px;
+  padding: 6px;
+}
+.docker-row-actions > .docker-stop {
+  color: var(--danger);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+}
+.docker-row-actions > .docker-stop:hover:not(:disabled) {
+  background: var(--danger-tint);
+}
+.docker-row-actions > .docker-start {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 35%, var(--line));
+}
+.docker-row-actions > .docker-start:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.docker-list-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.docker-list-summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.docker-running-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--ok);
+}
+.docker-identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.docker-project {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  padding: 1px 5px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+}
+.docker-image {
+  display: block;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.docker-status-detail {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.docker-port-more {
+  min-height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 500;
+}
+.docker-port-more:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--primary);
+}
+.docker-ports small {
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
 }
 .docker-head {
   justify-content: space-between;
@@ -778,10 +984,11 @@ table {
 }
 th,
 td {
-  padding: 16px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
 }
 th {
+  font-size: 11px;
   color: var(--text-3);
   font-weight: 500;
 }
@@ -789,12 +996,21 @@ tr:last-child td {
   border-bottom: 0;
 }
 td {
-  vertical-align: top;
+  vertical-align: middle;
+}
+tbody tr {
+  transition: background var(--transition);
+}
+tbody tr:hover {
+  background: var(--bg-hover);
+}
+th:last-child {
+  text-align: right;
 }
 small {
   display: block;
   color: var(--text-3);
-  margin-top: 6px;
+  margin-top: 4px;
   overflow-wrap: anywhere;
 }
 .docker-name {
@@ -802,6 +1018,8 @@ small {
   border: 0;
   color: var(--primary);
   padding: 0;
+  min-height: 22px;
+  font-size: 13px;
   cursor: pointer;
   text-align: left;
   overflow-wrap: anywhere;
@@ -822,12 +1040,29 @@ small {
 }
 .docker-state {
   color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.docker-state i {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  border-radius: var(--radius-pill);
 }
 .docker-state[data-state="running"] {
   color: var(--ok);
 }
 .docker-state[data-state="paused"] {
   color: var(--warn);
+}
+.docker-state[data-state="restarting"] {
+  color: var(--warn);
+}
+.docker-state[data-state="dead"] {
+  color: var(--danger);
 }
 .docker-empty {
   text-align: center;
@@ -872,6 +1107,12 @@ pre {
   border-radius: var(--radius-sm);
 }
 @media (max-width: 640px) {
+  .docker-head {
+    align-items: flex-start;
+  }
+  .docker-head-actions {
+    width: 100%;
+  }
   .docker-tools > :last-child {
     width: 100%;
   }
@@ -885,6 +1126,7 @@ pre {
   .docker-containers tr {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "container state" "image image" "ports actions";
     border-bottom: 1px solid var(--line);
   }
   .docker-containers tr:last-child {
@@ -892,11 +1134,64 @@ pre {
   }
   .docker-containers td {
     border-bottom: 0;
-    padding: 12px 16px;
+    padding: 6px 12px;
   }
-  .docker-containers td:first-child,
+  .docker-containers td:first-child {
+    grid-area: container;
+  }
+  .docker-containers td:nth-child(2) {
+    grid-area: image;
+  }
+  .docker-containers td:nth-child(3) {
+    grid-area: state;
+  }
+  .docker-containers td:nth-child(4) {
+    grid-area: ports;
+  }
   .docker-containers td:last-child {
-    grid-column: 1 / -1;
+    grid-area: actions;
+    align-self: end;
+  }
+  .docker-containers td:first-child {
+    padding-top: 12px;
+  }
+  .docker-containers td:nth-child(3) {
+    padding-top: 12px;
+  }
+  .docker-containers td:last-child {
+    padding-bottom: 12px;
+  }
+  .docker-containers td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--text-3);
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+  .docker-containers td.docker-image-cell::before {
+    display: none;
+  }
+  .docker-containers td.docker-image-cell small {
+    display: none;
+  }
+  .docker-status-detail {
+    max-width: 100%;
+  }
+  .docker-identity {
+    gap: 4px;
+  }
+  .docker-project {
+    max-width: 100%;
+  }
+  .docker-image {
+    max-width: 100%;
+  }
+  .docker-ports small {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .docker-row-actions {
+    flex-wrap: wrap;
   }
 }
 </style>

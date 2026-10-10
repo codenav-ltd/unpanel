@@ -3,13 +3,20 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { defaultSecurityUpdatePolicy, type SecurityUpdatePolicy } from "@unpanel/shared";
 import { accountRequest } from "../account-client.ts";
 import SelectField from "./SelectField.vue";
 import AppDialog from "./AppDialog.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
-const emit = defineEmits<{ changed: [] }>();
+const emit = defineEmits<{
+  changed: [];
+  loaded: [policy: SecurityUpdatePolicy];
+  unavailable: [];
+}>();
+const root = ref<HTMLElement | null>(null);
+defineProps<{ ordinaryAutoUpdate: boolean }>();
+const active = ref<SecurityUpdatePolicy>(defaultSecurityUpdatePolicy());
 const form = ref<SecurityUpdatePolicy>(defaultSecurityUpdatePolicy()),
   loading = ref(true),
   loaded = ref(false),
@@ -18,14 +25,32 @@ const form = ref<SecurityUpdatePolicy>(defaultSecurityUpdatePolicy()),
   note = ref(""),
   confirm = ref(false),
   reauth = ref(false);
+const dirty = computed(
+  () =>
+    loaded.value &&
+    (form.value.criticalAction !== active.value.criticalAction ||
+      form.value.graceHours !== active.value.graceHours ||
+      form.value.notifyChannels !== active.value.notifyChannels),
+);
+function review(): void {
+  root.value?.scrollIntoView({
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+    block: "start",
+  });
+  root.value?.focus({ preventScroll: true });
+}
+defineExpose({ review });
 async function load(): Promise<void> {
   loading.value = true;
   try {
     form.value = await accountRequest<SecurityUpdatePolicy>("/updates/policy");
+    active.value = { ...form.value };
+    emit("loaded", active.value);
     loaded.value = true;
     error.value = "";
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Could not load update policy.";
+    emit("unavailable");
   } finally {
     loading.value = false;
   }
@@ -37,6 +62,8 @@ async function save(): Promise<void> {
   note.value = "";
   try {
     form.value = await accountRequest<SecurityUpdatePolicy>("/updates/policy", "POST", form.value);
+    active.value = { ...form.value };
+    emit("loaded", active.value);
     note.value = "Security update policy saved.";
     emit("changed");
   } catch (e) {
@@ -48,11 +75,29 @@ async function save(): Promise<void> {
 onMounted(() => void load());
 </script>
 <template>
-  <section class="wide update-policy-settings">
-    <h2>Security update policy</h2>
+  <section
+    ref="root"
+    class="wide update-policy-settings"
+    tabindex="-1"
+    aria-labelledby="security-policy-title"
+  >
+    <h2 id="security-policy-title">Security update policy</h2>
     <p class="hint">
-      Security advisories are matched to the installed version. Critical advisories keep a red
-      notice visible and repeat an on-screen reminder after one hour.
+      Choose what happens when a published vulnerability affects this panel. Security notices
+      already work by default. Automatic installation of critical fixes is optional and requires you
+      to review, verify your identity and save the policy.
+    </p>
+    <p v-if="loaded" class="policy-active" role="status">
+      <strong>Active policy:</strong>
+      {{
+        active.criticalAction === "notify"
+          ? "Notify me about critical vulnerabilities; this policy does not authorize automatic installation."
+          : `Allow automatic critical fixes after at least ${active.graceHours} hours.`
+      }}
+      Alert channel notifications are {{ active.notifyChannels ? "enabled" : "off" }}.
+      <span v-if="ordinaryAutoUpdate"
+        >Ordinary automatic updates are enabled and may install eligible releases sooner.</span
+      >
     </p>
     <div
       v-if="loading && !loaded"
@@ -72,7 +117,7 @@ onMounted(() => void load());
           v-model="form.criticalAction"
           label="Critical vulnerabilities"
           :options="[
-            { value: 'notify', label: 'Notify me · I install the update' },
+            { value: 'notify', label: 'Notify me about critical vulnerabilities' },
             {
               value: 'install_after_deadline',
               label: 'Install automatically after the grace period',
@@ -115,10 +160,14 @@ onMounted(() => void load());
           </p>
         </details>
         <div class="actions">
-          <button type="submit" :disabled="busy || loading" :aria-busy="busy">
-            <span v-if="busy" class="spinner" aria-hidden="true" />Review policy
+          <button type="submit" :disabled="busy || loading || !dirty" :aria-busy="busy">
+            <span v-if="busy" class="spinner" aria-hidden="true" />Review and save policy
           </button>
         </div>
+        <p v-if="dirty" class="hint" role="status">
+          Unsaved changes. The active policy stays in effect until you verify your identity and
+          save.
+        </p>
       </fieldset>
     </form>
     <div v-if="error" class="policy-error">
@@ -169,6 +218,22 @@ fieldset {
 .update-policy-settings h2 {
   margin: 0;
   font-size: 16px;
+}
+.update-policy-settings {
+  scroll-margin-top: 24px;
+}
+.update-policy-settings:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.policy-active {
+  padding: 10px 12px;
+  background: var(--bg-hover);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.6;
 }
 .policy-details {
   margin-top: 20px;

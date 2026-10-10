@@ -2,7 +2,7 @@
 
 > Status: Draft · Related ADRs: [0003](../adr/0003-unprivileged-panel-local-agent.md), [0010](../adr/0010-https-by-default.md) · Release process: [kb/release-process.md](../kb/release-process.md)
 
-**Shipped now (0.1.0-alpha.37 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
+**Shipped now (0.1.0-alpha.38 pre-alpha).** A release tag builds `unpanel-<version>-linux-x64.tar.gz` and `unpanel-<version>-linux-arm64.tar.gz` in CI, plus `SHA256SUMS` and `channels.json`. There is no minisign signature yet. The public site is `apps/site`, and the installer is served from it:
 
 ```bash
 curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
@@ -33,6 +33,8 @@ Alpha.37 checks readiness immediately after the update response, then retries ev
 The browser records the target as `/settings/updates?updating=<version>` before it starts the request, probes `/api/v1/health` through the restart, and reloads the frontend from `/settings/updates?updated=<version>` only after that version answers. Reloading during the restart resumes the probe. If the previous version returns after the outage, the page reports that the update rolled back instead of claiming success.
 
 Alpha.26 adds affected-version security advisories, red critical notices and hourly dialog reminders, shared Alert delivery, and an owner-verified critical-update policy. Notify-only is the default. Owners can authorize unattended critical fixes after a fresh 6/24/72-hour grace period; maintenance, manual review, incompatible packages, metadata failures and persisted retry limits still apply. Remote agents remain manually updated. See [security update behavior and publisher instructions](../kb/security-updates.md). This uses HTTPS and SHA-256, not a cryptographic publisher signature.
+
+Settings → Updates starts with an owner-facing warning banner that explains the saved security policy and links directly to its preferences. Notify-only behavior is already active without clicking Review. Editing preferences creates a draft; **Review and save policy**, confirmation and identity verification are required before the new policy takes effect. The banner keeps showing the active policy while a draft is edited, and distinguishes ordinary automatic updates from the separate critical-fix policy. Panel and agent update controls and security preferences appear before Version history and Update history, which are the final sections.
 
 After the panel is current, the same Updates screen compares every remote agent version with the panel version. Supported online agents update one at a time: the agent downloads the release for its own architecture, verifies the hash, hands the swap to a transient systemd unit, restarts, and reconnects with its existing key. The previous agent tree is restored when the new service does not stay active. Offline nodes wait until they reconnect. Agents from before protocol 1.1 cannot self-update and show a one-time manual re-enrollment path. Signed packages and the guard timer in the sections below are not built yet.
 

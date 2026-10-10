@@ -12,7 +12,13 @@ import {
   SafetyCertificateOutlined,
   WarningOutlined,
 } from "@ant-design/icons-vue";
-import { compareVersions, product, managesPanel, type UserAccess } from "@unpanel/shared";
+import {
+  compareVersions,
+  product,
+  managesPanel,
+  type UserAccess,
+  type SecurityUpdatePolicy as UpdatePolicy,
+} from "@unpanel/shared";
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
@@ -31,6 +37,9 @@ const AccountSecurity = defineAsyncComponent(() => import("./AccountSecurity.vue
 const EmailSettings = defineAsyncComponent(() => import("./EmailSettings.vue"));
 const UserSettings = defineAsyncComponent(() => import("./UserSettings.vue"));
 const SecurityUpdatePolicy = defineAsyncComponent(() => import("./SecurityUpdatePolicy.vue"));
+const securityPolicy = ref<UpdatePolicy | null>(null);
+const securityPolicyUnavailable = ref(false);
+const policyEditor = ref<{ review: () => void } | null>(null);
 
 export interface PanelOps {
   pollSec: 2 | 5 | 10 | 30;
@@ -1429,6 +1438,36 @@ onUnmounted(() => {
           <UserSettings :account-id="accountId" :nodes="nodes" />
         </div>
         <div v-else-if="section === 'updates'" class="page-stack">
+          <aside v-if="access.role === 'owner'" class="security-policy-banner" role="status">
+            <WarningOutlined aria-hidden="true" />
+            <div>
+              <strong>Review your security update preferences</strong>
+              <p v-if="securityPolicy">
+                {{
+                  securityPolicy.criticalAction === "notify"
+                    ? ops.autoUpdate
+                      ? "Critical vulnerabilities trigger warnings. Ordinary automatic updates are enabled and may install eligible fixes."
+                      : "Critical vulnerabilities trigger warnings. You currently install the fixes yourself."
+                    : `Critical fixes can install automatically after at least ${securityPolicy.graceHours} hours, even when ordinary automatic updates are off.`
+                }}
+                Alert channel notifications are
+                {{ securityPolicy.notifyChannels ? "enabled" : "off" }}.
+              </p>
+              <p v-else-if="securityPolicyUnavailable">
+                Could not load your current policy. Open the preferences below to retry.
+              </p>
+              <p v-else>
+                <span class="spinner" aria-hidden="true" />Loading your current security policy…
+              </p>
+              <p>
+                Choose how this panel handles vulnerabilities. Changes take effect only after you
+                review, verify your identity and save.
+              </p>
+            </div>
+            <button class="quiet" :disabled="!policyEditor" @click="policyEditor?.review()">
+              Review preferences
+            </button>
+          </aside>
           <Transition name="update-result">
             <div v-if="updateSuccessVersion" class="update-success" role="status">
               <CheckCircleOutlined aria-hidden="true" />
@@ -1590,74 +1629,6 @@ onUnmounted(() => {
             </div>
           </section>
 
-          <section v-if="releaseVersions.length" class="wide version-picker">
-            <div class="update-section-head">
-              <div>
-                <span class="vital-kicker">Version history</span>
-                <p class="hint">
-                  Select only versions verified for this installation. Other releases remain visible
-                  so it is clear why they cannot be installed.
-                </p>
-              </div>
-              <span class="fleet-count">
-                {{ releaseVersions.length }} release{{ releaseVersions.length === 1 ? "" : "s" }}
-              </span>
-            </div>
-            <div class="version-picker-list">
-              <button
-                v-for="release in releaseVersions"
-                :key="release.version"
-                type="button"
-                :disabled="!release.available"
-                :aria-current="updateVersion === release.version ? 'true' : undefined"
-                @click="chooseRelease(release)"
-              >
-                <span>
-                  <strong>v{{ release.version }}</strong>
-                  <small v-if="release.publishedAt">{{
-                    new Date(release.publishedAt).toLocaleDateString()
-                  }}</small>
-                </span>
-                <span v-if="!release.available" class="version-unavailable">{{
-                  release.reason
-                }}</span>
-                <span v-else-if="(compareVersions(release.version, product.version) ?? 0) < 0"
-                  >Compatible downgrade</span
-                >
-                <span v-else>Update</span>
-              </button>
-            </div>
-          </section>
-
-          <section class="wide">
-            <div class="update-section-head">
-              <div>
-                <span class="vital-kicker">Update history</span>
-                <p class="hint">Recent updates are measured locally on this server.</p>
-              </div>
-            </div>
-            <p v-if="updateHistoryError" class="form-error">{{ updateHistoryError }}</p>
-            <p v-else-if="!updateHistory.length" class="hint">No update operations recorded yet.</p>
-            <div v-else class="update-history-list">
-              <button
-                v-for="operation in updateHistory"
-                :key="operation.id"
-                type="button"
-                class="update-history-row"
-                @click="openUpdateDetails(operation)"
-              >
-                <span>
-                  <strong>v{{ operation.from }} → v{{ operation.to }}</strong>
-                  <small>{{ new Date(operation.startedAt).toLocaleString() }}</small>
-                </span>
-                <span>
-                  <strong>{{ formatDuration(operation.durationMs) }}</strong>
-                  <small>{{ operation.status.replace("-", " ") }}</small>
-                </span>
-              </button>
-            </div>
-          </section>
-
           <section class="wide">
             <div class="update-section-head">
               <div>
@@ -1737,7 +1708,84 @@ onUnmounted(() => {
               </div>
             </div>
           </section>
-          <SecurityUpdatePolicy v-if="access.role === 'owner'" @changed="emit('securityUpdated')" />
+          <SecurityUpdatePolicy
+            v-if="access.role === 'owner'"
+            ref="policyEditor"
+            :ordinary-auto-update="ops.autoUpdate"
+            @loaded="
+              securityPolicy = $event;
+              securityPolicyUnavailable = false;
+            "
+            @unavailable="securityPolicyUnavailable = true"
+            @changed="emit('securityUpdated')"
+          />
+          <section v-if="releaseVersions.length" class="wide version-picker">
+            <div class="update-section-head">
+              <div>
+                <span class="vital-kicker">Version history</span>
+                <p class="hint">
+                  Select only versions verified for this installation. Other releases remain visible
+                  so it is clear why they cannot be installed.
+                </p>
+              </div>
+              <span class="fleet-count">
+                {{ releaseVersions.length }} release{{ releaseVersions.length === 1 ? "" : "s" }}
+              </span>
+            </div>
+            <div class="version-picker-list">
+              <button
+                v-for="release in releaseVersions"
+                :key="release.version"
+                type="button"
+                :disabled="!release.available"
+                :aria-current="updateVersion === release.version ? 'true' : undefined"
+                @click="chooseRelease(release)"
+              >
+                <span>
+                  <strong>v{{ release.version }}</strong>
+                  <small v-if="release.publishedAt">{{
+                    new Date(release.publishedAt).toLocaleDateString()
+                  }}</small>
+                </span>
+                <span v-if="!release.available" class="version-unavailable">{{
+                  release.reason
+                }}</span>
+                <span v-else-if="(compareVersions(release.version, product.version) ?? 0) < 0"
+                  >Compatible downgrade</span
+                >
+                <span v-else>Update</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="wide">
+            <div class="update-section-head">
+              <div>
+                <span class="vital-kicker">Update history</span>
+                <p class="hint">Recent updates are measured locally on this server.</p>
+              </div>
+            </div>
+            <p v-if="updateHistoryError" class="form-error">{{ updateHistoryError }}</p>
+            <p v-else-if="!updateHistory.length" class="hint">No update operations recorded yet.</p>
+            <div v-else class="update-history-list">
+              <button
+                v-for="operation in updateHistory"
+                :key="operation.id"
+                type="button"
+                class="update-history-row"
+                @click="openUpdateDetails(operation)"
+              >
+                <span>
+                  <strong>v{{ operation.from }} → v{{ operation.to }}</strong>
+                  <small>{{ new Date(operation.startedAt).toLocaleString() }}</small>
+                </span>
+                <span>
+                  <strong>{{ formatDuration(operation.durationMs) }}</strong>
+                  <small>{{ operation.status.replace("-", " ") }}</small>
+                </span>
+              </button>
+            </div>
+          </section>
         </div>
 
         <div v-else class="page-stack">
@@ -2037,6 +2085,49 @@ onUnmounted(() => {
   </div>
 </template>
 <style scoped>
+.security-policy-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: var(--warn-tint);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line));
+  border-radius: var(--radius);
+  color: var(--warn);
+}
+.security-policy-banner > .anticon {
+  margin-top: 2px;
+  font-size: 18px;
+}
+.security-policy-banner > div {
+  flex: 1;
+  min-width: 0;
+}
+.security-policy-banner strong {
+  font-size: 14px;
+}
+.security-policy-banner p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.security-policy-banner .spinner {
+  margin-right: 6px;
+}
+.security-policy-banner > button {
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .security-policy-banner {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+  .security-policy-banner > button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
 .settings-content {
   min-width: 0;
 }
