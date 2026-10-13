@@ -10,6 +10,7 @@ import {
   InfoCircleOutlined,
   MailOutlined,
   SafetyCertificateOutlined,
+  TeamOutlined,
   WarningOutlined,
 } from "@ant-design/icons-vue";
 import {
@@ -22,12 +23,13 @@ import {
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
-import type { KnownIssue, ReleaseChange, ReleaseOption } from "../release-details.ts";
+import { downgradeImpact, type ReleaseChange, type ReleaseOption } from "../release-details.ts";
 import type { BanDurationMode, LoginSecuritySettings, RateLimitMode } from "../security.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
 import { updateResultVersion, waitForPanelUpdate } from "../update-flow.ts";
 import { formatDuration, type UpdateOperation } from "../update-history.ts";
 import ReleaseDetailsDialog from "./ReleaseDetailsDialog.vue";
+import DowngradeDialog from "./DowngradeDialog.vue";
 import UpdateDetailsDrawer from "./UpdateDetailsDrawer.vue";
 import SelectField from "./SelectField.vue";
 import AppDialog from "./AppDialog.vue";
@@ -107,7 +109,7 @@ const sections = computed(() =>
     { id: "panel" as const, label: en.settings.panel, icon: DashboardOutlined },
     { id: "security" as const, label: en.settings.security, icon: SafetyCertificateOutlined },
     { id: "email" as const, label: "Email", icon: MailOutlined },
-    { id: "users" as const, label: "Users", icon: SafetyCertificateOutlined },
+    { id: "users" as const, label: "Users", icon: TeamOutlined },
     { id: "updates" as const, label: en.updates.title, icon: CloudSyncOutlined },
     { id: "about" as const, label: en.shell.about, icon: InfoCircleOutlined },
   ].filter((item) =>
@@ -152,9 +154,43 @@ const updateNotes = ref("");
 const updateChanges = ref<ReleaseChange[]>([]);
 const updateReviewRequired = ref(false);
 const releaseVersions = ref<ReleaseOption[]>([]);
-const updateKnownIssues = ref<KnownIssue[]>([]);
-const updateLostFeatures = ref<string[]>([]);
 const updateDowngrade = ref(false);
+/** The older release whose consequences are on screen; nothing changes until it is confirmed. */
+const downgradeTarget = ref<ReleaseOption | null>(null);
+const showBlockedVersions = ref(false);
+const panelReleaseCard = ref<HTMLElement | null>(null);
+const newerVersions = computed(() =>
+  releaseVersions.value.filter(
+    (release) => (compareVersions(release.version, product.version) ?? 0) > 0,
+  ),
+);
+const olderVersions = computed(() =>
+  releaseVersions.value.filter(
+    (release) => release.available && (compareVersions(release.version, product.version) ?? 0) < 0,
+  ),
+);
+const blockedVersions = computed(() =>
+  releaseVersions.value.filter(
+    (release) => !release.available && (compareVersions(release.version, product.version) ?? 0) < 0,
+  ),
+);
+function versionDate(release: ReleaseOption): string {
+  return release.publishedAt ? new Date(release.publishedAt).toLocaleDateString() : "";
+}
+function downgradeSummary(release: ReleaseOption): string {
+  const impact = downgradeImpact(release);
+  if (impact.exposedTo.length)
+    return `Affected by ${impact.exposedTo.length} security ${impact.exposedTo.length === 1 ? "advisory" : "advisories"}`;
+  if (impact.securityFixes.length)
+    return `Removes ${impact.securityFixes.length} security ${impact.securityFixes.length === 1 ? "fix" : "fixes"}`;
+  return impact.total
+    ? `Undoes ${impact.total} ${impact.total === 1 ? "change" : "changes"}`
+    : "No recorded changes";
+}
+function downgradeRisky(release: ReleaseOption): boolean {
+  const impact = downgradeImpact(release);
+  return impact.exposedTo.length > 0 || impact.securityFixes.length > 0;
+}
 const releaseDetailsOpen = ref(false);
 const updateError = ref("");
 const updateSuccessVersion = ref(updateResultVersion(globalThis.location.search, product.version));
@@ -629,6 +665,18 @@ function restoreOps(): void {
   autoUpdate.value = props.ops.autoUpdate;
 }
 
+// Monitoring and Update schedule save one ops record from two tabs. Leaving a tab drops its
+// unsaved edits, so saving the other tab cannot submit them unseen.
+watch(
+  () => props.section,
+  () => {
+    if (busy.value === "ops") return;
+    restoreOps();
+    opsError.value = "";
+    opsNote.value = "";
+  },
+);
+
 async function saveOps(): Promise<void> {
   if (busy.value) return;
   busy.value = "ops";
@@ -732,9 +780,8 @@ async function checkUpdates(): Promise<void> {
   updateChanges.value = [];
   updateReviewRequired.value = false;
   releaseVersions.value = [];
-  updateKnownIssues.value = [];
-  updateLostFeatures.value = [];
   updateDowngrade.value = false;
+  downgradeTarget.value = null;
   releaseDetailsOpen.value = false;
   try {
     const response = await fetch("/api/v1/updates");
@@ -780,15 +827,37 @@ async function checkUpdates(): Promise<void> {
 
 function chooseRelease(option: ReleaseOption): void {
   if (!option.available) return;
+  if ((compareVersions(option.version, product.version) ?? 0) < 0) {
+    downgradeTarget.value = option;
+    return;
+  }
   updateVersion.value = option.version;
   updateNotes.value = option.notes;
   updateChanges.value = option.changelog;
   updateReviewRequired.value = option.reviewRequired;
-  updateKnownIssues.value = option.knownIssues;
-  updateLostFeatures.value = option.lostFeatures;
-  updateDowngrade.value = (compareVersions(option.version, product.version) ?? 0) < 0;
+  updateDowngrade.value = false;
   updateState.value = "available";
   updateError.value = "";
+  releaseDetailsOpen.value = true;
+}
+
+/** Runs the reviewed downgrade through the same install path and progress card as an update. */
+function confirmDowngrade(): void {
+  const option = downgradeTarget.value;
+  if (!option) return;
+  downgradeTarget.value = null;
+  updateVersion.value = option.version;
+  updateNotes.value = option.notes;
+  updateChanges.value = option.changelog;
+  updateReviewRequired.value = false;
+  updateDowngrade.value = true;
+  updateState.value = "available";
+  updateError.value = "";
+  panelReleaseCard.value?.scrollIntoView({
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+    block: "start",
+  });
+  void applyUpdate();
 }
 
 async function loadUpdateHistory(): Promise<void> {
@@ -1115,7 +1184,7 @@ onUnmounted(() => {
             </form>
           </section>
           <section class="wide">
-            <span class="vital-kicker">{{ en.shell.pollLabel }}</span>
+            <span class="vital-kicker">{{ en.shell.monitoringTitle }}</span>
             <p class="hint">{{ en.shell.pollHint }}</p>
             <form @submit.prevent="saveOps">
               <SelectField
@@ -1131,28 +1200,6 @@ onUnmounted(() => {
                 :disabled="Boolean(busy)"
               />
               <p class="hint">{{ en.shell.historyKeepHint }}</p>
-              <SelectField
-                v-model="updateHours"
-                :label="en.shell.updateEvery"
-                :options="updateOptions"
-                :disabled="Boolean(busy)"
-              />
-              <p class="hint">{{ en.shell.updateEveryHint }}</p>
-              <div class="switch-row">
-                <span id="auto-update-label">{{ en.shell.autoUpdate }}</span>
-                <button
-                  type="button"
-                  class="switch"
-                  role="switch"
-                  :aria-checked="autoUpdate"
-                  aria-labelledby="auto-update-label"
-                  :disabled="Boolean(busy)"
-                  @click="autoUpdate = !autoUpdate"
-                >
-                  <span class="switch-thumb" />
-                </button>
-              </div>
-              <p class="hint">{{ en.shell.autoUpdateHint }}</p>
               <p v-if="opsError" class="form-error" role="alert">{{ opsError }}</p>
               <p v-else-if="opsNote" class="certificate-success" role="status">{{ opsNote }}</p>
               <div class="actions">
@@ -1461,7 +1508,7 @@ onUnmounted(() => {
               </p>
               <p>
                 Choose how this panel handles vulnerabilities. Changes take effect only after you
-                review, verify your identity and save.
+                review and save.
               </p>
             </div>
             <button class="quiet" :disabled="!policyEditor" @click="policyEditor?.review()">
@@ -1487,7 +1534,7 @@ onUnmounted(() => {
               </div>
             </div>
           </Transition>
-          <section class="wide update-panel-card">
+          <section ref="panelReleaseCard" class="wide update-panel-card">
             <div class="update-section-head">
               <div>
                 <span class="vital-kicker">{{ en.updates.panelTitle }}</span>
@@ -1629,6 +1676,43 @@ onUnmounted(() => {
             </div>
           </section>
 
+          <!-- Saves the same ops record as Panel → Monitoring; the other two values go back unchanged. -->
+          <section v-if="canManage" class="wide">
+            <span class="vital-kicker">{{ en.shell.updateScheduleTitle }}</span>
+            <form @submit.prevent="saveOps">
+              <SelectField
+                v-model="updateHours"
+                :label="en.shell.updateEvery"
+                :options="updateOptions"
+                :disabled="Boolean(busy)"
+              />
+              <p class="hint">{{ en.shell.updateEveryHint }}</p>
+              <div class="switch-row">
+                <span id="auto-update-label">{{ en.shell.autoUpdate }}</span>
+                <button
+                  type="button"
+                  class="switch"
+                  role="switch"
+                  :aria-checked="autoUpdate"
+                  aria-labelledby="auto-update-label"
+                  :disabled="Boolean(busy)"
+                  @click="autoUpdate = !autoUpdate"
+                >
+                  <span class="switch-thumb" />
+                </button>
+              </div>
+              <p class="hint">{{ en.shell.autoUpdateHint }}</p>
+              <p v-if="opsError" class="form-error" role="alert">{{ opsError }}</p>
+              <p v-else-if="opsNote" class="certificate-success" role="status">{{ opsNote }}</p>
+              <div class="actions">
+                <button type="submit" :disabled="Boolean(busy)" :aria-busy="busy === 'ops'">
+                  <span v-if="busy === 'ops'" class="spinner" aria-hidden="true" />
+                  {{ busy === "ops" ? en.shell.saving : en.shell.save }}
+                </button>
+              </div>
+            </form>
+          </section>
+
           <section class="wide">
             <div class="update-section-head">
               <div>
@@ -1720,42 +1804,74 @@ onUnmounted(() => {
             @changed="emit('securityUpdated')"
           />
           <section v-if="releaseVersions.length" class="wide version-picker">
-            <div class="update-section-head">
-              <div>
-                <span class="vital-kicker">Version history</span>
-                <p class="hint">
-                  Select only versions verified for this installation. Other releases remain visible
-                  so it is clear why they cannot be installed.
-                </p>
-              </div>
-              <span class="fleet-count">
-                {{ releaseVersions.length }} release{{ releaseVersions.length === 1 ? "" : "s" }}
-              </span>
-            </div>
-            <div class="version-picker-list">
-              <button
-                v-for="release in releaseVersions"
-                :key="release.version"
-                type="button"
-                :disabled="!release.available"
-                :aria-current="updateVersion === release.version ? 'true' : undefined"
-                @click="chooseRelease(release)"
-              >
-                <span>
-                  <strong>v{{ release.version }}</strong>
-                  <small v-if="release.publishedAt">{{
-                    new Date(release.publishedAt).toLocaleDateString()
-                  }}</small>
+            <span class="vital-kicker">Versions</span>
+            <p class="hint">
+              Go back to an earlier release when it is marked compatible with this installation.
+              Each one shows what it would undo before anything changes.
+            </p>
+            <ol class="version-list">
+              <li v-for="release in newerVersions" :key="release.version" class="version-row">
+                <span class="version-name">v{{ release.version }}</span>
+                <span class="version-meta">
+                  <span class="version-badge" data-kind="newer">Newer</span>
+                  {{ versionDate(release) }}
                 </span>
-                <span v-if="!release.available" class="version-unavailable">{{
-                  release.reason
-                }}</span>
-                <span v-else-if="(compareVersions(release.version, product.version) ?? 0) < 0"
-                  >Compatible downgrade</span
-                >
-                <span v-else>Update</span>
+                <span class="version-action">
+                  <button
+                    v-if="release.available"
+                    type="button"
+                    class="quiet"
+                    @click="chooseRelease(release)"
+                  >
+                    Review update
+                  </button>
+                  <small v-else>{{ release.reason }}</small>
+                </span>
+              </li>
+              <li class="version-row" aria-current="true">
+                <span class="version-name">v{{ product.version }}</span>
+                <span class="version-meta">
+                  <span class="version-badge" data-kind="installed">Installed</span>
+                </span>
+              </li>
+              <li v-for="release in olderVersions" :key="release.version" class="version-row">
+                <span class="version-name">v{{ release.version }}</span>
+                <span class="version-meta">
+                  {{ versionDate(release) }}
+                  <span :class="downgradeRisky(release) ? 'version-risk' : 'version-impact'">
+                    {{ downgradeSummary(release) }}
+                  </span>
+                </span>
+                <span class="version-action">
+                  <button type="button" class="quiet" @click="chooseRelease(release)">
+                    Downgrade…
+                  </button>
+                </span>
+              </li>
+            </ol>
+            <p v-if="!olderVersions.length" class="hint">
+              No earlier release is marked compatible with v{{ product.version }}.
+            </p>
+            <template v-if="blockedVersions.length">
+              <button
+                type="button"
+                class="link-button"
+                :aria-expanded="showBlockedVersions"
+                @click="showBlockedVersions = !showBlockedVersions"
+              >
+                {{ showBlockedVersions ? "Hide" : "Show" }} {{ blockedVersions.length }} earlier
+                {{ blockedVersions.length === 1 ? "release" : "releases" }} that cannot be installed
               </button>
-            </div>
+              <ol v-if="showBlockedVersions" class="version-list version-list-blocked">
+                <li v-for="release in blockedVersions" :key="release.version" class="version-row">
+                  <span class="version-name">v{{ release.version }}</span>
+                  <span class="version-meta">{{ versionDate(release) }}</span>
+                  <span class="version-action"
+                    ><small>{{ release.reason }}</small></span
+                  >
+                </li>
+              </ol>
+            </template>
           </section>
 
           <section class="wide">
@@ -2071,11 +2187,15 @@ onUnmounted(() => {
       :notes="updateNotes"
       :review-required="updateReviewRequired"
       :release-url="updateReleaseUrl"
-      :known-issues="updateKnownIssues"
-      :lost-features="updateLostFeatures"
-      :downgrade="updateDowngrade"
       @close="releaseDetailsOpen = false"
       @update="updateFromDetails"
+    />
+    <DowngradeDialog
+      :open="Boolean(downgradeTarget)"
+      :current-version="product.version"
+      :release="downgradeTarget"
+      @close="downgradeTarget = null"
+      @confirm="confirmDowngrade"
     />
     <UpdateDetailsDrawer
       :open="Boolean(selectedOperation)"
@@ -2181,7 +2301,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
-  color: var(--text-1);
+  color: var(--text);
   text-align: left;
 }
 .update-history-row:hover {
@@ -2199,57 +2319,92 @@ onUnmounted(() => {
   font-size: 11px;
   text-transform: capitalize;
 }
-.version-picker {
-  overflow: hidden;
+.version-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
 }
-.version-picker-list {
+.version-row {
   display: grid;
-  max-height: 300px;
-  margin-top: 10px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-}
-.version-picker-list button {
-  display: flex;
-  justify-content: space-between;
+  grid-template-columns: minmax(9rem, auto) minmax(0, 1fr) auto;
   align-items: center;
   gap: 16px;
-  width: 100%;
-  min-height: 52px;
-  padding: 9px 12px;
-  border: 0;
+  min-height: 48px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+.version-row:last-child {
   border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-2);
-  text-align: left;
 }
-.version-picker-list button:last-child {
-  border-bottom: 0;
+.version-row[aria-current="true"] .version-name {
+  color: var(--primary);
 }
-.version-picker-list button[aria-current="true"] {
-  background: color-mix(in srgb, var(--primary) 9%, transparent);
-  color: var(--text-1);
+.version-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
 }
-.version-picker-list button:disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-.version-picker-list button > span:first-child {
-  display: grid;
-  gap: 2px;
-  min-width: 145px;
-}
-.version-picker-list small {
+.version-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: 12px;
 }
-.version-unavailable {
-  max-width: 260px;
+.version-impact {
+  color: var(--text-2);
+}
+.version-risk {
   color: var(--danger);
+  font-weight: 600;
+}
+.version-badge {
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--text-2);
   font-size: 11px;
-  text-align: right;
+  font-weight: 600;
+}
+.version-badge[data-kind="installed"] {
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--line));
+  color: var(--primary);
+}
+.version-badge[data-kind="newer"] {
+  border-color: color-mix(in srgb, var(--info) 40%, var(--line));
+  color: var(--info);
+}
+.version-action {
+  justify-self: end;
+  max-width: 22rem;
+  text-align: end;
+}
+.version-action button {
+  min-height: 30px;
+  padding: 4px 10px;
+}
+.version-action small {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.version-list-blocked .version-name {
+  color: var(--text-3);
+  font-weight: 500;
+}
+.link-button {
+  min-height: 0;
+  margin-top: 12px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-weight: 500;
+}
+.link-button:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
 }
 .settings-status[data-enabled="true"] {
   color: var(--ok);
@@ -2296,21 +2451,16 @@ onUnmounted(() => {
   .settings-content :deep(.account-method-list .actions) {
     justify-content: flex-start;
   }
-  .version-picker-list button {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 6px;
-    font-size: 13px;
+  .version-row {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
-  .version-picker-list button > span:first-child {
-    min-width: 0;
+  .version-meta {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
-  .version-picker-list small,
-  .version-unavailable {
-    max-width: none;
-    font-size: 12px;
-    line-height: 1.45;
-    text-align: left;
+  .version-action {
+    grid-column: 2;
+    grid-row: 1;
   }
 }
 </style>

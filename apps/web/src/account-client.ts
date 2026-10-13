@@ -2,6 +2,18 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 import { readProblem, replyNotReceived } from "./http-error.ts";
+
+/** Carries the panel's error code so callers can tell "verify first" from a real refusal. */
+export class AccountRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string,
+  ) {
+    super(message);
+  }
+}
+
 export async function accountRequest<T>(path: string, method = "GET", data?: unknown): Promise<T> {
   let response: Response;
   try {
@@ -19,7 +31,18 @@ export async function accountRequest<T>(path: string, method = "GET", data?: unk
       ),
     );
   }
-  if (!response.ok) throw new Error(await readProblem(response, "complete this security request"));
+  if (!response.ok) {
+    const code = await response
+      .clone()
+      .json()
+      .then((body: { error?: { code?: string } }) => body.error?.code ?? "")
+      .catch(() => "");
+    throw new AccountRequestError(
+      await readProblem(response, "complete this security request"),
+      response.status,
+      code,
+    );
+  }
   const body = (await response.json()) as { data?: T };
   return (body.data ?? body) as T;
 }

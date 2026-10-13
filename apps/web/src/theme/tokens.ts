@@ -24,11 +24,11 @@ export const dark = {
   line: "#25344A",
   text: "#E6EDF5",
   text2: "#9AABBF",
-  text3: "#64768C",
+  text3: "#808FA1",
   primary: "#19B3A0",
   ok: "#3FB97A",
   warn: "#E6A23C",
-  danger: "#E5534B",
+  danger: "#E7625B",
   info: "#4C9AFF",
 } as const satisfies Palette;
 
@@ -39,10 +39,10 @@ export const light = {
   line: "#E3E8EF",
   text: "#16202C",
   text2: "#4A5868",
-  text3: "#7D8A99",
-  primary: "#0D8F80",
-  ok: "#1F9D5C",
-  warn: "#C27C0E",
+  text3: "#67717D",
+  primary: "#0C7F72",
+  ok: "#19814B",
+  warn: "#9D640B",
   danger: "#CF3A32",
   info: "#2F6FD6",
 } as const satisfies Palette;

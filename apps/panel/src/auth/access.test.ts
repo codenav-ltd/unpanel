@@ -186,9 +186,11 @@ describe("multi-user permission boundaries", () => {
       );
       expect(f.docker).not.toHaveBeenCalled();
       f.db.prepare("UPDATE sessions SET elevated_until=0 WHERE id=?").run(f.session);
-      expect(
-        (await f.request(f.ownerToken, "/nodes/local/docker/remove", "POST", input)).status,
-      ).toBe(403);
+      const unverified = await f.request(f.ownerToken, "/nodes/local/docker/remove", "POST", input);
+      expect(unverified.status).toBe(403);
+      expect(((await unverified.json()) as { error: { code: string } }).error.code).toBe(
+        "E_SUDO_REQUIRED",
+      );
       expect(f.docker).not.toHaveBeenCalled();
       await f.factors.beginReauth(f.actor.id, f.session, "fixture-owner-password");
       expect(

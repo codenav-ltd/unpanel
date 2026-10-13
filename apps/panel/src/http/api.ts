@@ -140,10 +140,7 @@ export function createApi(options: {
   app.onError((error, c) => {
     c.header("cache-control", "no-store");
     if (error instanceof AccountError)
-      return c.json(
-        { error: { code: "E_SECURITY_REQUEST", message: error.message } },
-        error.status,
-      );
+      return c.json({ error: { code: error.code, message: error.message } }, error.status);
     const reason = error.message.trim() || "unknown internal failure";
     const mutating = c.req.method !== "GET" && c.req.method !== "HEAD";
     const message = mutating
@@ -1175,7 +1172,7 @@ export function createApi(options: {
           return c.json(
             {
               error: {
-                code: "E_FORBIDDEN",
+                code: "E_SUDO_REQUIRED",
                 message: "Confirm your identity before this Docker operation.",
               },
             },

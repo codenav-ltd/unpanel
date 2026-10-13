@@ -8,6 +8,7 @@ import type { DockerClient } from "../docker-client.ts";
 import { formatBytes } from "../format.ts";
 import AppDialog from "./AppDialog.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
+import { useStepUp } from "../step-up.ts";
 import SelectField from "./SelectField.vue";
 interface Resource {
   id?: string;
@@ -49,18 +50,16 @@ const form = ref(""),
   editing = ref(false),
   networkId = ref(""),
   containerId = ref(""),
-  disconnect = ref(false),
-  reauth = ref(false);
+  disconnect = ref(false);
+const { open: verifying, intercept, verified, cancel: cancelVerify } = useStepUp();
 const confirmation = ref<{
   operation: string;
   params: Record<string, unknown>;
   label: string;
   detail: string;
-  verify: boolean;
 } | null>(null);
 let generation = 0,
-  disposed = false,
-  verifiedAction: (() => Promise<void>) | undefined;
+  disposed = false;
 const reads: Record<string, string> = {
   images: "images",
   networks: "networks",
@@ -103,9 +102,8 @@ function ask(
   params: Record<string, unknown>,
   label: string,
   detail: string,
-  verify = true,
 ): void {
-  confirmation.value = { operation, params, label, detail, verify };
+  confirmation.value = { operation, params, label, detail };
   error.value = "";
 }
 async function mutate(operation: string, params: Record<string, unknown>): Promise<void> {
@@ -127,6 +125,7 @@ async function mutate(operation: string, params: Record<string, unknown>): Promi
       emit("changed");
     }
   } catch (failure) {
+    if (intercept(failure, () => mutate(operation, params))) return;
     error.value =
       failure instanceof Error
         ? failure.message
@@ -135,22 +134,9 @@ async function mutate(operation: string, params: Record<string, unknown>): Promi
     busy.value = false;
   }
 }
-function verify(action: () => Promise<void>): void {
-  verifiedAction = action;
-  reauth.value = true;
-}
 function confirmed(): void {
   const item = confirmation.value;
-  if (!item) return;
-  const action = () => mutate(item.operation, item.params);
-  if (item.verify) verify(action);
-  else void action();
-}
-async function verified(): Promise<void> {
-  reauth.value = false;
-  const action = verifiedAction;
-  verifiedAction = undefined;
-  if (action) await action();
+  if (item) void mutate(item.operation, item.params);
 }
 function saveForm(): void {
   if (form.value === "pull") void mutate("pull", { image: name.value.trim() });
@@ -163,32 +149,29 @@ function saveForm(): void {
       { id: networkId.value, containerId: containerId.value },
       disconnect.value ? "Disconnect container?" : "Connect container?",
       "Changing container networking can interrupt active connections.",
-      false,
     );
   else if (form.value === "stack")
-    verify(() =>
-      mutate("composeSave", { name: name.value.trim(), yaml: yaml.value, env: env.value }),
-    );
+    void mutate("composeSave", { name: name.value.trim(), yaml: yaml.value, env: env.value });
 }
-function editStack(row: Resource): void {
-  verify(async () => {
-    busy.value = true;
-    try {
-      const data = await props.request<{ name: string; yaml: string; env: string }>("composeGet", {
-        name: row.name,
-      });
-      name.value = data.name;
-      yaml.value = data.yaml;
-      env.value = data.env;
-      editing.value = true;
-      form.value = "stack";
-      error.value = "";
-    } catch (failure) {
-      error.value = failure instanceof Error ? failure.message : "Could not load this stack.";
-    } finally {
-      busy.value = false;
-    }
-  });
+async function editStack(row: Resource): Promise<void> {
+  busy.value = true;
+  try {
+    const data = await props.request<{ name: string; yaml: string; env: string }>("composeGet", {
+      name: row.name,
+    });
+    name.value = data.name;
+    yaml.value = data.yaml;
+    env.value = data.env;
+    editing.value = true;
+    form.value = "stack";
+    error.value = "";
+  } catch (failure) {
+    // Reading a stack shows its environment file, so the panel asks for verification first.
+    if (intercept(failure, () => editStack(row))) return;
+    error.value = failure instanceof Error ? failure.message : "Could not load this stack.";
+  } finally {
+    busy.value = false;
+  }
 }
 function connect(row: Resource): void {
   form.value = "connection";
@@ -212,7 +195,7 @@ onBeforeUnmount(() => {
   disposed = true;
   generation++;
   env.value = "";
-  verifiedAction = undefined;
+  cancelVerify();
 });
 </script>
 <template>
@@ -528,18 +511,13 @@ onBeforeUnmount(() => {
           }"
           @click="confirmed"
         >
-          <span v-if="busy" class="spinner" />{{
-            confirmation?.verify ? "Verify and continue" : "Confirm"
-          }}
+          <span v-if="busy" class="spinner" />{{ "Confirm" }}
         </button></template
       ></AppDialog
     ><ReauthenticateDialog
-      :open="reauth"
-      reason="Verify your identity before this Docker management operation."
-      @close="
-        reauth = false;
-        verifiedAction = undefined;
-      "
+      :open="verifying"
+      reason="Confirm your password to continue this Docker operation. You will not be asked again for five minutes."
+      @close="cancelVerify"
       @verified="verified"
     />
   </section>
@@ -604,7 +582,7 @@ small {
   color: var(--text-3);
 }
 textarea {
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 @media (max-width: 640px) {
   .resource-row {

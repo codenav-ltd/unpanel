@@ -14,6 +14,9 @@
   --danger-tint: color-mix(in srgb, var(--danger) 12%, transparent);
   --warn-tint: color-mix(in srgb, var(--warn) 14%, transparent);
   --radius-pill: 999px;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Mono", Consolas, "Liberation Mono",
+    monospace;
   --shadow-popover: 0 12px 32px color-mix(in srgb, var(--ink) 42%, transparent);
 }
 
@@ -204,7 +207,7 @@
 
 .certificates-page textarea {
   resize: vertical;
-  font-family: monospace;
+  font-family: var(--font-mono);
   width: 100%;
   font-size: 12px;
 }
@@ -369,6 +372,23 @@
 body {
   margin: 0;
   min-height: 100vh;
+  /* Controls use `font: inherit`; without a body size they inherit the browser's 16px. */
+  font-size: 14px;
+}
+
+a {
+  color: var(--primary);
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  color: var(--primary-hover);
+}
+
+a:focus-visible {
+  outline: none;
+  border-radius: 2px;
+  box-shadow: var(--focus-ring);
 }
 
 .shell {
@@ -524,6 +544,13 @@ h1 {
   margin-top: 16px;
 }
 
+/* All five cards fit one row on a laptop; auto-fit alone would leave the fifth alone on a row. */
+@media (min-width: 1200px) {
+  .vitals:has(> :nth-child(5):last-child) {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
 .bar-actions {
   display: flex;
   align-items: center;
@@ -558,8 +585,12 @@ button.bar-action svg {
   fill: currentColor;
 }
 
-button.bar-action.bar-restart {
-  border: 1px solid var(--line);
+.bar-sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin-inline: 6px;
+  background: var(--line);
 }
 
 button.bar-action:hover:not([aria-disabled="true"]) {
@@ -676,16 +707,6 @@ button.history-tab[aria-pressed="true"] {
   padding-left: 1.2rem;
   color: var(--text-2);
   font-size: 13px;
-  line-height: 1.45;
-}
-
-.nav-note {
-  margin: 8px 10px 0;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--warn-tint);
-  color: var(--warn);
-  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -886,7 +907,7 @@ button.settings-tab[aria-current="true"] {
 .release-path strong {
   overflow: hidden;
   color: var(--text);
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1002,7 +1023,7 @@ button.settings-tab[aria-current="true"] {
 }
 
 .release-detail-route strong {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -1262,7 +1283,7 @@ button.settings-tab[aria-current="true"] {
 }
 
 .update-node-version strong {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .update-node-action {
@@ -1343,7 +1364,7 @@ button.settings-tab[aria-current="true"] {
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--primary) 13%, transparent);
   color: var(--primary);
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 24px;
   font-weight: 700;
 }
@@ -1386,7 +1407,7 @@ button.settings-tab[aria-current="true"] {
 
 .about-build strong {
   color: var(--text);
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 14px;
 }
 
@@ -1447,7 +1468,7 @@ textarea.command {
   width: 100%;
   min-height: 96px;
   resize: vertical;
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -1778,7 +1799,14 @@ button.strip-eye svg {
   fill: currentColor;
 }
 
+.host-addresses {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
 .strip-ips {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
   transition: filter var(--dur) var(--ease-out);
 }
 
@@ -1810,6 +1838,12 @@ button.strip-eye svg {
 .field span {
   font-size: 12px;
   color: var(--text-3);
+}
+
+.field .field-hint {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 input,
@@ -2403,7 +2437,7 @@ button.picker-item:focus-visible {
 
 .secret,
 .codes {
-  font-family: Consolas, "Cascadia Mono", "Segoe UI Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .secret {
@@ -2629,22 +2663,11 @@ button.picker-item:focus-visible {
   margin-left: auto;
 }
 
-.overview-summary {
-  margin: 0 0 16px;
-  color: var(--text-2);
-  font-size: 13px;
-}
-
-.tag-row,
 .row-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-}
-
-.tag-row {
-  margin: 0 0 12px;
 }
 
 button.tag-chip {
@@ -2660,163 +2683,6 @@ button.tag-chip {
 button.tag-chip[aria-pressed="true"] {
   border-color: var(--primary);
   color: var(--text);
-}
-
-.node-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
-  gap: 12px;
-}
-
-.node-grid[data-layout="compact"] {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
-}
-
-.node-grid[data-layout="compact"] .node-metrics {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 4px 12px;
-}
-
-.node-grid[data-layout="standard"] {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
-}
-
-.node-grid[data-layout="detail"] {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr));
-}
-
-.node-grid[data-layout="detail"] button.node-card {
-  gap: 12px;
-  padding: 18px;
-}
-
-.node-sub {
-  overflow: hidden;
-  color: var(--text-2);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-facts {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px 16px;
-}
-
-.node-fact {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.node-fact-wide {
-  grid-column: 1 / -1;
-}
-
-.node-fact-k {
-  color: var(--text-3);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.node-fact-v {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-button.node-card {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 10px;
-  width: 100%;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text);
-  font-weight: 400;
-  text-align: start;
-  cursor: pointer;
-  transition:
-    border-color var(--transition),
-    background var(--transition),
-    transform var(--dur-fast) var(--ease-out);
-}
-
-button.node-card:hover:not(:disabled) {
-  border-color: var(--primary);
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-button.node-card:active:not(:disabled) {
-  transform: scale(0.99);
-}
-
-button.node-card:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.node-card-head,
-.node-metrics {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.node-card-head strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-card-state {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.node-agent-badge {
-  padding: 3px 6px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  color: var(--text-3);
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-size: 10px;
-  line-height: 1;
-}
-
-.node-agent-badge[data-state="outdated"],
-.node-agent-badge[data-state="ahead"] {
-  border-color: color-mix(in srgb, var(--warn) 32%, var(--line));
-  background: var(--warn-tint);
-  color: var(--warn);
-}
-
-.node-metrics,
-.node-uptime {
-  color: var(--text-2);
-  font-size: 13px;
-}
-
-.node-uptime,
-.node-address {
-  color: var(--text-3);
-  font-size: 13px;
 }
 
 .mid {
@@ -3023,8 +2889,9 @@ button.node-card:focus-visible {
 }
 
 .breakdown .vital-number {
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.2;
+  text-wrap: balance;
 }
 
 .core-grid {
@@ -3052,18 +2919,19 @@ button.node-card:focus-visible {
   position: absolute;
   inset: 0;
   transform-origin: bottom;
-  background: var(--primary);
+  /* A tint, not the full colour: the figure sits on top of it in both themes. */
+  background: color-mix(in srgb, var(--primary) 45%, var(--ink));
   transition:
     transform var(--dur) var(--ease-out),
     background var(--transition);
 }
 
 .core-fill[data-level="warn"] {
-  background: var(--warn);
+  background: color-mix(in srgb, var(--warn) 45%, var(--ink));
 }
 
 .core-fill[data-level="danger"] {
-  background: var(--danger);
+  background: color-mix(in srgb, var(--danger) 45%, var(--ink));
 }
 
 .core-pct {
@@ -3074,7 +2942,6 @@ button.node-card:focus-visible {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   letter-spacing: -0.02em;
-  text-shadow: 0 1px 2px var(--ink);
 }
 
 .app-content {
@@ -3127,7 +2994,7 @@ button.node-card:focus-visible {
 
 .sider-version {
   color: var(--text-3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -3653,7 +3520,7 @@ button.dialog-close:hover:not(:disabled) {
 .audit-time,
 .audit-source,
 .audit-result {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
@@ -3855,12 +3722,39 @@ button.audit-retry:hover:not(:disabled) {
     display: inline-flex;
   }
 
+  /* Title and status share the first line; toolbars take a scrollable second line. */
   .app-bar {
-    padding-left: 60px;
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 56px;
+    padding: 10px 12px 10px 60px;
+    row-gap: 8px;
   }
 
-  .app-bar:has(.layout-switch) .app-status {
-    display: none;
+  .app-title {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 36px;
+  }
+
+  .app-status {
+    flex: none;
+  }
+
+  .bar-actions {
+    order: 10;
+    flex: 1 0 100%;
+    margin-left: 0;
+  }
+
+  /* Below 16px, iOS Safari zooms the page when a field takes focus. */
+  input,
+  .field textarea,
+  textarea.command {
+    font-size: 16px;
   }
 
   .sider {

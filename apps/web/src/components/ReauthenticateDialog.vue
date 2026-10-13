@@ -50,8 +50,7 @@ async function begin(): Promise<void> {
   <AppDialog :open="open" title="Verify your identity" narrow @close="!busy && emit('close')">
     <p class="hint">
       {{
-        reason ||
-        "Security changes affect access to this account. Verification allows changes for five minutes."
+        reason || "Confirm your password to continue. You will not be asked again for five minutes."
       }}
     </p>
     <MfaChallenge

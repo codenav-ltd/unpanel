@@ -28,7 +28,7 @@ const figure = computed(() => (props.percent == null ? "—" : props.percent.toF
       <span class="vital-number">{{ figure }}</span>
       <span v-if="percent != null" class="vital-unit">%</span>
     </div>
-    <p class="vital-detail">{{ detail }}</p>
+    <p class="vital-detail" :title="detail">{{ detail }}</p>
     <div class="vital-foot">
       <span>{{ left }}</span>
       <span>{{ right }}</span>

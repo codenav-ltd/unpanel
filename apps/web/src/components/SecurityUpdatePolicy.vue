@@ -9,6 +9,7 @@ import { accountRequest } from "../account-client.ts";
 import SelectField from "./SelectField.vue";
 import AppDialog from "./AppDialog.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
+import { useStepUp } from "../step-up.ts";
 const emit = defineEmits<{
   changed: [];
   loaded: [policy: SecurityUpdatePolicy];
@@ -23,8 +24,8 @@ const form = ref<SecurityUpdatePolicy>(defaultSecurityUpdatePolicy()),
   busy = ref(false),
   error = ref(""),
   note = ref(""),
-  confirm = ref(false),
-  reauth = ref(false);
+  confirm = ref(false);
+const { open: verifying, intercept, verified, cancel: cancelVerify } = useStepUp();
 const dirty = computed(
   () =>
     loaded.value &&
@@ -56,7 +57,7 @@ async function load(): Promise<void> {
   }
 }
 async function save(): Promise<void> {
-  reauth.value = false;
+  confirm.value = false;
   busy.value = true;
   error.value = "";
   note.value = "";
@@ -67,6 +68,7 @@ async function save(): Promise<void> {
     note.value = "Security update policy saved.";
     emit("changed");
   } catch (e) {
+    if (intercept(e, save)) return;
     error.value = e instanceof Error ? e.message : "Could not save update policy.";
   } finally {
     busy.value = false;
@@ -85,7 +87,7 @@ onMounted(() => void load());
     <p class="hint">
       Choose what happens when a published vulnerability affects this panel. Security notices
       already work by default. Automatic installation of critical fixes is optional and requires you
-      to review, verify your identity and save the policy.
+      to review and save the policy.
     </p>
     <p v-if="loaded" class="policy-active" role="status">
       <strong>Active policy:</strong>
@@ -165,8 +167,7 @@ onMounted(() => void load());
           </button>
         </div>
         <p v-if="dirty" class="hint" role="status">
-          Unsaved changes. The active policy stays in effect until you verify your identity and
-          save.
+          Unsaved changes. The active policy stays in effect until you save.
         </p>
       </fieldset>
     </form>
@@ -196,17 +197,10 @@ onMounted(() => void load());
     </p>
     <template #footer
       ><button class="quiet" @click="confirm = false">Cancel</button
-      ><button
-        @click="
-          confirm = false;
-          reauth = true;
-        "
-      >
-        Verify identity and save
-      </button></template
+      ><button :disabled="busy" @click="save">Save policy</button></template
     ></AppDialog
   >
-  <ReauthenticateDialog :open="reauth" @close="reauth = false" @verified="save" />
+  <ReauthenticateDialog :open="verifying" @close="cancelVerify" @verified="verified" />
 </template>
 <style scoped>
 fieldset {

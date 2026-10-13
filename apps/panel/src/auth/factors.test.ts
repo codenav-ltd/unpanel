@@ -184,7 +184,7 @@ describe("account authentication methods", () => {
     try {
       await expect(
         f.factors.beginEnrollment(f.user.id, f.session, { kind: "totp", name: "Phone" }),
-      ).rejects.toThrow("Verify your identity");
+      ).rejects.toMatchObject({ status: 403, code: "E_SUDO_REQUIRED" });
       expect(await f.unlock()).toEqual({ verified: true });
       const draft = await f.factors.beginEnrollment(f.user.id, f.session, {
         kind: "totp",

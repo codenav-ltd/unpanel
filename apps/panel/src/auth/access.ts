@@ -10,7 +10,7 @@ import {
   type UserAccess,
   type UserRole,
 } from "@unpanel/shared";
-import { AccountError } from "./account-error.ts";
+import { AccountError, sudoRequired } from "./account-error.ts";
 import { dockerMethods, dockerOperations, dockerManageOperations } from "@unpanel/protocol";
 import { hashPassword, passwordProblem, usernameProblem } from "./password.ts";
 
@@ -54,8 +54,8 @@ export function createAccess(db: DatabaseSync) {
   }
   function owner(actor: string, session: string): void {
     const now = Math.floor(Date.now() / 1000);
+    if (get(actor).role !== "owner") throw new AccountError("Only an owner can manage users.", 403);
     if (
-      get(actor).role !== "owner" ||
       !db
         .prepare(
           `SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
@@ -63,7 +63,7 @@ export function createAccess(db: DatabaseSync) {
         )
         .get(session, actor, now, now, now)
     )
-      throw new AccountError("Confirm your identity as an owner before managing users.", 403);
+      throw sudoRequired("Confirm your identity as an owner before managing users.");
   }
   function list(): ManagedUser[] {
     return (

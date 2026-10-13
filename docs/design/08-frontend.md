@@ -14,6 +14,7 @@ The implemented interaction rules are:
 - Page and settings navigation use 200 ms entry and 120 ms exit transitions. Step forms keep required fields mounted immediately and animate only their entry. Navigation keys exclude live sample timestamps, so polling never replays page transitions.
 - Native dialogs retain modal focus behavior and immediate `close()` semantics; supporting browsers animate the closing surface using discrete display/overlay transitions. Select menus keep focus on the combobox, support keyboard navigation, and fit scrollable dialog and viewport bounds. The mobile drawer makes underlying content inert while open.
 - Backdrop dismissal requires a primary pointer press and release both outside the dialog. A drag across the boundary, right click or cancelled gesture leaves it open; close buttons and Escape keep their usual behavior. Pointer state is reset when a dialog closes or reopens.
+- Protected actions are attempted directly. When the panel answers `E_SUDO_REQUIRED`, the identity dialog opens over the current form and the same action runs again after verification. Nothing is unlocked in advance, and verification lasts five minutes.
 - Transitions use shared motion tokens and honor `prefers-reduced-motion`. No animation library or full UI framework is added for these interactions.
 
 ## 1. Stack
@@ -53,11 +54,11 @@ Three themes: **Dark** (default), **Light**, and **Ultra-dark** (OLED black, fol
 | `surface` | `#141E2B` | `#FFFFFF` | Cards, sidebar |
 | `raised` | `#1B2737` | `#F9FAFB` | Overlays, inputs, table headers |
 | `line` | `#25344A` | `#E3E8EF` | Dividers, borders |
-| `text` / `text-2` / `text-3` | `#E6EDF5` / `#9AABBF` / `#64768C` | `#16202C` / `#4A5868` / `#7D8A99` | Primary / secondary / muted text |
-| `primary` ("signal teal") | `#19B3A0` | `#0D8F80` | Primary actions, selection, brand |
-| `ok` | `#3FB97A` | `#1F9D5C` | Online, healthy |
-| `warn` | `#E6A23C` | `#C27C0E` | Warnings |
-| `danger` | `#E5534B` | `#CF3A32` | Errors, offline, destructive actions |
+| `text` / `text-2` / `text-3` | `#E6EDF5` / `#9AABBF` / `#808FA1` | `#16202C` / `#4A5868` / `#67717D` | Primary / secondary / muted text |
+| `primary` ("signal teal") | `#19B3A0` | `#0C7F72` | Primary actions, selection, brand |
+| `ok` | `#3FB97A` | `#19814B` | Online, healthy |
+| `warn` | `#E6A23C` | `#9D640B` | Warnings |
+| `danger` | `#E7625B` | `#CF3A32` | Errors, offline, destructive actions |
 | `info` | `#4C9AFF` | `#2F6FD6` | Information |
 
 Ultra-dark values are defined in `tokens.ts` alongside the others (page `#000000`, surface ≈ `#0E1014`, raised ≈ `#181B21`).
@@ -149,6 +150,7 @@ Lightweight describes the install and the idle process, not the screen. A featur
 ```
 
 - **Node switcher**: searchable, grouped by tag, shows online state and CPU; shortcut `⌘/Ctrl + J`. Switching nodes **keeps the current sub-page** (`/nodes/a/docker` → `/nodes/b/docker`); if the target lacks the capability, it falls back to b's dashboard with a notice.
+- **Planned modules are not listed**: the diagram above is the v1 target. A module appears in the sidebar when it ships; the list does not carry entries that open nothing.
 - **Menu reflects capabilities**: when the current node has no Docker, the Docker item is disabled with a tooltip "Docker was not detected on this node" rather than hidden (hidden items confuse people).
 - **Global search `⌘/Ctrl + K`**: nodes, containers, PM2 processes, sites, services, and certificates across all nodes, plus page navigation and common actions.
 - **Alert bell**: count of open incidents; opens a drawer.
@@ -159,7 +161,7 @@ Lightweight describes the install and the idle process, not the screen. A featur
 |---|---|---|
 | `/setup` | First-run setup | Steps: account → TOTP → confirm recovery codes |
 | `/login` | Login | Passkey button first (conditional UI autofill); username/password; second-factor step; footer link "Source code (AGPL-3.0)" to `about.source_url` ([ADR-0011](../adr/0011-agpl-license.md)) |
-| `/` | Multi-node overview | Node card grid (Pulse Rail, CPU/memory/disk sparklines, throughput, uptime, alert badge); summary bar (online/total, alerts, total throughput); table view toggle; tag filter |
+| `/` | Multi-node overview | One row per node, nodes needing attention first; CPU Pulse Rail, memory and storage bars, network rate; summary of online nodes and how many need attention; tag filter |
 | `/nodes/:id` | Node dashboard | 3x-ui style: resource tiles (CPU, memory, swap, disk), each with the current figure, used/total, average, peak, and a sparkline; system strip; throughput and connections cards; System history dialog (1h/24h/7d); monthly traffic bar later |
 | `/nodes/:id/docker/*` | Containers, images, networks, volumes, stacks | Batch actions; container drawer with overview/logs/terminal/stats/inspect |
 | `/nodes/:id/pm2` | PM2 | Process table grouped by PM2 user; log drawer |
@@ -190,11 +192,12 @@ Node-scoped pages share `NodeLayout`, which loads the node, checks capabilities,
 - **IP addresses** sit behind an eye toggle in the system strip. Pressing it **blurs** the value (`filter: blur(6px)`) rather than removing it, so the strip never reflows and a screenshot can be taken without redaction.
 - **Restart / Stop** open a confirm dialog, then `POST /nodes/local/{restart,stop}`. The agent answers first and acts after a short delay, because a successful stop takes the panel down with it. A host without systemd (Windows, a `pnpm dev` tree) returns `E_UNSUPPORTED` instead of guessing a process to kill.
 - **Backup & Restore** downloads a consistent copy of `panel.db`, or stages a previous copy to apply on the next panel start. This is the 3x-ui-style panel-database action, not the later multi-source backup module.
+- **Versions** (Settings → Updates) lists newer releases, the installed one, and earlier releases marked compatible with it. Each earlier release states what going back would undo, and turns red when that includes security fixes or the release is affected by a published advisory. Releases that cannot be installed are collapsed behind a count, with their reasons. Downgrade opens a dialog that lists security exposure first, then undone changes grouped by kind with the release that introduced each, then known issues; a downgrade with security exposure needs an explicit acknowledgement. Nothing changes until it is confirmed, and the install then runs through the Panel release card like an update.
 - **System history** is a dialog, not an inline dashboard section. Tabs are CPU, Memory, and Storage. Windows are the last hour, 24 hours, and 7 days (`GET /nodes/local/history?minutes=`). Only minute averages we persist are shown; gaps are omitted, not drawn as zero.
 - **Host** is the node page: display name, tags, a maintenance flag, host facts from `system.info`, and access actions. Disable and enable work for every node. Re-enroll and remove are remote-only. The sidebar lists every node and ends with Add node. A tag filter sits on the overview. Right-click a sidebar row or an overview card for Dashboard, Edit (the Host form), Disable or Enable, and, for a remote node, Re-enroll and Remove. Traffic quota, read-only policy, and upgrade are not in this slice.
 - **Settings** is one page with a section list (a tab row below 768px): Panel (theme and the public origin agents use), Security (change password), and About (version, license, source URL). Listen address and other boot-time keys stay in the file. The login page shows the source link only, never the version.
 - **Add node** is the primary button at the right of the Overview title bar, and again under the collapsible Nodes list in the sidebar. The form asks for the address the new server can reach. The result is a finished script for a machine that already has the agent, or a script that clones the source first. Nothing in the script is left as a placeholder. Opening a node from the sidebar keeps Dashboard or Host when one of those is already open.
-- **Overview card size** sits after the Overview title: Small (name, status, usage, and tags), Medium (plus the CPU rail and uptime), Large (used/total capacity, swap, load, traffic, sockets, recent CPU, OS, and uptime). The choice stays in this browser. Unread values stay an em dash.
+- **Overview** answers "does anything need me, and where". A summary line gives online nodes and how many need attention. Each node is one row: name with a status dot, then CPU (Pulse Rail and figure), memory and storage (bar, figure, used of total) and network rate. A node needs attention when it is offline or a reading is at the warn or danger threshold; those rows sort first (offline, danger, warn), carry an accent edge, and name the readings under the node name. Waiting and disabled nodes sort last without metrics. Maintenance and an agent older than the panel show as chips; tags are filtered from the summary line rather than repeated on rows. Below 640px a row stacks the name above three metric columns. Unread values stay an em dash.
 
 ## 6. Live data
 
@@ -284,7 +287,7 @@ apps/web/src/
 - Every icon-only button has an `aria-label`; clickable elements are real `<button>`s or `<RouterLink>`s.
 - All core tasks can be done with the keyboard; focus rings use `:focus-visible`.
 - Breakpoint `< 768px`: the sidebar becomes a drawer, tables become card lists, dashboard tiles go two per row; the terminal gets a key toolbar (Ctrl, Tab, Esc, arrows).
-- Contrast: body text ≥ 4.5:1, muted text ≥ 3:1, verified in all three themes.
+- Contrast: body text, muted text (`text-3`, used for field labels) and status colours used as text are ≥ 4.5:1 on `ink`, `surface` and `raised` in all three themes. Dividers (`line`) are decorative and exempt.
 
 ## 12. Frontend security constraints
 

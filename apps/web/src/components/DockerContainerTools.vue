@@ -9,6 +9,7 @@ import type { DockerClient } from "../docker-client.ts";
 import SelectField from "./SelectField.vue";
 import AppDialog from "./AppDialog.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
+import { useStepUp } from "../step-up.ts";
 const props = defineProps<{
     id: string;
     tab: string;
@@ -37,8 +38,8 @@ const stats = ref<{
   restart = ref(props.restartPolicy || "unless-stopped"),
   memory = ref<number | null>(null),
   cpus = ref<number | null>(null),
-  verify = ref(false),
   confirmExec = ref(false);
+const { open: verifying, intercept, verified, cancel: cancelVerify } = useStepUp();
 let timer: ReturnType<typeof setTimeout> | undefined,
   generation = 0,
   disposed = false;
@@ -111,6 +112,7 @@ async function mutate(operation: string, params: Record<string, unknown>): Promi
     if (result.jobId) emit("task", result.jobId);
     else emit("changed");
   } catch (failure) {
+    if (intercept(failure, () => mutate(operation, params))) return;
     error.value =
       failure instanceof Error
         ? failure.message
@@ -120,7 +122,6 @@ async function mutate(operation: string, params: Record<string, unknown>): Promi
   }
 }
 async function execute(): Promise<void> {
-  verify.value = false;
   confirmExec.value = false;
   await mutate("exec", { id: props.id, command: command.value });
 }
@@ -182,8 +183,8 @@ onBeforeUnmount(() => {
       </button></template
     ><template v-else-if="tab === 'commands' && canManage"
       ><p class="hint">
-        Run a non-interactive command inside the container using /bin/sh. Identity verification is
-        required. A timed-out command may continue running; inspect processes before retrying.
+        Run a non-interactive command inside the container using /bin/sh. You may be asked for your
+        password. A timed-out command may continue running; inspect processes before retrying.
       </p>
       <label class="field"
         ><span>Command</span
@@ -247,13 +248,13 @@ onBeforeUnmount(() => {
       <pre>{{ command }}</pre>
       <template #footer
         ><button class="quiet" @click="confirmExec = false">Cancel</button
-        ><button :disabled="busy" @click="verify = true">Verify and run</button></template
+        ><button :disabled="busy" @click="execute">Run</button></template
       ></AppDialog
     ><ReauthenticateDialog
-      :open="verify"
-      reason="Verify your identity before executing a command inside this container."
-      @close="verify = false"
-      @verified="execute"
+      :open="verifying"
+      reason="Confirm your password to run this command. You will not be asked again for five minutes."
+      @close="cancelVerify"
+      @verified="verified"
     />
   </div>
 </template>

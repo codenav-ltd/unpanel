@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.39] - 2026-10-14
+
+### Changed
+
+- Redesign the overview as one row per node with the nodes that need attention first. A summary line counts online nodes and nodes needing attention; offline nodes and readings at the warn or danger threshold get an accent edge and are named under the node. Rows show the CPU Pulse Rail, memory and storage bars with used of total, and network rate, plus Maintenance and Agent behind chips. The Small/Medium/Large card sizes are removed.
+- Remove Unlock changes and Unlock user management. Security, user, update policy and Docker actions are attempted directly; when the panel asks for verification, the identity dialog opens over the current form and the same action continues afterwards. Actions verified in the last five minutes no longer ask again. The panel answers `E_SUDO_REQUIRED` for a missing verification instead of a generic 403.
+- Redesign downgrades. Settings → Updates lists the installed release with newer and compatible earlier releases, says what each downgrade would undo, and marks downgrades that remove security fixes or reach a release affected by a published advisory. Releases that cannot be installed are collapsed with their reasons. Downgrade opens its own dialog listing the security exposure, the undone features, improvements and fixes with their releases, and known issues; a downgrade with security exposure needs an explicit acknowledgement. The update check now returns every reverted change and the advisories that affect each release.
+- Size controls, inputs, tabs and select values at 14px to match body text; they had inherited the browser's 16px. Inputs stay at 16px on narrow screens so iOS does not zoom on focus.
+- Hide modules that are not built yet from the sidebar instead of listing nine entries that open nothing.
+- Show a QR code for the authenticator during first-run setup and group the secret in fours. State the 10-character password rule before typing and check it before submitting. Hide the setup token field when the page was opened from the printed link.
+- Move Update check and Install updates automatically from Settings → Panel to Settings → Updates. Panel keeps dashboard refresh and history retention under Monitoring.
+- Put Restart and Stop last in the dashboard toolbar, after a divider. Demote Disable and Re-enroll on the Host page to secondary buttons.
+- Raise muted text, light-theme primary, ok and warn, and dark-theme danger to at least 4.5:1 contrast on every surface. Tint per-core load fills so their figures stay readable in the light theme.
+- Fit all five dashboard cards on one row from 1200px wide. List IP addresses one per line and leave out link-local IPv6.
+
+### Fixed
+
+- Keep the mobile header on screen: the title truncates beside its status and toolbars scroll on their own line.
+- Style links with the theme colour instead of the browser default, and open in-app links without reloading the page.
+- Use a monospace font stack that resolves in Chrome on macOS instead of falling back to Courier.
+- Show the node name in the Docker page title instead of `local`, center the unavailable-state actions, and hide resource tabs until Docker is ready.
+
 ## [0.1.0-alpha.38] - 2026-10-10
 
 ### Changed

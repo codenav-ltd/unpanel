@@ -188,7 +188,7 @@ async function copyDiagnostics(): Promise<void> {
   margin: 28px 0 16px;
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   background: var(--raised);
   font-size: 14px;
 }

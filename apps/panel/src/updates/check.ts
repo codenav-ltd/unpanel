@@ -70,6 +70,10 @@ export interface ReleaseOption {
   changelog: ReleaseChange[];
   knownIssues: KnownIssue[];
   lostFeatures: string[];
+  /** For an older release: every change shipped after it, up to and including the installed one. */
+  reverted: (ReleaseChange & { version: string })[];
+  /** Published advisories that affect this release. */
+  exposedTo: Pick<SecurityAdvisory, "id" | "title" | "severity" | "fixedVersion">[];
   reviewRequired: boolean;
 }
 
@@ -403,6 +407,7 @@ function uniqueReleases(input: ReleaseFile[]): ReleaseFile[] {
 
 function releaseOptions(current: string, releases: ReleaseFile[], arch: string): ReleaseOption[] {
   const currentRelease = releases.find((item) => item.version === current);
+  const advisories = mergeSecurityAdvisories(...releases.map((item) => item.advisories ?? []));
   return releases
     .filter((item) => item.version !== current)
     .map((item) => {
@@ -427,6 +432,13 @@ function releaseOptions(current: string, releases: ReleaseFile[], arch: string):
           reason = error instanceof Error ? error.message : "No compatible package.";
         }
       }
+      const after = older
+        ? releases.filter(
+            (candidate) =>
+              (compareVersions(candidate.version, item.version) ?? 0) > 0 &&
+              (compareVersions(candidate.version, current) ?? 0) <= 0,
+          )
+        : [];
       return {
         version: item.version,
         ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}),
@@ -435,18 +447,22 @@ function releaseOptions(current: string, releases: ReleaseFile[], arch: string):
         notes: item.notes,
         changelog: item.changelog ?? [],
         knownIssues: item.knownIssues ?? [],
-        lostFeatures: older
-          ? releases
-              .filter(
-                (candidate) =>
-                  (compareVersions(candidate.version, item.version) ?? 0) > 0 &&
-                  (compareVersions(candidate.version, current) ?? 0) <= 0,
-              )
-              .flatMap((candidate) => candidate.changelog ?? [])
-              .filter((change) => change.kind === "feature")
-              .map((change) => change.title)
-              .slice(0, 100)
-          : [],
+        lostFeatures: after
+          .flatMap((candidate) => candidate.changelog ?? [])
+          .filter((change) => change.kind === "feature")
+          .map((change) => change.title)
+          .slice(0, 100),
+        reverted: after
+          .flatMap((candidate) =>
+            (candidate.changelog ?? []).map((change) => ({
+              ...change,
+              version: candidate.version,
+            })),
+          )
+          .slice(0, 200),
+        exposedTo: advisories
+          .filter((advisory) => affectedBy(item.version, advisory))
+          .map(({ id, title, severity, fixedVersion }) => ({ id, title, severity, fixedVersion })),
         reviewRequired: item.reviewRequired === true || older,
       };
     });

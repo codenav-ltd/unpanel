@@ -15,7 +15,6 @@ import {
   SlidersOutlined,
 } from "@ant-design/icons-vue";
 import {
-  compareVersions,
   liveSampleMs,
   product,
   managesPanel,
@@ -37,7 +36,7 @@ import HistoryDialog from "../components/HistoryDialog.vue";
 import EnrollGuide from "../components/EnrollGuide.vue";
 import NodeMenu from "../components/NodeMenu.vue";
 import NodePage from "../components/NodePage.vue";
-import PulseRail from "../components/PulseRail.vue";
+import OverviewPage from "../components/OverviewPage.vue";
 import SettingsPage, { type PanelOps } from "../components/SettingsPage.vue";
 import CertificatesPage from "../components/CertificatesPage.vue";
 import ThroughputCard from "../components/ThroughputCard.vue";
@@ -45,13 +44,7 @@ import TurnstileWidget from "../components/TurnstileWidget.vue";
 import MfaChallenge from "../components/MfaChallenge.vue";
 import VitalTile from "../components/VitalTile.vue";
 import { loadCards, saveCards, type CardVisibility } from "../cards.ts";
-import {
-  loadOverviewLayout,
-  overviewLayouts,
-  saveOverviewLayout,
-  type OverviewLayout,
-} from "../overview-layout.ts";
-import { formatBytes, formatRate, formatUptime } from "../format.ts";
+import { formatBytes, formatUptime } from "../format.ts";
 import { copyText } from "../copy.ts";
 import { formatPath, parsePath, type SettingsSection } from "./route.ts";
 import { en } from "../i18n/en.ts";
@@ -160,6 +153,7 @@ interface NodeCard {
 interface SetupDraft {
   ticket: string;
   secret: string;
+  otpauthUri: string;
   recoveryCodes: string[];
 }
 
@@ -182,6 +176,9 @@ const canOperate = computed(() => controlsNodes(access.value));
 const password = ref("");
 const setupToken = ref("");
 const draft = ref<SetupDraft | null>(null);
+const setupQr = ref("");
+/** Opened from the printed setup link, so the token field has nothing to ask. */
+const tokenFromLink = ref(false);
 const totpEnabled = ref(true);
 const authenticatorCode = ref("");
 const factorMethods = ref<FactorView[]>([]);
@@ -208,8 +205,6 @@ const catalog = ref<NodeCard[]>([]);
 const catalogLoading = ref(false);
 const catalogLoaded = ref(false);
 const catalogError = ref("");
-const tagFilter = ref("");
-const overviewLayout = ref<OverviewLayout>(loadOverviewLayout());
 const showAdd = ref(false);
 const sidebarOpen = ref(false);
 const showHistory = ref(false);
@@ -290,6 +285,13 @@ async function submitSetup(): Promise<void> {
     }
     const body = (await response.json()) as SetupDraft;
     draft.value = body;
+    setupQr.value = "";
+    void import("qrcode")
+      .then(({ toDataURL }) => toDataURL(body.otpauthUri, { width: 192, margin: 2 }))
+      .then((url) => {
+        if (draft.value?.ticket === body.ticket) setupQr.value = url;
+      })
+      .catch(() => undefined);
     password.value = "";
     totpEnabled.value = true;
     authenticatorCode.value = "";
@@ -432,7 +434,6 @@ async function signOut(): Promise<void> {
     catalogLoaded.value = false;
     catalogError.value = "";
     snapshotNodeId.value = "";
-    tagFilter.value = "";
     showAdd.value = false;
     showHistory.value = false;
     showLogs.value = false;
@@ -759,7 +760,7 @@ function passwordStrength(value: string): {
   level: "none" | "danger" | "warn" | "ok";
   label: string;
 } {
-  if (!value) return { score: 0, level: "none", label: "" };
+  if (!value) return { score: 0, level: "none", label: en.auth.passwordRule };
   if (value.length < 10) return { score: 1, level: "danger", label: en.auth.strengthShort };
   let score = 2;
   if (value.length >= 14) score += 1;
@@ -790,52 +791,6 @@ const statusLabel = computed(() => {
   if (phase.value === "loading") return en.shell.statusConnecting;
   return en.shell.statusOffline;
 });
-
-function figure(percent: number | null): string {
-  return percent == null ? "—" : `${percent.toFixed(1)}%`;
-}
-
-function capacity(used: number | null, total: number | null, ratio: number | null): string {
-  if (used != null && total != null) return `${formatBytes(used)} / ${formatBytes(total)}`;
-  return figure(ratioPercent(ratio));
-}
-
-function pair(used: number | null, total: number | null): string {
-  if (used == null || total == null) return "—";
-  return `${formatBytes(used)} / ${formatBytes(total)}`;
-}
-
-function loadLine(node: NodeCard): string {
-  if (node.load1 == null || node.load5 == null || node.load15 == null) return "—";
-  return `${node.load1.toFixed(2)} ${node.load5.toFixed(2)} ${node.load15.toFixed(2)}`;
-}
-
-function rateLine(bps: number | null): string {
-  return bps == null ? "—" : formatRate(bps);
-}
-
-function socketLine(node: NodeCard): string {
-  if (node.tcpCount == null && node.udpCount == null) return "—";
-  const tcp = node.tcpCount == null ? "—" : String(node.tcpCount);
-  const udp = node.udpCount == null ? "—" : String(node.udpCount);
-  return `TCP ${tcp} · UDP ${udp}`;
-}
-
-function detailSub(node: NodeCard): string {
-  const title = node.name || node.hostname || "";
-  const parts: string[] = [];
-  if (node.hostname && node.hostname !== title) parts.push(node.hostname);
-  if (node.os) parts.push(node.os);
-  if (node.arch) parts.push(node.arch);
-  if (node.cpuModel) {
-    parts.push(node.threads == null ? node.cpuModel : `${node.threads} · ${node.cpuModel}`);
-  }
-  return parts.join(" · ");
-}
-
-function ratioPercent(ratio: number | null): number | null {
-  return ratio == null ? null : ratio * 100;
-}
 
 const cpuPercent = computed(() => (sample.value?.ratio == null ? null : sample.value.ratio * 100));
 
@@ -913,47 +868,13 @@ const cpuCaption = computed(() => {
 const addressText = computed(() => {
   const ips = info.value?.ips;
   if (!ips || (ips.v4.length === 0 && ips.v6.length === 0)) return "—";
-  return [...ips.v4, ...ips.v6].join(", ");
+  // Link-local IPv6 (fe80::/10) only works on the same link, so it is noise on a remote panel.
+  const routable = ips.v6.filter((ip) => !/^fe[89ab]/i.test(ip));
+  const shown = [...ips.v4, ...(ips.v4.length + routable.length > 0 ? routable : ips.v6)];
+  return shown.join("\n");
 });
 
-const nodeTags = computed(() =>
-  [...new Set(catalog.value.flatMap((node) => node.tags))].sort((a, b) => a.localeCompare(b)),
-);
-
-const visibleNodes = computed(() =>
-  tagFilter.value
-    ? catalog.value.filter((node) => node.tags.includes(tagFilter.value))
-    : catalog.value,
-);
-
 const selectedNode = computed(() => catalog.value.find((node) => node.id === nodeId.value));
-
-function nodePresence(node: NodeCard): string {
-  if (node.status === "disabled") return en.shell.statusDisabled;
-  if (node.status === "pending") return en.shell.waitingAgent;
-  return node.online ? en.shell.statusOnline : en.shell.statusOffline;
-}
-
-function nodeAgentState(node: NodeCard): "current" | "outdated" | "ahead" | "unknown" {
-  if (!node.agentVersion) return "unknown";
-  const compared = compareVersions(node.agentVersion, product.version);
-  if (compared === null) return "unknown";
-  if (compared < 0) return "outdated";
-  if (compared > 0) return "ahead";
-  return "current";
-}
-
-function layoutLabel(size: OverviewLayout): string {
-  if (size === "compact") return en.shell.layoutCompact;
-  if (size === "standard") return en.shell.layoutStandard;
-  return en.shell.layoutDetail;
-}
-
-function layoutHint(size: OverviewLayout): string {
-  if (size === "compact") return en.shell.layoutCompactHint;
-  if (size === "standard") return en.shell.layoutStandardHint;
-  return en.shell.layoutDetailHint;
-}
 
 function chooseNode(id: string): void {
   const stay = page.value === "dashboard" || page.value === "host" || page.value === "docker";
@@ -971,7 +892,6 @@ function openNodeHost(id: string): void {
 function onRemoved(): void {
   page.value = "overview";
   nodeId.value = "local";
-  tagFilter.value = "";
   void refreshList();
 }
 
@@ -1102,7 +1022,12 @@ async function confirmRemove(): Promise<void> {
 }
 
 const nodeLabel = computed(
-  () => selectedNode.value?.name || prefs.value.name || info.value?.hostname || en.shell.localNode,
+  () =>
+    selectedNode.value?.name ||
+    prefs.value.name ||
+    info.value?.hostname ||
+    selectedNode.value?.hostname ||
+    en.shell.localNode,
 );
 
 const pageTitle = computed(() => {
@@ -1214,7 +1139,6 @@ function askRestartFromBackup(): void {
 }
 
 watch(cards, (value) => saveCards(value), { deep: true });
-watch(overviewLayout, (value) => saveOverviewLayout(value));
 
 watch(
   nodeId,
@@ -1290,15 +1214,33 @@ function onPop(): void {
   else if (next.page !== "settings") void refresh();
 }
 
+/** Same-origin links to shell pages switch the page in place instead of reloading the app. */
+function onLinkClick(event: MouseEvent): void {
+  if (event.defaultPrevented || event.button !== 0) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const link = event.target instanceof Element ? event.target.closest("a") : null;
+  if (!link || link.target || link.hasAttribute("download")) return;
+  if (link.origin !== globalThis.location.origin || view.value !== "node") return;
+  if (parsePath(link.pathname).unknown) return;
+  event.preventDefault();
+  if (link.pathname !== globalThis.location.pathname) {
+    globalThis.history.pushState(null, "", link.pathname);
+  }
+  onPop();
+}
+
 onMounted(() => {
   if (opened.unknown) globalThis.history.replaceState(null, "", "/");
   globalThis.addEventListener("popstate", onPop);
+  globalThis.document.addEventListener("click", onLinkClick);
   setupToken.value = new URLSearchParams(globalThis.location.search).get("token") ?? "";
+  tokenFromLink.value = setupToken.value !== "";
   void boot();
 });
 
 onUnmounted(() => {
   globalThis.removeEventListener("popstate", onPop);
+  globalThis.document.removeEventListener("click", onLinkClick);
   stopWatching();
 });
 </script>
@@ -1324,23 +1266,6 @@ onUnmounted(() => {
     <div class="app-main" :inert="sidebarOpen">
       <header class="app-bar">
         <h1 class="app-title">{{ pageTitle }}</h1>
-        <div
-          v-if="page === 'overview'"
-          class="layout-switch"
-          role="group"
-          :aria-label="en.shell.overviewLayout"
-        >
-          <button
-            v-for="size in overviewLayouts"
-            :key="size"
-            type="button"
-            :aria-pressed="overviewLayout === size"
-            :title="layoutHint(size)"
-            @click="overviewLayout = size"
-          >
-            {{ layoutLabel(size) }}
-          </button>
-        </div>
         <p v-if="page === 'overview'" class="app-status" aria-live="polite">
           <span v-if="catalogError" class="status-bad">{{ en.shell.nodesRefreshFailed }}</span>
           <span v-else-if="catalogLoaded" class="status-ok">{{ en.shell.panelConnected }}</span>
@@ -1377,19 +1302,6 @@ onUnmounted(() => {
           role="toolbar"
           :aria-label="en.nav.dashboard"
         >
-          <button
-            v-if="canOperate"
-            class="bar-action bar-restart"
-            type="button"
-            @click="openConfirm('restart')"
-          >
-            <ReloadOutlined aria-hidden="true" />
-            {{ en.shell.restart }}
-          </button>
-          <button v-if="canOperate" class="bar-action" type="button" @click="openConfirm('stop')">
-            <PoweroffOutlined aria-hidden="true" />
-            {{ en.shell.stop }}
-          </button>
           <button
             v-if="canManage"
             class="bar-action"
@@ -1428,6 +1340,21 @@ onUnmounted(() => {
             <SlidersOutlined aria-hidden="true" />
             {{ en.shell.customize }}
           </button>
+          <!-- Service controls last: they take the panel down, so they are never the first thing reached. -->
+          <span v-if="canOperate" class="bar-sep" aria-hidden="true" />
+          <button
+            v-if="canOperate"
+            class="bar-action"
+            type="button"
+            @click="openConfirm('restart')"
+          >
+            <ReloadOutlined aria-hidden="true" />
+            {{ en.shell.restart }}
+          </button>
+          <button v-if="canOperate" class="bar-action" type="button" @click="openConfirm('stop')">
+            <PoweroffOutlined aria-hidden="true" />
+            {{ en.shell.stop }}
+          </button>
         </div>
       </header>
       <p v-if="access.role === 'viewer'" class="access-notice">
@@ -1455,143 +1382,16 @@ onUnmounted(() => {
             :key="page === 'dashboard' || page === 'host' ? `${page}:${nodeId}` : page"
             class="page-view"
           >
-            <div v-if="page === 'overview'" class="overview">
-              <div v-if="catalogError" role="alert">
-                <p class="form-error">{{ catalogError }}</p>
-                <p v-if="catalogLoaded" class="hint">
-                  {{ en.shell.nodesStale }}
-                </p>
-                <button type="button" :disabled="catalogLoading" @click="refreshList">
-                  <span v-if="catalogLoading" class="spinner" aria-hidden="true" />
-                  {{ catalogLoading ? en.shell.nodesRefreshing : en.audit.retry }}
-                </button>
-              </div>
-              <p v-else-if="!catalogLoaded" class="hint" role="status">
-                <span class="spinner" aria-hidden="true" /> {{ en.shell.nodesLoading }}
-              </p>
-              <p v-if="catalogLoaded" class="overview-summary">
-                {{
-                  catalog.length === 1 ? en.shell.oneNode : `${catalog.length} ${en.shell.nodes}`
-                }}
-                · {{ catalog.filter((node) => node.online).length }} {{ en.shell.onlineCount }}
-              </p>
-              <div v-if="nodeTags.length" class="tag-row" role="group" :aria-label="en.shell.tags">
-                <button
-                  type="button"
-                  class="tag-chip"
-                  :aria-pressed="tagFilter === ''"
-                  @click="tagFilter = ''"
-                >
-                  {{ en.shell.allTags }}
-                </button>
-                <button
-                  v-for="tag in nodeTags"
-                  :key="tag"
-                  type="button"
-                  class="tag-chip"
-                  :aria-pressed="tagFilter === tag"
-                  @click="tagFilter = tag"
-                >
-                  {{ tag }}
-                </button>
-              </div>
-              <div class="node-grid" :data-layout="overviewLayout">
-                <button
-                  v-for="node in visibleNodes"
-                  :key="node.id"
-                  class="node-card"
-                  type="button"
-                  @click="openNode(node.id)"
-                  @contextmenu.prevent="
-                    openNodeMenu({ id: node.id, x: $event.clientX, y: $event.clientY })
-                  "
-                >
-                  <span class="node-card-head">
-                    <strong>{{ node.name || node.hostname || en.shell.localNode }}</strong>
-                    <span class="node-card-state">
-                      <span
-                        class="node-agent-badge"
-                        :data-state="nodeAgentState(node)"
-                        :title="en.updates.agentVersion"
-                      >
-                        {{ node.agentVersion ? `v${node.agentVersion}` : "v—" }}
-                      </span>
-                      <span
-                        :class="
-                          node.status === 'active' && node.online ? 'status-ok' : 'status-bad'
-                        "
-                        >{{ nodePresence(node) }}</span
-                      >
-                    </span>
-                  </span>
-                  <span v-if="overviewLayout === 'detail' && detailSub(node)" class="node-sub">{{
-                    detailSub(node)
-                  }}</span>
-                  <PulseRail
-                    v-if="overviewLayout !== 'compact'"
-                    :samples="node.cpu"
-                    :offline="!node.online"
-                  />
-                  <span v-if="overviewLayout !== 'detail'" class="node-metrics">
-                    <span>{{ en.shell.cpu }} {{ figure(ratioPercent(node.cpuRatio)) }}</span>
-                    <span>{{ en.shell.memory }} {{ figure(ratioPercent(node.memRatio)) }}</span>
-                    <span v-if="node.diskRatio != null"
-                      >{{ en.shell.storage }} {{ figure(ratioPercent(node.diskRatio)) }}</span
-                    >
-                  </span>
-                  <span v-if="overviewLayout === 'detail'" class="node-facts">
-                    <span class="node-fact">
-                      <span class="node-fact-k">{{ en.shell.cpu }}</span>
-                      <span class="node-fact-v">{{ figure(ratioPercent(node.cpuRatio)) }}</span>
-                    </span>
-                    <span class="node-fact">
-                      <span class="node-fact-k">{{ en.shell.memory }}</span>
-                      <span class="node-fact-v">{{
-                        capacity(node.memUsed, node.memTotal, node.memRatio)
-                      }}</span>
-                    </span>
-                    <span class="node-fact">
-                      <span class="node-fact-k">{{ en.shell.storage }}</span>
-                      <span class="node-fact-v">{{
-                        capacity(node.diskUsed, node.diskTotal, node.diskRatio)
-                      }}</span>
-                    </span>
-                    <span class="node-fact">
-                      <span class="node-fact-k">{{ en.shell.swap }}</span>
-                      <span class="node-fact-v">{{ pair(node.swapUsed, node.swapTotal) }}</span>
-                    </span>
-                    <span class="node-fact">
-                      <span class="node-fact-k">{{ en.shell.netIn }}</span>
-                      <span class="node-fact-v">{{ rateLine(node.rxBps) }}</span>
-                    </span>
-                    <span class="node-fact">
-                      <span class="node-fact-k">{{ en.shell.netOut }}</span>
-                      <span class="node-fact-v">{{ rateLine(node.txBps) }}</span>
-                    </span>
-                    <span class="node-fact">
-                      <span class="node-fact-k">{{ en.shell.sockets }}</span>
-                      <span class="node-fact-v">{{ socketLine(node) }}</span>
-                    </span>
-                    <span class="node-fact">
-                      <span class="node-fact-k">{{ en.shell.uptime }}</span>
-                      <span class="node-fact-v">{{
-                        node.uptime == null ? "—" : formatUptime(node.uptime)
-                      }}</span>
-                    </span>
-                    <span class="node-fact node-fact-wide">
-                      <span class="node-fact-k">{{ en.shell.load }}</span>
-                      <span class="node-fact-v">{{ loadLine(node) }}</span>
-                    </span>
-                  </span>
-                  <span v-if="overviewLayout === 'standard'" class="node-uptime">{{
-                    node.uptime == null ? en.shell.railEmpty : formatUptime(node.uptime)
-                  }}</span>
-                  <span v-if="node.tags.length" class="node-address">{{
-                    node.tags.join(", ")
-                  }}</span>
-                </button>
-              </div>
-            </div>
+            <OverviewPage
+              v-if="page === 'overview'"
+              :nodes="catalog"
+              :loaded="catalogLoaded"
+              :loading="catalogLoading"
+              :error="catalogError"
+              @open="openNode"
+              @menu="openNodeMenu"
+              @retry="refreshList"
+            />
             <NodePage
               v-else-if="page === 'host' && snapshotNodeId === nodeId"
               :key="nodeId"
@@ -1920,7 +1720,6 @@ onUnmounted(() => {
         <Transition name="step" mode="out-in">
           <form v-if="view === 'setup'" key="setup" @submit.prevent="submitSetup">
             <p class="step">{{ en.auth.setupStep }}</p>
-            <p class="hint">{{ en.auth.setupHint }}</p>
             <label class="field">
               <span>{{ en.auth.username }}</span>
               <input
@@ -1938,7 +1737,10 @@ onUnmounted(() => {
                 name="password"
                 type="password"
                 autocomplete="new-password"
+                minlength="10"
+                maxlength="128"
                 required
+                aria-describedby="password-rule"
                 :aria-invalid="Boolean(error)"
               />
             </label>
@@ -1957,16 +1759,18 @@ onUnmounted(() => {
                 :style="{ transform: `scaleX(${strength.score / 4})` }"
               />
             </div>
-            <p class="meter-label">{{ strength.label }}</p>
-            <label class="field">
+            <p id="password-rule" class="meter-label">{{ strength.label }}</p>
+            <label v-if="!tokenFromLink || error" class="field">
               <span>{{ en.auth.setupToken }}</span>
               <input
                 v-model="setupToken"
                 name="token"
                 autocomplete="off"
                 required
+                aria-describedby="setup-token-hint"
                 :aria-invalid="Boolean(error)"
               />
+              <small id="setup-token-hint" class="field-hint">{{ en.auth.setupHint }}</small>
             </label>
             <p v-if="error" class="form-error" role="alert">{{ error }}</p>
             <div class="actions">
@@ -1998,9 +1802,10 @@ onUnmounted(() => {
             <Transition name="step" mode="out-in">
               <div v-if="totpEnabled" key="totp-on">
                 <p class="hint">{{ en.auth.confirmHint }}</p>
+                <img v-if="setupQr" class="account-qr" :src="setupQr" :alt="en.auth.qrAlt" />
                 <p class="field">
                   <span>{{ en.auth.secret }}</span>
-                  <code class="secret">{{ draft.secret }}</code>
+                  <code class="secret">{{ draft.secret.replace(/(.{4})(?=.)/g, "$1 ") }}</code>
                 </p>
                 <div class="field">
                   <span>{{ en.auth.recoveryCodes }}</span>

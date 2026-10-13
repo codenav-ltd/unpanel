@@ -220,13 +220,15 @@ watch(drawer, (open) => {
 watch([mobile, drawer], ([isMobile, open]) => emit("drawerChange", isMobile && open), {
   immediate: true,
 });
-const laterNote = ref("");
 const nodesOpen = ref(true);
-const nodeItems = computed(() => items.filter((item) => item.group === "node"));
+// Planned modules stay in the list above but are not shown until they exist.
+const nodeItems = computed(() => items.filter((item) => item.enabled && item.group === "node"));
 const globalItems = computed(() =>
   items.filter(
     (item) =>
-      item.group === "global" && (props.canManage || !["alerts", "certificates"].includes(item.id)),
+      item.enabled &&
+      item.group === "global" &&
+      (props.canManage || !["alerts", "certificates"].includes(item.id)),
   ),
 );
 
@@ -297,12 +299,7 @@ function onMenu(event: MouseEvent, id: string): void {
 }
 
 function onItem(item: Item): void {
-  if (!item.enabled) {
-    laterNote.value = `${item.label}. ${en.nav.laterDetail}`;
-    return;
-  }
-  laterNote.value = "";
-  go(item.id);
+  if (item.enabled) go(item.id);
 }
 </script>
 
@@ -401,9 +398,7 @@ function onItem(item: Item): void {
         :key="item.id"
         class="nav-item"
         type="button"
-        :aria-disabled="item.enabled ? undefined : true"
         :aria-current="page === item.id ? 'page' : undefined"
-        :title="item.enabled ? undefined : en.nav.later"
         @click="onItem(item)"
       >
         <component :is="item.icon" aria-hidden="true" />
@@ -415,15 +410,12 @@ function onItem(item: Item): void {
         :key="item.id"
         class="nav-item"
         type="button"
-        :aria-disabled="item.enabled ? undefined : true"
         :aria-current="page === item.id ? 'page' : undefined"
-        :title="item.enabled ? undefined : en.nav.later"
         @click="onItem(item)"
       >
         <component :is="item.icon" aria-hidden="true" />
         <span>{{ item.label }}</span>
       </button>
-      <p v-if="laterNote" class="nav-note" role="status">{{ laterNote }}</p>
     </nav>
     <div class="sider-utility">
       <Transition name="utility-update">

@@ -15,6 +15,7 @@ import {
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
+import { useStepUp } from "../step-up.ts";
 import { dockerClient, DockerRequestError, type DockerAvailability } from "../docker-client.ts";
 
 import DockerSetupGuide from "./DockerSetupGuide.vue";
@@ -105,8 +106,8 @@ const selected = ref<Container | null>(null),
   detailTab = ref("overview"),
   detailBusy = ref(false),
   detailError = ref(""),
-  confirmation = ref<{ container: Container; action: string } | null>(null),
-  reauth = ref(false);
+  confirmation = ref<{ container: Container; action: string } | null>(null);
+const { open: verifying, intercept, verified, cancel: cancelVerify } = useStepUp();
 let controller = new AbortController(),
   revision = 0,
   detailRevision = 0,
@@ -302,6 +303,7 @@ async function act(row: Container, action: string): Promise<void> {
     note.value = `${name(row)}: ${action} completed.`;
     await refresh();
   } catch (failure) {
+    if (intercept(failure, () => act(row, action))) return;
     error.value =
       failure instanceof Error
         ? failure.message
@@ -316,17 +318,9 @@ function ask(row: Container, action: string): void {
 function confirm(): void {
   const target = confirmation.value;
   if (!target) return;
-  if (["remove", "recreate", "serviceStart"].includes(target.action)) reauth.value = true;
+  if (target.action === "recreate") void startTask(target.container);
+  else if (target.action === "serviceStart") void startDocker();
   else void act(target.container, target.action);
-}
-function verified(): void {
-  reauth.value = false;
-  const target = confirmation.value;
-  if (target) {
-    if (target.action === "recreate") void startTask(target.container);
-    else if (target.action === "serviceStart") void startDocker();
-    else void act(target.container, target.action);
-  }
 }
 function showTask(id: string): void {
   lastJob.value = id;
@@ -344,6 +338,7 @@ async function startTask(row: Container): Promise<void> {
     confirmation.value = null;
     showTask(result.jobId);
   } catch (failure) {
+    if (intercept(failure, () => startTask(row))) return;
     error.value = failure instanceof Error ? failure.message : "Could not start recreation.";
   } finally {
     busy.value = "";
@@ -357,6 +352,7 @@ async function startDocker(): Promise<void> {
     note.value = "Docker start requested. Checking its connection…";
     await refresh();
   } catch (failure) {
+    if (intercept(failure, startDocker)) return;
     error.value = failure instanceof Error ? failure.message : "Could not start Docker.";
   } finally {
     busy.value = "";
@@ -393,7 +389,7 @@ watch(
     revision++;
     closeDetail();
     confirmation.value = null;
-    reauth.value = false;
+    cancelVerify();
     containers.value = [];
     images.value = [];
     version.value = "";
@@ -469,7 +465,7 @@ onBeforeUnmount(() => {
               : availability.availability === "permission_denied"
                 ? "Docker access denied"
                 : availability.availability === "unsupported"
-                  ? "Update or check this node"
+                  ? "Docker is not available on this node"
                   : "Docker is unavailable"
         }}
       </h3>
@@ -496,13 +492,16 @@ onBeforeUnmount(() => {
     >
       <button class="quiet" @click="setupOpen = true">Set up Compose</button>
     </div>
-    <div class="docker-tabs" aria-label="Docker resources">
+    <div
+      v-if="availability?.availability === 'ready'"
+      class="docker-tabs"
+      aria-label="Docker resources"
+    >
       <button
         v-for="item in tabs"
         :key="item.id"
         class="btn quiet"
         :aria-pressed="tab === item.id"
-        :disabled="availability?.availability !== 'ready'"
         @click="tab = item.id"
       >
         {{ item.label }}
@@ -784,9 +783,9 @@ onBeforeUnmount(() => {
       ></AppDialog
     >
     <ReauthenticateDialog
-      :open="reauth"
-      reason="Verify your identity before this Docker management operation."
-      @close="reauth = false"
+      :open="verifying"
+      reason="Confirm your password to continue this Docker operation. You will not be asked again for five minutes."
+      @close="cancelVerify"
       @verified="verified"
     />
     <DockerSetupGuide
@@ -924,7 +923,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 .docker-status-detail {
@@ -947,7 +946,7 @@ onBeforeUnmount(() => {
 }
 .docker-ports small {
   white-space: nowrap;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 .docker-head {
@@ -1069,6 +1068,10 @@ small {
   padding: 40px 20px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
+}
+.docker-empty .docker-actions {
+  justify-content: center;
+  margin-top: 16px;
 }
 .docker-empty > .anticon {
   font-size: 32px;

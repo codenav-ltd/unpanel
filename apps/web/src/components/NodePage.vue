@@ -305,7 +305,7 @@ async function remove(): Promise<void> {
         </div>
         <div>
           <dt>{{ en.shell.ipAddresses }}</dt>
-          <dd>{{ addresses }}</dd>
+          <dd class="host-addresses">{{ addresses }}</dd>
         </div>
       </dl>
       <p v-if="agentNote" class="form-warn" role="status">{{ agentNote }}</p>
@@ -347,8 +347,9 @@ async function remove(): Promise<void> {
       <p class="hint">{{ local ? en.shell.localNodeHint : en.shell.remoteNodeHint }}</p>
       <p v-if="accessError" class="form-error" role="alert">{{ accessError }}</p>
       <p v-else-if="accessNote" class="form-warn" role="status">{{ accessNote }}</p>
-      <div class="row-actions">
+      <div class="actions">
         <button
+          class="quiet"
           type="button"
           :disabled="busy"
           :aria-busy="pendingAction === 'toggle'"
@@ -359,6 +360,7 @@ async function remove(): Promise<void> {
         </button>
         <button
           v-if="!local"
+          class="quiet"
           type="button"
           :disabled="busy"
           :aria-busy="pendingAction === 'reenroll'"

@@ -71,6 +71,7 @@ export function registerAccountApi(
         const known = error instanceof AccountError || error instanceof DeliveryError;
         const status =
           error instanceof AccountError ? error.status : error instanceof SyntaxError ? 400 : 503;
+        const code = error instanceof AccountError ? error.code : "E_SECURITY_REQUEST";
         const message = known
           ? error.message
           : status === 400
@@ -83,9 +84,9 @@ export function registerAccountApi(
             actorKind: "user",
             actorId: user.username,
             target: path,
-            errorCode: "E_SECURITY_REQUEST",
+            errorCode: code,
           });
-        return c.json({ error: { code: "E_SECURITY_REQUEST", message } }, status);
+        return c.json({ error: { code, message } }, status);
       }
     });
   }

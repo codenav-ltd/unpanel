@@ -24,7 +24,7 @@ import { product } from "@unpanel/shared";
 import { decryptSecret, encryptSecret } from "./secret.ts";
 import { matchTotp, totpSecret, totpSecretText, totpUri } from "./totp.ts";
 import { verifyPassword } from "./password.ts";
-import { AccountError } from "./account-error.ts";
+import { AccountError, sudoRequired } from "./account-error.ts";
 import { emailAddress, type EmailMethods } from "../email/store.ts";
 
 interface FactorData {
@@ -239,7 +239,7 @@ export function createFactors(options: {
   }
   function requireElevation(userId: string, session: string): void {
     if (!elevated(userId, session))
-      throw new AccountError("Verify your identity again before changing account security.", 403);
+      throw sudoRequired("Verify your identity again before changing account security.");
   }
   function revokeOthers(userId: string, session: string): void {
     db.prepare("DELETE FROM sessions WHERE user_id=? AND id!=?").run(userId, session);

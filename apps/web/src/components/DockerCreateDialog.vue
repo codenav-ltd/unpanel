@@ -7,6 +7,7 @@ import { computed, ref, watch } from "vue";
 import type { DockerClient } from "../docker-client.ts";
 import AppDialog from "./AppDialog.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
+import { useStepUp } from "../step-up.ts";
 import SelectField from "./SelectField.vue";
 const props = defineProps<{ open: boolean; request: DockerClient; images: string[] }>(),
   emit = defineEmits<{ close: []; created: [] }>();
@@ -25,8 +26,8 @@ const step = ref(1),
   cpus = ref<number | null>(null),
   start = ref(true),
   busy = ref(false),
-  verifying = ref(false),
   error = ref("");
+const { open: verifying, intercept, verified, cancel: cancelVerify } = useStepUp();
 const networks = ref([{ value: "bridge", label: "Default bridge" }]);
 const imageListId = `docker-create-images`;
 const variables = computed(() => env.value.split("\n").filter((line) => line.trim()));
@@ -49,7 +50,7 @@ watch(
     restart.value = "unless-stopped";
     start.value = true;
     error.value = "";
-    verifying.value = false;
+    cancelVerify();
     if (open) {
       try {
         const rows = await props.request<{ name: string; driver: string }[]>("networks");
@@ -81,7 +82,6 @@ function next(): void {
   step.value++;
 }
 async function create(): Promise<void> {
-  verifying.value = false;
   busy.value = true;
   error.value = "";
   try {
@@ -125,6 +125,7 @@ async function create(): Promise<void> {
     emit("created");
     emit("close");
   } catch (failure) {
+    if (intercept(failure, create)) return;
     error.value =
       failure instanceof Error
         ? failure.message
@@ -237,7 +238,7 @@ async function create(): Promise<void> {
         ><input v-model="start" type="checkbox" /><span>Start after creating</span></label
       >
       <p class="hint">
-        This creates an application on the selected node. Identity verification is required.
+        This creates an application on the selected node. You may be asked for your password.
       </p></template
     >
     <p v-if="error" class="form-error" role="alert">{{ error }}</p>
@@ -245,15 +246,15 @@ async function create(): Promise<void> {
       ><button class="quiet" :disabled="busy" @click="step > 1 ? step-- : emit('close')">
         {{ step > 1 ? "Back" : "Cancel" }}</button
       ><button v-if="step < 3" :disabled="busy" @click="next">Continue</button
-      ><button v-else :disabled="busy" @click="verifying = true">
-        <span v-if="busy" class="spinner" />Verify and create
+      ><button v-else :disabled="busy" @click="create">
+        <span v-if="busy" class="spinner" />Create
       </button></template
     ></AppDialog
   ><ReauthenticateDialog
     :open="verifying"
-    reason="Verify your identity before creating a container on this node."
-    @close="verifying = false"
-    @verified="create"
+    reason="Confirm your password to create this container. You will not be asked again for five minutes."
+    @close="cancelVerify"
+    @verified="verified"
   />
 </template>
 <style scoped>

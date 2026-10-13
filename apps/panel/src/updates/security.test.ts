@@ -107,6 +107,8 @@ describe("security release policy", () => {
             changelog: [],
             knownIssues: [],
             lostFeatures: [],
+            reverted: [],
+            exposedTo: [],
             reviewRequired: true,
           },
         ],

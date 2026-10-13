@@ -273,6 +273,7 @@ describe("findUpdate", () => {
         }),
         release("0.1.0-alpha.29", {
           knownIssues: [{ id: "#29", severity: "medium", title: "Fixture issue." }],
+          changelog: [{ kind: "feature", title: "Older feature kept after downgrade." }],
         }),
         release("0.1.0-alpha.27"),
       ],
@@ -288,6 +289,8 @@ describe("findUpdate", () => {
     expect(result.versions?.find((item) => item.version.endsWith(".29"))).toMatchObject({
       available: true,
       knownIssues: [{ id: "#29" }],
+      reverted: [{ kind: "feature", title: "Fast update diagnostics.", version: "0.1.0-alpha.30" }],
+      exposedTo: [],
     });
     expect(result.versions?.find((item) => item.version.endsWith(".27"))).toMatchObject({
       available: false,

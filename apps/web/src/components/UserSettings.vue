@@ -4,11 +4,12 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import type { ManagedUser, UserRole, AccountSecurityView } from "@unpanel/shared";
+import type { ManagedUser, UserRole } from "@unpanel/shared";
 import { accountRequest } from "../account-client.ts";
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
+import { useStepUp } from "../step-up.ts";
 const props = defineProps<{
   accountId: string;
   nodes: { id: string; name: string; hostname: string | null }[];
@@ -18,13 +19,12 @@ const users = ref<ManagedUser[]>([]),
   busy = ref(false),
   error = ref(""),
   note = ref(""),
-  unlocked = ref(false),
-  reauth = ref(false),
   open = ref(false),
   step = ref(1),
   editing = ref<string | null>(null),
   removing = ref<ManagedUser | null>(null),
   formError = ref("");
+const { open: verifying, intercept, verified, cancel: cancelVerify } = useStepUp();
 const mode = ref<"single" | "team">("single"),
   modeDialog = ref(false),
   modeConfirmation = ref("");
@@ -73,7 +73,6 @@ async function load(): Promise<void> {
   try {
     users.value = await accountRequest<ManagedUser[]>("/users");
     mode.value = (await accountRequest<{ mode: "single" | "team" }>("/user-mode")).mode;
-    unlocked.value = (await accountRequest<AccountSecurityView>("/me/security")).elevated;
   } catch (e) {
     error.value = message(e);
   } finally {
@@ -128,7 +127,7 @@ async function save(): Promise<void> {
         ? "User access saved. Their existing sessions have been revoked."
         : "User saved.";
   } catch (e) {
-    formError.value = message(e);
+    if (!intercept(e, save)) formError.value = message(e);
   } finally {
     busy.value = false;
   }
@@ -143,7 +142,7 @@ async function remove(): Promise<void> {
     removing.value = null;
     note.value = "User removed and sessions revoked.";
   } catch (e) {
-    formError.value = message(e);
+    if (!intercept(e, remove)) formError.value = message(e);
   } finally {
     busy.value = false;
   }
@@ -168,7 +167,7 @@ async function changeMode(): Promise<void> {
         ? "Team mode enabled. Existing disabled accounts remain disabled."
         : "Single-user mode enabled. Every other user has been disabled and signed out.";
   } catch (e) {
-    formError.value = message(e);
+    if (!intercept(e, changeMode)) formError.value = message(e);
   } finally {
     busy.value = false;
   }
@@ -182,18 +181,12 @@ async function changeMode(): Promise<void> {
       create a Viewer and enable demo mode.
     </p>
     <div class="actions">
-      <button :disabled="busy || loading" @click="reauth = true">
-        {{ unlocked ? "Verify identity again" : "Unlock user management" }}</button
-      ><button
-        v-if="mode === 'team'"
-        class="primary"
-        :disabled="!unlocked || loading || busy"
-        @click="edit()"
-      >
+      <button v-if="mode === 'team'" :disabled="loading || busy" @click="edit()">
         Create user
       </button>
       <button
-        :disabled="!unlocked || loading || busy"
+        :class="mode === 'team' ? 'quiet' : undefined"
+        :disabled="loading || busy"
         @click="
           modeDialog = true;
           modeConfirmation = '';
@@ -204,7 +197,8 @@ async function changeMode(): Promise<void> {
       </button>
     </div>
     <p class="hint">
-      Identity verification lasts five minutes. Access changes sign the affected user out.
+      Saving asks for your password if you have not confirmed it in the last five minutes. Access
+      changes sign the affected user out.
     </p>
     <div
       v-if="loading && !users.length"
@@ -252,10 +246,10 @@ async function changeMode(): Promise<void> {
           </p>
         </div>
         <div class="actions">
-          <button :disabled="!unlocked || busy" @click="edit(user)">Edit access</button
+          <button class="quiet" :disabled="busy" @click="edit(user)">Edit access</button
           ><button
             class="danger"
-            :disabled="!unlocked || busy || user.id === accountId"
+            :disabled="busy || user.id === accountId"
             @click="
               removing = user;
               formError = '';
@@ -295,7 +289,7 @@ async function changeMode(): Promise<void> {
     ></template>
     <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
     <template #footer
-      ><button :disabled="busy" @click="modeDialog = false">Cancel</button
+      ><button class="quiet" :disabled="busy" @click="modeDialog = false">Cancel</button
       ><button
         :class="mode === 'team' ? 'danger' : 'primary'"
         :aria-busy="busy"
@@ -308,14 +302,7 @@ async function changeMode(): Promise<void> {
       </button></template
     >
   </AppDialog>
-  <ReauthenticateDialog
-    :open="reauth"
-    @close="reauth = false"
-    @verified="
-      reauth = false;
-      unlocked = true;
-    "
-  />
+  <ReauthenticateDialog :open="verifying" @close="cancelVerify" @verified="verified" />
   <AppDialog :open="open" :title="editing ? 'Edit user' : 'Create user'" narrow @close="close">
     <p class="step">
       Step {{ step }} of 2 · {{ step === 1 ? "Account details" : "Access and review" }}
@@ -421,7 +408,7 @@ async function changeMode(): Promise<void> {
     </p>
     <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
     <template #footer
-      ><button :disabled="busy" @click="removing = null">Cancel</button
+      ><button class="quiet" :disabled="busy" @click="removing = null">Cancel</button
       ><button class="danger" :disabled="busy" :aria-busy="busy" @click="remove">
         <span v-if="busy" class="spinner" aria-hidden="true" />Delete user
       </button></template

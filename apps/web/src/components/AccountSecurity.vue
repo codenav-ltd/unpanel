@@ -10,14 +10,15 @@ import { accountRequest } from "../account-client.ts";
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
+import { useStepUp } from "../step-up.ts";
 defineProps<{ canManageEmail: boolean }>();
 const data = ref<AccountSecurityView | null>(null),
   loading = ref(true),
   busy = ref(false),
   error = ref(""),
   note = ref("");
-const reauth = ref(false),
-  enroll = ref(false),
+const { open: verifying, intercept, verified, cancel: cancelVerify } = useStepUp();
+const enroll = ref(false),
   rename = ref<FactorView | null>(null),
   renameText = ref("");
 const confirm = ref<"policy" | "remove" | "recovery" | null>(null),
@@ -74,7 +75,8 @@ async function run(work: () => Promise<void>): Promise<void> {
   try {
     await work();
   } catch (failure) {
-    error.value = message(failure);
+    // A stale or missing verification opens the identity dialog, then repeats this same step.
+    if (!intercept(failure, () => run(work))) error.value = message(failure);
   } finally {
     busy.value = false;
   }
@@ -199,15 +201,6 @@ onMounted(load);
         <h2>Two-factor authentication</h2>
         <p class="hint">Choose how this account verifies a sign-in after its password.</p>
       </div>
-      <button
-        v-if="data"
-        type="button"
-        class="quiet"
-        :disabled="busy || loading"
-        @click="reauth = true"
-      >
-        {{ data.elevated ? "Verify again" : "Unlock changes" }}
-      </button>
     </div>
     <div
       v-if="loading && !data"
@@ -236,9 +229,6 @@ onMounted(load);
             : "Password-only sign-in is allowed. Saved methods are not currently required."
         }}
       </p>
-      <p v-if="!data.elevated" class="hint">
-        Verify your identity to add methods or change the policy.
-      </p>
       <TransitionGroup v-if="data.methods.length" name="step" tag="ul" class="account-method-list">
         <li v-for="method in data.methods" :key="method.id">
           <div>
@@ -261,7 +251,7 @@ onMounted(load);
           <div class="actions">
             <button
               class="quiet"
-              :disabled="!data.elevated || busy"
+              :disabled="busy"
               @click="
                 rename = method;
                 renameText = method.name;
@@ -271,7 +261,7 @@ onMounted(load);
               Rename</button
             ><button
               class="quiet"
-              :disabled="!data.elevated || busy"
+              :disabled="busy"
               @click="
                 target = method;
                 confirm = 'remove';
@@ -287,11 +277,7 @@ onMounted(load);
         No verified methods yet. Add an authenticator app, passkey or email address.
       </p>
       <div class="actions">
-        <button
-          :disabled="!data.elevated || busy || loading"
-          :aria-busy="busy && !enroll"
-          @click="startEnrollment"
-        >
+        <button :disabled="busy || loading" :aria-busy="busy && !enroll" @click="startEnrollment">
           <span v-if="busy && !enroll" class="spinner" aria-hidden="true" /> Add authentication
           method
         </button>
@@ -304,7 +290,7 @@ onMounted(load);
         "
       >
         <h3>Sign-in policy</h3>
-        <fieldset :disabled="!data.elevated || busy">
+        <fieldset :disabled="busy">
           <label class="account-check"
             ><input v-model="policy.required" type="checkbox" /> Require two-factor
             verification</label
@@ -327,7 +313,7 @@ onMounted(load);
         <div class="actions">
           <button
             class="quiet"
-            :disabled="!data.elevated || busy"
+            :disabled="busy"
             @click="
               confirm = 'recovery';
               error = '';
@@ -339,14 +325,7 @@ onMounted(load);
       </div>
     </template>
   </section>
-  <ReauthenticateDialog
-    :open="reauth"
-    @close="reauth = false"
-    @verified="
-      reauth = false;
-      load();
-    "
-  />
+  <ReauthenticateDialog :open="verifying" @close="cancelVerify" @verified="verified" />
   <AppDialog :open="enroll" title="Add authentication method" @close="closeEnrollment">
     <form
       id="factor-enrollment"
