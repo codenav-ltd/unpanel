@@ -35,14 +35,25 @@ For updates starting with alpha.34, unchanged service configuration uses a short
 | `https://unpanel.codenav.dev/install.sh` | Panel installer. It downloads the linux-x64 or linux-arm64 package for the pinned version and checks `SHA256SUMS`. |
 | `https://unpanel.codenav.dev/install-agent.sh` | Agent installer for a machine that does not run the panel. Same package, agent only. |
 | `https://unpanel.codenav.dev/channels.json` | Update manifest for Settings → Updates. CI also uploads this file to the GitHub release. Minisign is not produced yet. |
-| `https://github.com/codenav-ltd/unpanel/releases` | Release artifacts, `SHA256SUMS`, `channels.json` |
+| `https://unpanel.codenav.dev/releases/<version>/<file>` | Mirror of the release artifacts, `SHA256SUMS` and `channels.json` in Cloudflare R2, served by a Worker. Missing files are 404. |
+| `https://github.com/codenav-ltd/unpanel/releases` | Canonical release artifacts, `SHA256SUMS`, `channels.json` |
 
 - **Moving domains.** Installed panels keep the manifest URL they shipped with. If the domain changes, keep the old one serving or redirecting `channels.json` for at least one major version. The release that switches the default URL must ship while the old URL still works.
+- **Mirror.** `channels.json` keeps the GitHub asset URLs, which older releases and unattended installation require. The installers, `scripts/update.sh` and the agent's download derive the mirror URL from them (`releaseMirrorUrl` in `@unpanel/shared`), try it first and fall back to GitHub when it is missing, wrong or slow. The published SHA-256 is checked whichever copy is used. Every installed version already allows `unpanel.codenav.dev` as a release host, so the mirror must stay on that hostname.
 - **Trust.** HTTPS protects transport and SHA-256 detects mismatched package bytes. Cryptographic publisher authentication is not implemented. Treat a compromised publishing account or manifest host as an update-trust compromise. Unattended updates require an asset in this project's versioned GitHub release; signing remains planned below.
 
 ### Security advisories
 
 Maintain `releases/security-advisories.json` as a cumulative registry of actual advisories. Packaging validates it and places it in `channels.json`. Severity, affected ranges, fixed version, mitigation and deadlines control warnings separately from changelog categories. High/critical notices reuse configured Alert channels; critical dialogs repeat hourly. Owners can opt into critical updates after a grace period, with persisted retry limits and maintenance/manual-review holds. See [the complete policy and publisher workflow](./security-updates.md). Leave the registry empty when no real advisory is being published.
+
+### Release mirror
+
+After publishing the GitHub release, `.github/workflows/release.yml` runs `scripts/upload-mirror.sh`, which uploads each file listed in `SHA256SUMS` and then `SHA256SUMS` itself to `releases/<version>/` in the R2 bucket, downloads them back through `https://unpanel.codenav.dev/releases/<version>/` and compares the hashes. A mismatch fails the Release job before the website deploys.
+
+- Secret `CLOUDFLARE_API_TOKEN`: an R2-only token (Workers R2 Storage: Edit). Variable `CLOUDFLARE_ACCOUNT_ID`; optional `RELEASE_BUCKET` (default `unpanel-releases`).
+- Without the token the step warns and the release continues on GitHub alone.
+- The Worker in `infra/release-mirror/` routes `unpanel.codenav.dev/releases/*` to the bucket. The CI token cannot deploy it; redeploy it with `npx wrangler@4.144.0 deploy` from that directory under a maintainer login only when `worker.js` or `wrangler.toml` changes. Setup details are in `infra/release-mirror/README.md`.
+- To mirror an existing release: `gh release download v<version> --dir <dir>`, then `bash scripts/upload-mirror.sh <version> <dir>` with the same two environment values.
 
 ### Automated website deployment
 
@@ -88,7 +99,7 @@ Packages contain the built panel/agent/management scripts, frontend, native pass
 3. Bump `packages/shared/src/product.ts`, both installer pins, the protocol test-vector version, API version assertion, README status and deployment-document status. Update relevant feature/runbook docs.
 4. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, the web production build and `node scripts/bundle.mjs`. Registry schema tests run with the suite. Packaging runs on Linux x64 in CI.
 5. Commit and push `main`. Wait for **CI on that exact SHA** to pass. Then create and push `v<version>` pointing to that SHA. Tag creation publishes a prerelease automatically; it is not a draft or a deployment to users' panels.
-6. Wait for Release packaging and its reusable website deployment to succeed. Verify the release version, four assets, package/manifest SHA-256 values, `channels.json` version/registry and public installer pins. Do not claim the website is deployed merely because GitHub assets exist.
+6. Wait for Release packaging, its mirror upload and its reusable website deployment to succeed. Check that the mirror step uploaded rather than warning. Verify the release version, four assets, package/manifest SHA-256 values, `channels.json` version/registry and public installer pins. Do not claim the website is deployed merely because GitHub assets exist.
 7. Report the release link and actual validation. For a security fix, coordinate public disclosure under `SECURITY.md` and verify affected-version notices. Test clean installation and upgrades on the supported Linux VM matrix before claiming that matrix is validated.
 
 ## 6. Compatibility matrix (v1 target)
