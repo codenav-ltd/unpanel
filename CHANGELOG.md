@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Alerts is reorganized around three tabs with counts: Incidents, Rules and Channels. The decorative header and summary strip are gone, and the setup prompt is one line that hides on Channels. Rules are compact rows with an on/off switch, the condition as one sentence (“Memory ≥ 95% for 5 min · All nodes”), severity and destinations; removal is an icon behind the existing confirmation. Incidents switch between Active and Resolved, show relative times with the exact time on hover, and link the node. The delivery log is now Recent deliveries under Channels, showing the newest eight with Show all; a failed delivery's reason always wraps instead of being cut off.
 - Rename Re-enroll to Reconnect agent and ask before it runs. The dialog explains when it is needed, and for an online node warns that its agent is disconnected until the new command runs. Before, one click from the node menu or Host page replaced the key and disconnected the server immediately.
 - Remove the warning banner that was always shown to owners at the top of Settings → Updates. It repeated the Security update policy section below it, which still shows the active policy. Security warnings at the top of the page now only appear when an advisory affects the installed version.
 

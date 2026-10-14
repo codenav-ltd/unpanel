@@ -18,30 +18,16 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
-.alert-heading,
 .alert-section-head,
 .alert-item,
 .alert-item-heading,
 .alert-actions,
 .alert-onboarding,
-.alert-summary,
 .alert-tabs,
 .alert-steps {
   display: flex;
   align-items: center;
   gap: 16px;
-}
-.alert-heading {
-  justify-content: space-between;
-  margin-bottom: 24px;
-}
-.alert-heading > .anticon {
-  color: var(--primary);
-  font-size: 32px;
-}
-.alerts-page h2 {
-  margin: 6px 0 10px;
-  font-size: 24px;
 }
 .alerts-page h3 {
   margin: 0;
@@ -50,41 +36,54 @@
 .alerts-page p {
   margin: 8px 0;
 }
-.alert-summary {
-  flex-wrap: wrap;
-  padding: 16px 0;
-  border-block: 1px solid var(--line);
-  color: var(--text-2);
-  font-size: 13px;
-}
-.alert-summary strong {
-  margin-right: 4px;
-  color: var(--text);
-  font-size: 20px;
-}
+/* One line until a channel exists; the Channels tab itself says the rest. */
 .alert-onboarding {
-  margin-top: 20px;
-  padding: 20px;
-  background: var(--raised);
-  border: 1px solid var(--line);
+  gap: 12px;
+  margin: 16px 0 0;
+  padding: 10px 12px 10px 14px;
+  background: color-mix(in srgb, var(--primary) 7%, var(--raised));
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--line));
   border-radius: var(--radius);
 }
 .alert-onboarding > .anticon {
   color: var(--primary);
-  font-size: 24px;
-}
-.alert-onboarding > div {
-  flex: 1;
+  font-size: 18px;
 }
 .alert-onboarding p {
+  flex: 1;
+  margin: 0;
   color: var(--text-2);
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.5;
+}
+.alert-onboarding strong {
+  color: var(--text);
 }
 .alert-tabs {
   flex-wrap: wrap;
   gap: 8px;
-  margin: 24px 0;
+  margin: 16px 0 20px;
+}
+.alert-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.alert-tab-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+.alert-tab-count[data-alert="true"] {
+  background: var(--danger-tint);
+  color: var(--danger);
 }
 .alert-tabs button[aria-pressed="true"] {
   color: var(--primary);
@@ -360,5 +359,148 @@
   .alert-steps {
     gap: 8px;
     font-size: 11px;
+  }
+}
+
+.alert-target {
+  font-weight: 600;
+}
+
+/* Rules: one row each, read as "switch · what it watches · how loud · where it goes". */
+.alert-rules,
+.alert-deliveries {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.alert-rules li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto 96px auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+}
+.alert-rules li + li,
+.alert-deliveries li + li {
+  border-top: 1px solid var(--line);
+}
+.alert-rules li[data-enabled="false"] .alert-rule-main,
+.alert-rules li[data-enabled="false"] .alert-rule-severity,
+.alert-rules li[data-enabled="false"] .alert-rule-channels {
+  opacity: 0.55;
+}
+.alert-rule-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.alert-rule-main strong {
+  font-size: 14px;
+}
+.alert-rule-main span {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alert-rule-severity {
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--warn-tint);
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.alert-rule-severity[data-severity="critical"] {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+.alert-rule-channels {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.alert-rule-actions {
+  display: flex;
+  gap: 6px;
+}
+.alert-rule-actions button {
+  font-size: 12px;
+}
+button.alert-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  padding: 0;
+  color: var(--text-3);
+}
+button.alert-icon-button:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.alert-deliveries-head {
+  margin-top: 28px;
+}
+.alert-deliveries li {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 16px;
+  font-size: 13px;
+}
+.alert-delivery-state {
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.alert-deliveries li[data-state="sent"] .alert-delivery-state {
+  color: var(--ok);
+}
+.alert-deliveries li[data-state="failed"] .alert-delivery-state {
+  color: var(--danger);
+}
+.alert-delivery-main {
+  display: grid;
+  min-width: 0;
+}
+.alert-delivery-main small {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A failure's reason is the point of the row, so it is never cut off. */
+.alert-deliveries li[data-state="failed"] .alert-delivery-main small {
+  white-space: normal;
+}
+.alert-deliveries time {
+  color: var(--text-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .alert-rules li {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: 6px;
+  }
+  .alert-rule-channels {
+    display: none;
+  }
+  .alert-rule-main span {
+    white-space: normal;
+  }
+  .alert-rule-actions {
+    grid-column: 2 / -1;
+  }
+  .alert-onboarding {
+    flex-wrap: wrap;
   }
 }

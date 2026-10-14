@@ -174,7 +174,7 @@ Lightweight describes the install and the idle process, not the screen. A featur
 | `/nodes/:id/cron` | Scheduled jobs | Managed jobs + read-only list of unmanaged entries |
 | `/nodes/:id/settings` | Node settings | Today: Host page with name, tags, maintenance, and host facts. Later: traffic quota, read-only policy, upgrade, remove |
 | `/certificates` | Certificates | Expiry timeline; issuance wizard; deployment targets |
-| `/alerts` | Alerts | Tabs: open / history / rules / silences |
+| `/alerts` | Alerts | Tabs with counts: Incidents (Active / Resolved), Rules (rows with an on/off switch), Channels (with Recent deliveries) |
 | `/notifications` | Channels | Telegram binding wizard; test message |
 | `/probes` | Probes | Availability bars; latency charts per vantage point |
 | `/backups` | Backups | Plans, targets, runs, restore |

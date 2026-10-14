@@ -4,15 +4,16 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import {
-  BellOutlined,
   CheckCircleOutlined,
+  DeleteOutlined,
   MailOutlined,
   SendOutlined,
   SettingOutlined,
 } from "@ant-design/icons-vue";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import type { AlertIncident, AlertRule, AlertsView, NotificationChannel } from "@unpanel/shared";
-import { alertMetrics, alertRequest } from "../alerts-client.ts";
+import { alertRequest } from "../alerts-client.ts";
+import { ruleCondition, ruleScope, timeAgo } from "../alert-text.ts";
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
 import AlertRuleDialog from "./AlertRuleDialog.vue";
@@ -21,12 +22,14 @@ import TelegramSetupDialog from "./TelegramSetupDialog.vue";
 import "../theme/alerts.css";
 const data = ref<AlertsView | null>(null);
 const tab = ref("incidents");
-const tabs = [
-  { id: "incidents", label: "Incidents" },
-  { id: "rules", label: "Rules" },
-  { id: "channels", label: "Notification channels" },
-  { id: "deliveries", label: "Delivery log" },
-];
+const tabs = computed(() => [
+  { id: "incidents", label: "Incidents", count: active.value.length },
+  { id: "rules", label: "Rules", count: data.value?.rules.length ?? 0 },
+  { id: "channels", label: "Channels", count: data.value?.channels.length ?? 0 },
+]);
+/** The delivery log lives under Channels; the newest few are enough to check a test. */
+const DELIVERY_PREVIEW = 8;
+const allDeliveries = ref(false);
 const loading = ref(true);
 const busy = ref("");
 const error = ref("");
@@ -54,6 +57,14 @@ let disposed = false;
 const controller = new AbortController();
 function date(at: number): string {
   return new Date(at).toLocaleString();
+}
+function toggleRule(rule: AlertRule): void {
+  void act(
+    `/rules/${rule.id}`,
+    "PUT",
+    { ...rule, enabled: !rule.enabled },
+    rule.enabled ? `${rule.name} paused.` : `${rule.name} is on.`,
+  );
 }
 function schedule(): void {
   if (timer) clearTimeout(timer);
@@ -136,6 +147,11 @@ async function saveSilence(): Promise<void> {
   )
     silence.value = null;
 }
+// A confirmation belongs to the section it was made in.
+watch(tab, () => {
+  note.value = "";
+  error.value = "";
+});
 onMounted(() => {
   void refresh();
 });
@@ -147,17 +163,6 @@ onUnmounted(() => {
 </script>
 <template>
   <div class="alerts-page">
-    <header class="alert-heading">
-      <div>
-        <span class="vital-kicker">MONITORING</span>
-        <h2>Know when something needs you</h2>
-        <p class="hint">
-          Rules watch your servers in the background. Choose how and when you hear about an
-          incident.
-        </p>
-      </div>
-      <BellOutlined aria-hidden="true" />
-    </header>
     <div
       v-if="loading && !data"
       class="certificate-skeleton"
@@ -167,25 +172,12 @@ onUnmounted(() => {
       <span /><span /><span />
     </div>
     <template v-if="data">
-      <div class="alert-summary">
-        <span
-          ><strong>{{ active.length }}</strong> active incidents</span
-        ><span
-          ><strong>{{ data.rules.filter((rule) => rule.enabled).length }}</strong> enabled
-          rules</span
-        ><span
-          ><strong>{{ enabledChannels }}</strong> enabled channels</span
-        >
-      </div>
-      <div v-if="!enabledChannels" class="alert-onboarding">
+      <div v-if="!enabledChannels && tab !== 'channels'" class="alert-onboarding">
         <MailOutlined aria-hidden="true" />
-        <div>
-          <strong>Choose where alerts reach you</strong>
-          <p>
-            Incidents are already recorded here. Connect Telegram or email to receive notifications
-            when you are away.
-          </p>
-        </div>
+        <p>
+          <strong>Alerts are only shown here.</strong> Connect Telegram or email to hear about them
+          when you are away.
+        </p>
         <button class="primary" @click="tab = 'channels'">Set up notifications</button>
       </div>
       <nav class="alert-tabs" aria-label="Alert sections">
@@ -197,6 +189,9 @@ onUnmounted(() => {
           @click="tab = item.id"
         >
           {{ item.label }}
+          <span class="alert-tab-count" :data-alert="item.id === 'incidents' && item.count > 0">{{
+            item.count
+          }}</span>
         </button>
       </nav>
       <Transition name="update-result"
@@ -206,10 +201,14 @@ onUnmounted(() => {
       <Transition name="update-result" mode="out-in">
         <section v-if="tab === 'incidents'" key="incidents" aria-label="Incidents">
           <div class="alert-section-head">
-            <h3>{{ history ? "Recent history" : "Active incidents" }}</h3>
-            <button class="quiet" :aria-pressed="history" @click="history = !history">
-              {{ history ? "Show active incidents" : "Show resolved incidents" }}
-            </button>
+            <div class="layout-switch" role="group" aria-label="Which incidents">
+              <button type="button" :aria-pressed="!history" @click="history = false">
+                Active · {{ active.length }}
+              </button>
+              <button type="button" :aria-pressed="history" @click="history = true">
+                Resolved
+              </button>
+            </div>
           </div>
           <div v-if="!incidents.length" class="alert-empty">
             <CheckCircleOutlined aria-hidden="true" />
@@ -237,11 +236,26 @@ onUnmounted(() => {
                 <h3>{{ incident.name }}</h3>
               </div>
               <p>
-                <strong>{{ incident.targetName }}</strong> · {{ incident.detail }}
+                <a
+                  v-if="data.nodes.some((node) => node.id === incident.targetId)"
+                  class="alert-target"
+                  :href="`/nodes/${encodeURIComponent(incident.targetId)}`"
+                  >{{ incident.targetName }}</a
+                ><strong v-else>{{ incident.targetName }}</strong> · {{ incident.detail }}
               </p>
               <small
-                >Started {{ date(incident.startedAt)
-                }}{{ incident.resolvedAt ? ` · Ended ${date(incident.resolvedAt)}` : "" }}</small
+                ><time
+                  :datetime="new Date(incident.startedAt).toISOString()"
+                  :title="date(incident.startedAt)"
+                  >Started {{ timeAgo(incident.startedAt) }}</time
+                ><template v-if="incident.resolvedAt">
+                  ·
+                  <time
+                    :datetime="new Date(incident.resolvedAt).toISOString()"
+                    :title="date(incident.resolvedAt)"
+                    >ended {{ timeAgo(incident.resolvedAt) }}</time
+                  ></template
+                ></small
               ><small v-if="incident.acknowledgedAt">Acknowledged · Reminders stopped</small
               ><small v-if="incident.silencedUntil > Date.now()"
                 >Silenced until {{ date(incident.silencedUntil) }}</small
@@ -287,9 +301,8 @@ onUnmounted(() => {
         <section v-else-if="tab === 'rules'" key="rules" aria-label="Rules">
           <div class="alert-section-head">
             <div>
-              <h3>Rules</h3>
               <p class="hint">
-                Start with sensible defaults, then tune thresholds and destinations.
+                Each rule watches its nodes in the background. Paused rules keep their settings.
               </p>
             </div>
             <button class="primary" :disabled="Boolean(busy)" @click="editRule(null)">
@@ -304,59 +317,66 @@ onUnmounted(() => {
               Create your first rule
             </button>
           </div>
-          <article v-for="rule in data.rules" :key="rule.id" class="alert-item">
-            <div class="alert-item-main">
-              <h3>{{ rule.name }}</h3>
-              <p>
-                {{ alertMetrics.find((metric) => metric.value === rule.metric)?.label
-                }}{{
-                  rule.metric === "offline"
-                    ? ""
-                    : rule.metric === "certificate"
-                      ? ` · ${rule.threshold} days remaining`
-                      : ` ≥ ${rule.threshold}%`
-                }}
-                ·
-                {{
-                  rule.durationSeconds ? `for ${rule.durationSeconds} seconds` : "on the next check"
-                }}
-              </p>
-              <small
-                >{{ rule.severity }} ·
-                {{
-                  rule.channelIds.length
-                    ? `${rule.channelIds.length} selected channel(s)`
-                    : "All enabled channels"
-                }}
-                · {{ rule.enabled ? "Enabled" : "Paused" }}</small
-              >
-            </div>
-            <div class="alert-actions">
-              <button class="quiet" :disabled="Boolean(busy)" @click="editRule(rule)">Edit</button
-              ><button
-                class="quiet"
+          <ul v-if="data.rules.length" class="alert-rules">
+            <li v-for="rule in data.rules" :key="rule.id" :data-enabled="rule.enabled">
+              <button
+                type="button"
+                class="switch"
+                role="switch"
+                :aria-checked="rule.enabled"
+                :aria-label="`${rule.name}: ${rule.enabled ? 'on' : 'paused'}`"
                 :disabled="Boolean(busy)"
-                @click="
-                  removal = { path: `/rules/${rule.id}`, name: rule.name };
-                  error = '';
-                "
+                @click="toggleRule(rule)"
               >
-                Remove
+                <span class="switch-thumb" />
+              </button>
+              <div class="alert-rule-main">
+                <strong>{{ rule.name }}</strong>
+                <span>{{ ruleCondition(rule) }} · {{ ruleScope(rule, data.nodes) }}</span>
+              </div>
+              <span class="alert-rule-severity" :data-severity="rule.severity">{{
+                rule.severity
+              }}</span>
+              <span class="alert-rule-channels">{{
+                rule.channelIds.length
+                  ? `${rule.channelIds.length} ${rule.channelIds.length === 1 ? "channel" : "channels"}`
+                  : "All channels"
+              }}</span>
+              <div class="alert-rule-actions">
+                <button class="quiet" :disabled="Boolean(busy)" @click="editRule(rule)">
+                  Edit
+                </button>
+                <button
+                  class="quiet alert-icon-button"
+                  :disabled="Boolean(busy)"
+                  :aria-label="`Remove ${rule.name}`"
+                  :title="`Remove ${rule.name}`"
+                  @click="
+                    removal = { path: `/rules/${rule.id}`, name: rule.name };
+                    error = '';
+                  "
+                >
+                  <DeleteOutlined aria-hidden="true" />
+                </button>
+              </div>
+            </li>
+          </ul>
+        </section>
+        <section v-else key="channels" aria-label="Notification channels">
+          <div class="alert-section-head">
+            <p class="hint">
+              Where alerts are sent. Each channel has its own destination, severity filter and test.
+            </p>
+            <div v-if="data.channels.length" class="alert-actions">
+              <button class="quiet" :disabled="Boolean(busy)" @click="editTelegram(null)">
+                <SendOutlined aria-hidden="true" /> Add Telegram
+              </button>
+              <button class="quiet" :disabled="Boolean(busy)" @click="editEmail(null)">
+                <MailOutlined aria-hidden="true" /> Add email
               </button>
             </div>
-          </article>
-        </section>
-        <section v-else-if="tab === 'channels'" key="channels" aria-label="Notification channels">
-          <div class="alert-section-head">
-            <div>
-              <h3>Your notification channels</h3>
-              <p class="hint">
-                Enable any combination. Each channel has its own destination, severity filter, and
-                test.
-              </p>
-            </div>
           </div>
-          <div class="alert-channel-options">
+          <div v-if="!data.channels.length" class="alert-channel-options">
             <article class="alert-channel-option">
               <SendOutlined aria-hidden="true" />
               <h3>Telegram</h3>
@@ -380,9 +400,6 @@ onUnmounted(() => {
               </button>
             </article>
           </div>
-          <p v-if="!data.channels.length" class="hint">
-            No channels connected yet. Choose one above to get started.
-          </p>
           <article v-for="channel in data.channels" :key="channel.id" class="alert-item">
             <div class="alert-item-main">
               <h3>
@@ -412,7 +429,7 @@ onUnmounted(() => {
                     `/channels/${channel.id}/test`,
                     'POST',
                     {},
-                    'Test queued. Check the delivery result below or in Delivery log.',
+                    'Test queued. Its result appears under Recent deliveries.',
                   )
                 "
               >
@@ -459,37 +476,43 @@ onUnmounted(() => {
               </button>
             </div>
           </article>
-        </section>
-        <section v-else key="deliveries" aria-label="Delivery log">
-          <div class="alert-section-head">
-            <h3>Delivery log</h3>
-            <span class="hint">Latest 100 · Retained for 30 days</span>
+          <div class="alert-section-head alert-deliveries-head">
+            <h3>Recent deliveries</h3>
+            <span class="hint">Latest 100 · kept for 30 days</span>
           </div>
-          <div v-if="!data.deliveries.length" class="alert-empty">
-            <SendOutlined aria-hidden="true" />
-            <h3>No notifications sent yet</h3>
-            <p>Send a test from a connected channel to check its configuration.</p>
-            <button class="quiet" @click="tab = 'channels'">Open notification channels</button>
-          </div>
-          <article
-            v-for="delivery in data.deliveries"
-            :key="delivery.id"
-            class="alert-item"
-            :data-severity="delivery.state === 'failed' ? 'critical' : undefined"
+          <p v-if="!data.deliveries.length" class="hint">
+            Nothing sent yet. Send a test from a channel to check it works.
+          </p>
+          <ul v-else class="alert-deliveries">
+            <li
+              v-for="delivery in allDeliveries
+                ? data.deliveries
+                : data.deliveries.slice(0, DELIVERY_PREVIEW)"
+              :key="delivery.id"
+              :data-state="delivery.state"
+            >
+              <span class="alert-delivery-state">{{ delivery.state }}</span>
+              <span class="alert-delivery-main">
+                <strong>{{ delivery.title }}</strong>
+                <small>{{ delivery.channelName }} · {{ delivery.detail }}</small>
+              </span>
+              <time :datetime="new Date(delivery.at).toISOString()" :title="date(delivery.at)">{{
+                timeAgo(delivery.at)
+              }}</time>
+            </li>
+          </ul>
+          <button
+            v-if="!allDeliveries && data.deliveries.length > DELIVERY_PREVIEW"
+            type="button"
+            class="link-button"
+            @click="allDeliveries = true"
           >
-            <div class="alert-item-main">
-              <div class="alert-item-heading">
-                <span class="alert-badge">{{ delivery.state }}</span>
-                <h3>{{ delivery.title }}</h3>
-              </div>
-              <p>{{ delivery.channelName }} · {{ delivery.detail }}</p>
-              <small>{{ date(delivery.at) }} · {{ delivery.attempts }} attempt(s)</small>
-            </div>
-          </article>
+            Show all {{ data.deliveries.length }}
+          </button>
           <p class="hint">
-            Sent means the provider accepted the message. Inbox arrival can still depend on spam
-            filtering. Temporary failures retry up to three times; a lost provider reply can cause
-            duplicate messages.
+            Sent means the provider accepted the message; spam filtering can still hold it.
+            Temporary failures retry up to three times, and a lost provider reply can cause a
+            duplicate.
           </p>
         </section>
       </Transition>
