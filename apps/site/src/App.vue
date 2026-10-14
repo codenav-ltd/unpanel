@@ -44,8 +44,14 @@ function copyWithSelection(text: string): boolean {
 }
 
 // Measured on 2026-10-14; see scripts/bench-footprint.sh and scripts/bench-update.sh.
+// The multi-server row is from each vendor's own editions, checked in October 2026.
 const panels = ["Unpanel", "1Panel", "aaPanel", "BaoTa"];
 const measured: { label: string; note?: string; values: string[] }[] = [
+  {
+    label: "Managing several servers",
+    note: "From each vendor's site, October 2026",
+    values: ["Free", "Paid", "Paid", "Paid"],
+  },
   {
     label: "Update to the next release",
     note: "Start to the new version answering",
@@ -207,7 +213,7 @@ const trace =
         <p class="kicker">One edition</p>
         <h2>Every server and every feature, free</h2>
         <p class="lede">
-          Other panels often keep multi-server management for a paid Pro edition. Unpanel has one
+          1Panel, aaPanel and BaoTa all charge to manage more than one server. Unpanel has one
           edition, and we promise it stays whole.
         </p>
         <div class="facts promise">

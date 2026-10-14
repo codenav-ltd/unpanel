@@ -6,7 +6,7 @@
 
 ## Context
 
-- Most server panels split into a free edition and paid Pro or Enterprise editions. Multi-server management is one of the features most often kept for the paid tier: 1Panel, for example, lists its multi-node console as Pro-only.
+- Most server panels split into a free edition and paid Pro or Enterprise editions. Multi-server management is one of the features most often kept for the paid tier: 1Panel, aaPanel and BaoTa all charge for it.
 - Unpanel is built around multiple nodes ([ADR-0001](./0001-uniform-node-abstraction.md)). Charging for it would charge for the core of the product.
 - Users choosing a panel for many servers need to know that what they set up today will not be locked later.
 - The [CLA](../../CLA.md) lets CodeNav license contributions under other terms in addition to the AGPL, so the license alone does not rule out a paid edition.
