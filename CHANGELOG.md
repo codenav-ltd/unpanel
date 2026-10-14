@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.40] - 2026-10-14
+
 ### Added
 
 - Dashboard cards can be reordered, resized and removed. Customize now edits the dashboard in place: drag a card or use its arrows, pick a quarter, third, half or full width, remove cards and add them back. The layout is saved in this browser and applies to every node.
