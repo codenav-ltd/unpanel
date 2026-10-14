@@ -45,11 +45,11 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: source/package.json
+      # No pnpm cache: the store lives under source/, where setup-node's post step does not
+      # look, so saving it fails the job whenever the lockfile changes.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: source/pnpm-lock.yaml
       - run: pnpm --dir source install --frozen-lockfile
       - run: pnpm --dir source --filter @unpanel/site build
       - name: Download published release metadata
