@@ -67,6 +67,22 @@ describe("local agent link", () => {
       });
       expect(info.trace).toEqual({ cpu: [0.42], mem: [0.5], disk: [0.25], swap: [] });
       expect(info.rates).toEqual({ up: [], down: [], tcp: [12], udp: [3] });
+
+      // Browsers share the listener on /api/ws.
+      const origin = `http://127.0.0.1:${started.port}`;
+      const upgrade = (path: string, headers: Record<string, string>) =>
+        new Promise<number>((resolve) => {
+          const ws = new WebSocket(`ws://127.0.0.1:${started.port}${path}`, { headers });
+          ws.on("open", () => {
+            ws.close();
+            resolve(101);
+          });
+          ws.on("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
+          ws.on("error", () => undefined);
+        });
+      expect(await upgrade("/api/ws", { origin, cookie: `unpanel_sid=${cookie}` })).toBe(101);
+      expect(await upgrade("/api/ws", { origin })).toBe(401);
+      expect(await upgrade("/elsewhere", { origin, cookie: `unpanel_sid=${cookie}` })).toBe(404);
     } finally {
       await started.close();
       rmSync(dataDir, { recursive: true, force: true });

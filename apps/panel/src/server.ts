@@ -7,7 +7,7 @@ import { createPublicKey, type KeyObject } from "node:crypto";
 import { join } from "node:path";
 import { compareVersions, product } from "@unpanel/shared";
 import { privateKeyFromPem, publicKeyFromPem } from "@unpanel/protocol";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, type WebSocket } from "ws";
 import { createAudit } from "./audit/log.ts";
 import { createAuth } from "./auth/service.ts";
 import { createLoginSecurity } from "./auth/security.ts";
@@ -21,6 +21,7 @@ import { findUpdate, releaseForVersion, UpdateError } from "./updates/check.ts";
 import { createUpdateSecurity } from "./updates/security.ts";
 import { readUpdateHistory } from "./updates/history.ts";
 import { createApi, sessionTokenFromCookie } from "./http/api.ts";
+import { createGateway } from "./http/gateway.ts";
 import { handleHttp } from "./http/node.ts";
 import { createCertificates } from "./tls/store.ts";
 import { createAcmeIssuer } from "./tls/acme.ts";
@@ -113,6 +114,8 @@ export async function startPanel(options: {
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 28517;
   let actualPort = port;
+  /** WebSockets accepted on the plain-HTTP listener; closed when HTTPS is activated. */
+  const plainSockets = new Set<WebSocket>();
   const certificates = createCertificates({
     db: data.db,
     masterKey: data.masterKey,
@@ -128,7 +131,8 @@ export async function startPanel(options: {
       if (action === "certificate.activate" && result === "ok") {
         // Already-open ws:// sessions must also migrate to verified WSS. The
         // local agent uses the separate IPC server and stays connected.
-        for (const client of sockets[0]?.clients ?? []) client.terminate();
+        // Browser streams opened over plain HTTP close too, rather than continue unencrypted.
+        for (const client of plainSockets) client.terminate();
       }
     },
   });
@@ -271,7 +275,21 @@ export async function startPanel(options: {
     redirectOrigin: () => (certificates.view().activeId ? settings.view().publicUrl : null),
     material: certificates.activeMaterial(),
   });
-  const sockets = [attachWebSocket(listener.http, hub), attachWebSocket(listener.https, hub)];
+  const agentSockets = new WebSocketServer({
+    noServer: true,
+    perMessageDeflate: false,
+    maxPayload: 1024 * 1024,
+  });
+  agentSockets.on("connection", (socket) => hub.attach(socket));
+  const gateway = createGateway({
+    sessionUser: (token) => auth.sessionUser(token),
+    tokenFromCookie: (cookie) => sessionTokenFromCookie(cookie, secureCookie()),
+    publicOrigin: () => settings.view().publicUrl,
+    methods: new Map(),
+    openStream: (nodeId, request, callbacks) => hub.openStream(nodeId, request, callbacks),
+  });
+  routeUpgrades(listener.http, agentSockets, gateway, plainSockets);
+  routeUpgrades(listener.https, agentSockets, gateway, null);
   await new Promise<void>((resolve, reject) => {
     listener.server.once("error", reject);
     listener.server.listen(port, host, () => {
@@ -291,7 +309,8 @@ export async function startPanel(options: {
       await certificates.activate(certificate.id, base.origin, "install");
     } catch (error) {
       hub.close();
-      for (const socket of sockets) socket.close();
+      gateway.close();
+      agentSockets.close();
       await listener.close();
       auth.close();
       data.db.close();
@@ -309,7 +328,8 @@ export async function startPanel(options: {
       }
     }
     ipc = createServer(onRequest);
-    sockets.push(attachWebSocket(ipc, hub));
+    // The local agent connects over this socket; browsers never do.
+    routeUpgrades(ipc, agentSockets, null, null);
     await listen(ipc, options.socketPath);
   }
 
@@ -399,7 +419,9 @@ export async function startPanel(options: {
       clearInterval(deliveryTimer);
       await alerts.close();
       hub.close();
-      for (const socket of sockets) socket.close();
+      gateway.close();
+      for (const client of agentSockets.clients) client.terminate();
+      agentSockets.close();
       await listener.close();
       if (ipc) await closeServer(ipc);
       auth.close();
@@ -407,17 +429,31 @@ export async function startPanel(options: {
   };
 }
 
-function attachWebSocket(server: Server, hub: ReturnType<typeof createHub>): WebSocketServer {
-  const wss = new WebSocketServer({
-    server,
-    path: "/_agent/ws",
-    perMessageDeflate: false,
-    maxPayload: 1024 * 1024,
+/** One upgrade listener per server: ws servers sharing a server with `path` refuse each other's paths. */
+function routeUpgrades(
+  server: Server,
+  agentSockets: WebSocketServer,
+  gateway: ReturnType<typeof createGateway> | null,
+  plain: Set<WebSocket> | null,
+): void {
+  const accepted = (ws: WebSocket): void => {
+    if (!plain) return;
+    plain.add(ws);
+    ws.once("close", () => plain.delete(ws));
+  };
+  server.on("upgrade", (req, socket, head) => {
+    // The TLS listener may already have refused a plain-HTTP upgrade.
+    if (socket.destroyed) return;
+    if (new URL(req.url ?? "/", "http://panel").pathname === "/_agent/ws") {
+      agentSockets.handleUpgrade(req, socket, head, (ws) => {
+        accepted(ws);
+        agentSockets.emit("connection", ws, req);
+      });
+      return;
+    }
+    if (gateway?.handleUpgrade(req, socket, head, accepted)) return;
+    socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\ncontent-length: 0\r\n\r\n");
   });
-  wss.on("connection", (socket) => {
-    hub.attach(socket);
-  });
-  return wss;
 }
 
 function listen(server: Server, portOrPath: number | string, host?: string): Promise<void> {

@@ -119,6 +119,9 @@ importers:
       ws:
         specifier: ^8.19.0
         version: 8.22.0
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/nodemailer':
         specifier: ^8.0.2

@@ -161,7 +161,10 @@ Live data comes through WebSocket topics (§4).
 ### 4.1 Connection
 
 - URL: `wss://<host>/<basePath>/api/ws`
-- Auth: session cookie; `Origin` is checked during the handshake.
+- Auth: session cookie; `Origin` is checked during the handshake. It must be present and equal the request's own origin or the configured public URL's origin; otherwise the upgrade is refused with 403. A missing or invalid session gets 401.
+- The session is rechecked every 30 s; the panel also pings every 30 s and drops a tab that stops answering.
+- A malformed message closes the connection with `4400`.
+- Activating HTTPS closes every WebSocket accepted over plain HTTP, browser and agent alike, so a terminal never continues unencrypted.
 - One connection per browser tab. The frontend's singleton `WsClient` reconnects with backoff (1 s → 30 s) and resubscribes after reconnecting.
 - When the session becomes invalid, the server closes with `4401` and the frontend redirects to login.
 
@@ -181,7 +184,7 @@ type C2S =
 
 // server → client
 type S2C =
-  | { op: "ack"; id: number; ok: true; ch?: number } | { op: "ack"; id: number; ok: false; error: ApiError }
+  | { op: "ack"; id: number; ok: true; ch: number; win: number } | { op: "ack"; id: number; ok: false; error: ApiError }
   | { op: "evt"; topic: string; data: unknown; ts: number; dropped?: number }
   | { op: "sclose"; ch: number; error?: ApiError }
   | { op: "scredit"; ch: number; n: number }
@@ -189,6 +192,11 @@ type S2C =
 ```
 
 Stream data uses the same binary frame layout as the agent protocol (`kind + channel + payload`); the channel number is local to the browser connection and mapped by the gateway.
+
+- `sopen.win` is the browser's receive window; the gateway caps it per method and passes it to the agent unchanged. `ack.win` is the agent's window for browser → agent data.
+- The gateway forwards browser credit to the agent but never more than the bytes it has delivered on that channel, so the panel holds at most one window per stream. A tab that lets more than 16 MiB queue up is disconnected.
+- Each stream method on the gateway authorizes the open itself (user, node, parameters) and chooses the parameters sent to the agent.
+- Implementation: `apps/panel/src/http/gateway.ts`. Topics (`sub`/`unsub`) are not implemented yet and are answered with `E_UNSUPPORTED`; pages poll instead.
 
 ### 4.3 Topics
 

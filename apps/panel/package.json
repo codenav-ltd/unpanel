@@ -18,7 +18,8 @@
     "acme-client": "5.4.0",
     "hono": "^4.13.12",
     "nodemailer": "^10.0.13",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/nodemailer": "^8.0.2",
