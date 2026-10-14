@@ -17,6 +17,7 @@ import { ruleCondition, ruleScope, timeAgo } from "../alert-text.ts";
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
 import AlertRuleDialog from "./AlertRuleDialog.vue";
+import AlertTemplatesDialog from "./AlertTemplatesDialog.vue";
 import EmailChannelDialog from "./EmailChannelDialog.vue";
 import TelegramSetupDialog from "./TelegramSetupDialog.vue";
 import "../theme/alerts.css";
@@ -36,6 +37,7 @@ const error = ref("");
 const note = ref("");
 const history = ref(false);
 const ruleOpen = ref(false);
+const templatesOpen = ref(false);
 const selectedRule = ref<AlertRule | null>(null);
 const emailOpen = ref(false);
 const selectedChannel = ref<NotificationChannel | null>(null);
@@ -305,9 +307,14 @@ onUnmounted(() => {
                 Each rule watches its nodes in the background. Paused rules keep their settings.
               </p>
             </div>
-            <button class="primary" :disabled="Boolean(busy)" @click="editRule(null)">
-              Create rule
-            </button>
+            <div class="alert-actions">
+              <button class="quiet" :disabled="Boolean(busy)" @click="templatesOpen = true">
+                Add from templates
+              </button>
+              <button class="primary" :disabled="Boolean(busy)" @click="editRule(null)">
+                Create rule
+              </button>
+            </div>
           </div>
           <div v-if="data.legacyDefaults" class="alert-recommend" role="note">
             <p>
@@ -562,6 +569,15 @@ onUnmounted(() => {
         <span v-if="loading" class="button-spinner" aria-hidden="true" />Retry
       </button>
     </div>
+    <AlertTemplatesDialog
+      :open="templatesOpen"
+      :rules="data?.rules ?? []"
+      @close="templatesOpen = false"
+      @saved="
+        data = $event;
+        note = 'Rule added. Adjust it with Edit.';
+      "
+    />
     <AlertRuleDialog
       :open="ruleOpen"
       :rule="selectedRule"

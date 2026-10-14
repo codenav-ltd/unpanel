@@ -4,7 +4,8 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import type { AlertMetric, AlertRule, AlertsView } from "@unpanel/shared";
+import { ALERT_METRICS, type AlertMetric, type AlertRule, type AlertsView } from "@unpanel/shared";
+import { templateFor } from "../alert-templates.ts";
 import { alertMetrics, alertRequest } from "../alerts-client.ts";
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
@@ -15,39 +16,27 @@ interface Level {
   threshold: number;
   duration: number;
 }
-/** Starting levels per condition: warn early, escalate later. Matches the recommended rules. */
-const presets: Record<AlertMetric, { name: string; warning: Level; critical: Level }> = {
-  cpu: {
-    name: "CPU usage",
-    warning: { on: true, threshold: 80, duration: 300 },
-    critical: { on: true, threshold: 90, duration: 300 },
-  },
-  memory: {
-    name: "Memory usage",
-    warning: { on: true, threshold: 80, duration: 300 },
-    critical: { on: true, threshold: 90, duration: 180 },
-  },
-  disk: {
-    name: "System disk usage",
-    warning: { on: true, threshold: 80, duration: 300 },
-    critical: { on: true, threshold: 90, duration: 60 },
-  },
-  swap: {
-    name: "Swap usage",
-    warning: { on: true, threshold: 50, duration: 600 },
-    critical: { on: true, threshold: 80, duration: 300 },
-  },
-  offline: {
-    name: "Node offline",
-    warning: { on: true, threshold: 1, duration: 60 },
-    critical: { on: true, threshold: 1, duration: 300 },
-  },
-  certificate: {
-    name: "Panel certificate expiry",
-    warning: { on: true, threshold: 21, duration: 0 },
-    critical: { on: true, threshold: 7, duration: 0 },
-  },
-};
+/** Starting levels per condition come from the template library. */
+function presetFor(metric: AlertMetric): { name: string; warning: Level; critical: Level } {
+  const template = templateFor(metric);
+  const top = { threshold: template.top.threshold, duration: template.top.durationSeconds };
+  return template.top.severity === "critical"
+    ? {
+        name: template.name,
+        critical: { on: true, ...top },
+        warning: template.warning
+          ? {
+              on: true,
+              threshold: template.warning.threshold,
+              duration: template.warning.durationSeconds,
+            }
+          : { on: false, ...top },
+      }
+    : { name: template.name, warning: { on: true, ...top }, critical: { on: false, ...top } };
+}
+const presets = Object.fromEntries(
+  alertMetrics.map(({ value }) => [value, presetFor(value)]),
+) as Record<AlertMetric, { name: string; warning: Level; critical: Level }>;
 const blank = (): AlertRule => ({
   id: "",
   name: presets.cpu.name,
@@ -86,10 +75,17 @@ function durations(current: number): { value: number; label: string }[] {
     : [...baseDurations, current].sort((a, b) => a - b);
   return values.map((value) => ({ value, label: durationLabel(value) }));
 }
-const percent = computed(() => !["offline", "certificate"].includes(form.value.metric));
-const thresholdLabel = computed(() =>
-  form.value.metric === "certificate" ? "Days left at or below" : "Usage at or above (%)",
-);
+const spec = computed(() => ALERT_METRICS[form.value.metric]);
+const thresholdLabel = computed(() => {
+  const unit = spec.value.unit;
+  if (form.value.metric === "restarted") return "Up for less than (minutes)";
+  if (unit === "days") return "Days left at or below";
+  if (unit === "%") return "At or above (%)";
+  if (unit === "Mbit/s") return "At or above (Mbit/s)";
+  return "At or above";
+});
+/** Countdown conditions are checked as they are; holding them for a while adds nothing. */
+const timed = computed(() => !spec.value.panel && form.value.metric !== "restarted");
 function fromRule(rule: AlertRule): void {
   const top: Level = { on: true, threshold: rule.threshold, duration: rule.durationSeconds };
   if (rule.severity === "warning") {
@@ -153,11 +149,7 @@ async function save(): Promise<void> {
     error.value = "Choose at least one channel, or use all enabled channels.";
     return;
   }
-  if (
-    nodeScope.value === "selected" &&
-    !form.value.nodeIds.length &&
-    form.value.metric !== "certificate"
-  ) {
+  if (nodeScope.value === "selected" && !form.value.nodeIds.length && !spec.value.panel) {
     error.value = "Choose at least one node, or use all active nodes.";
     return;
   }
@@ -170,10 +162,7 @@ async function save(): Promise<void> {
         form.value.id ? "PUT" : "POST",
         {
           ...form.value,
-          nodeIds:
-            nodeScope.value === "all" || form.value.metric === "certificate"
-              ? []
-              : form.value.nodeIds,
+          nodeIds: nodeScope.value === "all" || spec.value.panel ? [] : form.value.nodeIds,
           channelIds: channelScope.value === "all" ? [] : form.value.channelIds,
           ...levelsBody(),
         },
@@ -218,13 +207,13 @@ async function save(): Promise<void> {
               ><input
                 v-model.number="item.level.threshold"
                 type="number"
-                min="1"
-                :max="percent ? 100 : 90"
+                :min="spec.min"
+                :max="spec.max"
                 :disabled="!item.level.on"
                 required
             /></label>
             <SelectField
-              v-if="form.metric !== 'certificate'"
+              v-if="timed"
               v-model="item.level.duration"
               :label="form.metric === 'offline' ? 'Offline for' : 'Lasting'"
               :options="durations(item.level.duration)"
@@ -258,9 +247,9 @@ async function save(): Promise<void> {
         <details class="alert-advanced">
           <summary>
             Advanced options ·
-            {{ form.metric === "certificate" ? "Panel certificate" : targetSummary }}
+            {{ spec.panel ? "Panel-wide" : targetSummary }}
           </summary>
-          <template v-if="form.metric !== 'certificate'"
+          <template v-if="!spec.panel"
             ><SelectField
               v-model="nodeScope"
               label="Monitor"

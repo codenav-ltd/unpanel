@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
+import { ALERT_METRICS, type AlertMetric } from "@unpanel/shared";
 import { readProblem, replyNotReceived } from "./http-error.ts";
 
 export class AlertRequestError extends Error {
@@ -41,14 +42,11 @@ export async function alertRequest<T>(
     throw new AlertRequestError(await readProblem(response, "update alerts"), response.status);
   return ((await response.json()) as { data: T }).data;
 }
-export const alertMetrics = [
-  { value: "offline", label: "Node goes offline" },
-  { value: "cpu", label: "CPU usage" },
-  { value: "memory", label: "Memory usage" },
-  { value: "disk", label: "System disk usage" },
-  { value: "swap", label: "Swap usage" },
-  { value: "certificate", label: "Panel certificate expires" },
-] as const;
+/** Conditions in the order the editor lists them. */
+export const alertMetrics = (Object.keys(ALERT_METRICS) as AlertMetric[]).map((value) => ({
+  value,
+  label: ALERT_METRICS[value].label,
+}));
 export const alertSeverities = [
   { value: "warning", label: "Warning and critical" },
   { value: "critical", label: "Critical only" },

@@ -583,3 +583,64 @@ button.alert-icon-button:hover:not(:disabled) {
     flex-wrap: wrap;
   }
 }
+
+/* Template library */
+.alert-templates-intro {
+  margin-top: 0;
+}
+.alert-template-group {
+  margin-top: 18px;
+}
+.alert-template-group h3 {
+  margin: 0 0 6px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.alert-template-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.alert-template-group li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.alert-template-main {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.alert-template-main strong {
+  font-size: 14px;
+}
+.alert-template-main span {
+  color: var(--text-2);
+  font-size: 13px;
+}
+.alert-template-main small {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.alert-template-group li > button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.alert-template-added {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--ok);
+  font-size: 12px;
+  font-weight: 600;
+}

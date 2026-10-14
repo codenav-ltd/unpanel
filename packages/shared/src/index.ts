@@ -32,6 +32,7 @@ export type {
   AlertMetric,
   AlertRule,
   AlertWarningLevel,
+  AlertMetricSpec,
   AlertIncident,
   EmailProvider,
   EmailSettings,
@@ -41,3 +42,4 @@ export type {
   TelegramSetup,
   AlertsView,
 } from "./alerts.ts";
+export { ALERT_METRICS } from "./alerts.ts";

@@ -55,6 +55,26 @@ describe("alert text", () => {
     ).toBe("Panel certificate: warning at 21 days left, critical at 7 days");
   });
 
+  it("writes the new conditions in their own units", () => {
+    expect(
+      ruleCondition({
+        metric: "network_in",
+        threshold: 800,
+        durationSeconds: 300,
+        warning: { threshold: 500, durationSeconds: 300 },
+      }),
+    ).toBe("Inbound traffic: warning ≥ 500 Mbit/s for 5 min, critical ≥ 800 Mbit/s for 5 min");
+    expect(ruleCondition({ metric: "connections", threshold: 20000, durationSeconds: 120 })).toBe(
+      "TCP connections ≥ 20,000 for 2 min",
+    );
+    expect(ruleCondition({ metric: "restarted", threshold: 10, durationSeconds: 0 })).toBe(
+      "Server restarted (up less than 10 min)",
+    );
+    expect(ruleCondition({ metric: "certificates", threshold: 7, durationSeconds: 0 })).toBe(
+      "Any managed certificate expires within 7 days",
+    );
+  });
+
   it("names what a rule covers", () => {
     const nodes = [{ id: "a", name: "web-01" }];
     expect(ruleScope({ metric: "cpu", nodeIds: [] }, nodes)).toBe("All nodes");

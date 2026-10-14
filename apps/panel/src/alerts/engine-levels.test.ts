@@ -9,7 +9,12 @@ import type { NodeRecord } from "../nodes/store.ts";
 import { createChannels } from "./channels.ts";
 import { createAlertEngine, RECOMMENDED_RULES } from "./engine.ts";
 
-function fixture(options: { clear?: boolean } = {}) {
+function fixture(
+  options: {
+    clear?: boolean;
+    certificates?: { id: string; host: string; notAfter: number; active: boolean }[];
+  } = {},
+) {
   const db = openDatabase(":memory:");
   let clock = 1_000_000;
   const live = { ...blankNodeLive("node"), online: true, memRatio: 0.5 };
@@ -48,7 +53,7 @@ function fixture(options: { clear?: boolean } = {}) {
     nodes: () => [node],
     live: () => [live],
     sampledAt: () => clock,
-    certificates: () => [],
+    certificates: () => options.certificates ?? [],
     publicUrl: () => "",
   });
   if (options.clear !== false) for (const rule of engine.rules()) engine.remove(rule.id);
@@ -287,4 +292,112 @@ describe("recommended rules", () => {
       f.db.close();
     }
   });
+});
+
+describe("more conditions", () => {
+  function rule(metric: string, threshold: number, extra: Record<string, unknown> = {}) {
+    return {
+      name: metric,
+      metric,
+      threshold,
+      durationSeconds: 0,
+      severity: "warning",
+      warning: null,
+      enabled: true,
+      nodeIds: [],
+      channelIds: [],
+      recovery: false,
+      repeatMinutes: 0,
+      ...extra,
+    };
+  }
+
+  it("reads load per core, traffic in Mbit/s and TCP connections", () => {
+    const f = fixture();
+    try {
+      Object.assign(f.live, {
+        threads: 4,
+        load5: 6,
+        rxBps: 25_000_000,
+        txBps: 100_000,
+        tcpCount: 12_000,
+      });
+      f.engine.save(rule("load", 140));
+      f.engine.save(rule("network_in", 150));
+      f.engine.save(rule("network_out", 150));
+      f.engine.save(rule("connections", 10_000));
+      f.at(0);
+      const open = f.engine
+        .incidents()
+        .map((incident) => incident.name)
+        .sort();
+      expect(open).toEqual(["connections", "load", "network_in"]);
+      expect(f.engine.incidents().find((i) => i.name === "network_in")?.detail).toBe(
+        "Inbound traffic is 200.0 Mbit/s (warning at 150 Mbit/s).",
+      );
+      expect(f.engine.incidents().find((i) => i.name === "load")?.detail).toContain("150%");
+    } finally {
+      f.db.close();
+    }
+  });
+
+  it("notices a restart from uptime and clears once the server has been up a while", () => {
+    const f = fixture();
+    try {
+      f.live.uptime = 120;
+      f.engine.save(rule("restarted", 10));
+      f.at(0);
+      expect(f.engine.incidents()).toMatchObject([{ detail: "The server started 2 minutes ago." }]);
+      f.live.uptime = 11 * 60;
+      f.at(1_000);
+      f.at(60_000);
+      expect(f.engine.incidents()[0]?.resolvedAt).not.toBeNull();
+    } finally {
+      f.db.close();
+    }
+  });
+
+  it("refuses thresholds outside a condition's range", () => {
+    const f = fixture();
+    try {
+      expect(() => f.engine.save(rule("cpu", 150))).toThrow();
+      expect(() => f.engine.save(rule("bogus", 10))).toThrow("supported alert condition");
+      f.engine.save(rule("load", 300));
+      expect(f.engine.rules()[0]?.threshold).toBe(300);
+    } finally {
+      f.db.close();
+    }
+  });
+});
+
+it("watches every managed certificate on its own", () => {
+  const day = 86_400_000;
+  const f = fixture({
+    certificates: [
+      { id: "a", host: "panel.example.com", notAfter: 1_000_000 + 30 * day, active: true },
+      { id: "b", host: "api.example.com", notAfter: 1_000_000 + 5 * day, active: false },
+    ],
+  });
+  try {
+    f.engine.save({
+      name: "Certificates",
+      metric: "certificates",
+      threshold: 7,
+      durationSeconds: 0,
+      severity: "critical",
+      warning: { threshold: 21, durationSeconds: 0 },
+      enabled: true,
+      nodeIds: ["node"],
+      channelIds: [],
+      recovery: true,
+      repeatMinutes: 0,
+    });
+    expect(f.engine.rules()[0]?.nodeIds).toEqual([]);
+    f.at(0);
+    expect(f.engine.incidents()).toMatchObject([
+      { targetName: "api.example.com", severity: "critical" },
+    ]);
+  } finally {
+    f.db.close();
+  }
 });

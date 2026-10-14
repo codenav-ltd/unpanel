@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- More alert conditions: load per CPU core, inbound and outbound traffic in Mbit/s, open TCP connections, server restarted (uptime under a few minutes), and expiry of every managed certificate, not only the panel's. Alerts → Rules → Add from templates lists them with the panel's existing conditions, grouped by resources, network, availability and certificates, each with why it matters and the warning and critical levels it starts with.
 - Update all remote agents from Settings → Updates. Update all updates the online agents that are behind the panel one at a time, waits for each to reconnect on the new version before starting the next, and stops at the first that does not come back so a bad release is not pushed to the whole fleet. Stop after this agent ends the run cleanly; offline agents and agents that need manual steps are skipped and counted in the result.
 - Alert rules can warn early and then turn critical. Give a critical rule a warning level with its own threshold and duration; one incident opens as a warning and is raised to critical in place, with a single “Now critical” notification that also reaches critical-only channels. It steps back to warning quietly when the reading drops under the critical level, recovers below the warning level, and repeats reminders only while critical. The rule editor shows Warning and Critical as two rows that can each be turned off.
 

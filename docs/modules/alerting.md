@@ -10,7 +10,20 @@ A rule has a condition, threshold, hold duration, severity, node selection, chan
 
 From alpha.24, the editor shows the condition, threshold, duration presets and notification destination first. Names and thresholds start from sensible defaults when creating a rule. Advanced options contain node scope, severity, recovery and reminders. The UI explicitly offers **All active nodes** and **All enabled channels**; choosing specific nodes or channels requires at least one selection. Existing rules retain their advanced settings when edited.
 
-Supported conditions are CPU, memory, system disk and swap usage, node offline, and **the active panel certificate**. Disk is the existing agent's system disk aggregate, not every mounted filesystem. Swap without configured capacity and missing readings are unknown, not zero. Certificate expiry watches the panel listener, not certificates on arbitrary remote services.
+Supported conditions (definitions, units and limits are shared in `ALERT_METRICS`):
+
+| Condition | Value | Notes |
+|---|---|---|
+| CPU, memory, system disk, swap usage | % | Disk is the agent's system disk aggregate, not every mount. Swap without capacity is unknown, not zero. |
+| Load per CPU core | % of cores, up to 1000 | 5-minute load average ÷ threads. |
+| Inbound / outbound traffic | Mbit/s | Sum of metered interfaces from the agent's byte rates. |
+| Open TCP connections | count | From the agent's socket count; unknown where the host does not report it. |
+| Server restarted | minutes of uptime | Fires while uptime is under the threshold and clears once it is past it; usually a single warning without a recovery message. |
+| Node offline | — | Levels differ only by how long the node is gone. |
+| Panel certificate | days left | The certificate on the panel listener. |
+| Managed certificates | days left | Every certificate in Certificates, one incident each; not certificates on arbitrary remote services. |
+
+Rules can be added from **Add from templates** on the Rules tab: grouped templates (resources, network, availability, certificates) with a one-line reason and the levels they start with. A template becomes an ordinary rule for every node and every enabled channel; Edit adjusts it. The same templates provide the editor's starting values when the condition changes. Older releases ignore conditions they do not know, so a downgraded panel leaves such rules inert rather than failing.
 
 A critical rule can carry an earlier **warning level** (alpha.41): its own threshold and hold duration, below the critical threshold (more days remaining for a certificate, a shorter outage for offline). One incident opens as a warning and is raised to critical in place, with one more notification marked “Now critical”; channels that accept only critical alerts receive that one. If the reading falls back under the critical threshold but stays past the warning, the incident steps back to warning quietly after 60 seconds. Recovery is measured against the warning threshold. Reminders repeat only while the incident is at the rule's top level, so an early warning is sent once. The editor shows the two levels as rows that can each be turned off; a single level is an ordinary rule of that severity. The warning level is an optional key in the stored rule JSON, so earlier releases still read the rule.
 

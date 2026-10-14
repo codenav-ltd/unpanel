@@ -3,6 +3,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { ALERT_METRICS } from "@unpanel/shared";
 import type {
   AlertIncident,
   AlertMetric,
@@ -98,9 +99,17 @@ function untouchedLegacy(rule: AlertRule): boolean {
   );
 }
 
-/** True when `value` meets a level: usage at or above it, days remaining at or below it. */
+/** True when `value` meets a level: at or above it, or at or below it for countdowns. */
 function meets(metric: AlertMetric, value: number, threshold: number): boolean {
-  return metric === "certificate" ? value <= threshold : value >= threshold;
+  return ALERT_METRICS[metric].direction === "below" ? value <= threshold : value >= threshold;
+}
+
+/** Recovered with a margin, so a reading hovering at the line does not flap. */
+function clear(metric: AlertMetric, value: number, floor: number): boolean {
+  if (metric === "offline") return value === 0;
+  if (ALERT_METRICS[metric].direction === "below")
+    return value > floor + (metric === "restarted" ? 0 : 1);
+  return value < floor * 0.95;
 }
 export function createAlertEngine(options: {
   db: DatabaseSync;
@@ -148,12 +157,12 @@ export function createAlertEngine(options: {
     db.prepare("INSERT INTO alert_meta VALUES ('seeded', '1')").run();
   }
   function targets(rule: AlertRule, nodes: NodeRecord[], live: Map<string, NodeLive>): Target[] {
-    if (rule.metric === "certificate")
+    if (rule.metric === "certificate" || rule.metric === "certificates")
       return options
         .certificates()
-        .filter((cert) => cert.active)
+        .filter((cert) => rule.metric === "certificates" || cert.active)
         .map((cert) => ({
-          id: "panel-certificate",
+          id: rule.metric === "certificate" ? "panel-certificate" : `certificate:${cert.id}`,
           name: cert.host,
           value: (cert.notAfter - now()) / 86_400_000,
           maintenance: false,
@@ -184,6 +193,18 @@ export function createAlertEngine(options: {
               reading.swapTotal && reading.swapUsed !== null
                 ? (reading.swapUsed / reading.swapTotal) * 100
                 : null;
+          if (rule.metric === "load")
+            value =
+              reading.load5 !== null && reading.threads
+                ? (reading.load5 / reading.threads) * 100
+                : null;
+          if (rule.metric === "network_in")
+            value = reading.rxBps === null ? null : (reading.rxBps * 8) / 1_000_000;
+          if (rule.metric === "network_out")
+            value = reading.txBps === null ? null : (reading.txBps * 8) / 1_000_000;
+          if (rule.metric === "connections") value = reading.tcpCount;
+          if (rule.metric === "restarted")
+            value = reading.uptime === null ? null : reading.uptime / 60;
         }
         return {
           id: node.id,
@@ -198,13 +219,28 @@ export function createAlertEngine(options: {
     return level === "warning" && rule.warning ? rule.warning.threshold : rule.threshold;
   }
   function detail(rule: AlertRule, target: Target, level: AlertSeverity = rule.severity): string {
-    if (rule.metric === "offline")
-      return target.value === 1
-        ? "The node is not connected to the panel."
-        : "The node is connected again.";
-    if (rule.metric === "certificate")
-      return `The active panel certificate has ${Math.max(0, Math.ceil(target.value ?? 0))} days remaining.`;
-    return `${rule.metric[0]?.toUpperCase()}${rule.metric.slice(1)} usage is ${(target.value ?? 0).toFixed(1)}% (${level} at ${levelThreshold(rule, level)}%).`;
+    const value = target.value ?? 0;
+    const line = levelThreshold(rule, level);
+    switch (rule.metric) {
+      case "offline":
+        return target.value === 1
+          ? "The node is not connected to the panel."
+          : "The node is connected again.";
+      case "certificate":
+      case "certificates":
+        return `${rule.metric === "certificate" ? "The active panel certificate" : `The certificate for ${target.name}`} has ${Math.max(0, Math.ceil(value))} days remaining (${level} at ${line}).`;
+      case "restarted":
+        return `The server started ${Math.max(0, Math.floor(value))} minutes ago.`;
+      case "network_in":
+      case "network_out":
+        return `${rule.metric === "network_in" ? "Inbound" : "Outbound"} traffic is ${value.toFixed(1)} Mbit/s (${level} at ${line} Mbit/s).`;
+      case "connections":
+        return `${Math.round(value)} TCP connections are open (${level} at ${line}).`;
+      case "load":
+        return `Load per CPU core is ${value.toFixed(0)}% (${level} at ${line}%).`;
+      default:
+        return `${rule.metric[0]?.toUpperCase()}${rule.metric.slice(1)} usage is ${value.toFixed(1)}% (${level} at ${line}%).`;
+    }
   }
   function notify(
     rule: AlertRule,
@@ -263,15 +299,17 @@ export function createAlertEngine(options: {
         throw new AlertError("Warn about an offline node sooner than the critical alert.");
       return { threshold: 1, durationSeconds };
     }
-    if (rule.metric === "certificate") {
-      const threshold = integer(level["threshold"], "Warning days", 1, 90);
-      if (threshold <= rule.threshold)
-        throw new AlertError("The warning needs more days remaining than the critical level.");
-      return { threshold, durationSeconds: 0 };
-    }
-    const threshold = integer(level["threshold"], "Warning threshold", 1, 100);
-    if (threshold >= rule.threshold)
+    const spec = ALERT_METRICS[rule.metric];
+    const threshold = integer(level["threshold"], "Warning threshold", spec.min, spec.max);
+    if (spec.direction === "below" && threshold <= rule.threshold)
+      throw new AlertError(
+        rule.metric === "restarted"
+          ? "The warning window must be longer than the critical one."
+          : "The warning needs more days remaining than the critical level.",
+      );
+    if (spec.direction === "above" && threshold >= rule.threshold)
       throw new AlertError("The warning threshold must be below the critical threshold.");
+    if (spec.panel) return { threshold, durationSeconds: 0 };
     return { threshold, durationSeconds };
   }
   function closeRule(id: string, reason: string): void {
@@ -325,8 +363,9 @@ export function createAlertEngine(options: {
       if (!old && rules().length >= 100)
         throw new AlertError("You can configure up to 100 alert rules.");
       const metric = body["metric"] as AlertMetric;
-      if (!["offline", "cpu", "memory", "disk", "swap", "certificate"].includes(metric))
+      if (typeof metric !== "string" || !Object.hasOwn(ALERT_METRICS, metric))
         throw new AlertError("Choose a supported alert condition.");
+      const spec = ALERT_METRICS[metric];
       const nodeIds = ids(body["nodeIds"]);
       const channelIds = ids(body["channelIds"]);
       if (nodeIds.some((id) => !options.nodes().some((node) => node.id === id)))
@@ -339,12 +378,10 @@ export function createAlertEngine(options: {
         metric,
         enabled: booleanField(body["enabled"]),
         threshold:
-          metric === "offline"
-            ? 1
-            : integer(body["threshold"], "Threshold", 1, metric === "certificate" ? 90 : 100),
+          metric === "offline" ? 1 : integer(body["threshold"], "Threshold", spec.min, spec.max),
         durationSeconds: integer(body["durationSeconds"], "Duration in seconds", 0, 86400),
         severity: severity(body["severity"]),
-        nodeIds: metric === "certificate" ? [] : nodeIds,
+        nodeIds: spec.panel ? [] : nodeIds,
         channelIds,
         recovery: booleanField(body["recovery"]),
         repeatMinutes: integer(body["repeatMinutes"], "Repeat interval in minutes", 0, 10080),
@@ -456,12 +493,7 @@ export function createAlertEngine(options: {
               ? "warning"
               : null;
           const floor = rule.warning?.threshold ?? rule.threshold;
-          const recovered =
-            rule.metric === "certificate"
-              ? value > floor + 1
-              : rule.metric === "offline"
-                ? value === 0
-                : value < floor * 0.95;
+          const recovered = clear(rule.metric, value, floor);
           if (!incident) {
             state.recoveryAt = null;
             if (!level) continue;

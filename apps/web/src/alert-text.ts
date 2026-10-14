@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
-import type { AlertRule } from "@unpanel/shared";
+import { ALERT_METRICS, type AlertRule } from "@unpanel/shared";
 
 /** 120 → "2 min", 90 → "90 s", 7200 → "2 h". */
 export function humanDuration(seconds: number): string {
@@ -11,14 +11,30 @@ export function humanDuration(seconds: number): string {
   return `${minutes / 60} h`;
 }
 
-const METRIC: Record<AlertRule["metric"], string> = {
+const SHORT: Record<AlertRule["metric"], string> = {
   offline: "Node offline",
   cpu: "CPU",
   memory: "Memory",
   disk: "System disk",
   swap: "Swap",
+  load: "Load per core",
+  network_in: "Inbound traffic",
+  network_out: "Outbound traffic",
+  connections: "TCP connections",
+  restarted: "Server restarted",
   certificate: "Panel certificate",
+  certificates: "Managed certificates",
 };
+
+/** "90%", "500 Mbit/s", "5,000", "7 days". */
+export function amount(metric: AlertRule["metric"], value: number): string {
+  const unit = ALERT_METRICS[metric].unit;
+  if (unit === "%") return `${value}%`;
+  if (unit === "Mbit/s") return `${value} Mbit/s`;
+  if (unit === "days") return `${value} ${value === 1 ? "day" : "days"}`;
+  if (unit === "min") return `${value} min`;
+  return value.toLocaleString("en-US");
+}
 
 function after(seconds: number): string {
   return seconds ? ` for ${humanDuration(seconds)}` : "";
@@ -33,19 +49,19 @@ export function ruleCondition(
     Partial<Pick<AlertRule, "warning">>,
 ): string {
   const warning = rule.warning ?? null;
+  const name = SHORT[rule.metric];
   if (rule.metric === "offline")
     return warning
-      ? `${METRIC.offline}: warning after ${humanDuration(warning.durationSeconds)}, critical after ${humanDuration(rule.durationSeconds)}`
-      : `${METRIC.offline}${after(rule.durationSeconds)}`;
-  if (rule.metric === "certificate") {
-    const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+      ? `${name}: warning after ${humanDuration(warning.durationSeconds)}, critical after ${humanDuration(rule.durationSeconds)}`
+      : `${name}${after(rule.durationSeconds)}`;
+  if (rule.metric === "restarted") return `${name} (up less than ${rule.threshold} min)`;
+  if (ALERT_METRICS[rule.metric].unit === "days")
     return warning
-      ? `${METRIC.certificate}: warning at ${days(warning.threshold)} left, critical at ${days(rule.threshold)}`
-      : `${METRIC.certificate} expires within ${days(rule.threshold)}`;
-  }
+      ? `${name}: warning at ${amount(rule.metric, warning.threshold)} left, critical at ${amount(rule.metric, rule.threshold)}`
+      : `${rule.metric === "certificates" ? "Any managed certificate" : name} expires within ${amount(rule.metric, rule.threshold)}`;
   return warning
-    ? `${METRIC[rule.metric]}: warning ≥ ${warning.threshold}%${after(warning.durationSeconds)}, critical ≥ ${rule.threshold}%${after(rule.durationSeconds)}`
-    : `${METRIC[rule.metric]} ≥ ${rule.threshold}%${after(rule.durationSeconds)}`;
+    ? `${name}: warning ≥ ${amount(rule.metric, warning.threshold)}${after(warning.durationSeconds)}, critical ≥ ${amount(rule.metric, rule.threshold)}${after(rule.durationSeconds)}`
+    : `${name} ≥ ${amount(rule.metric, rule.threshold)}${after(rule.durationSeconds)}`;
 }
 
 export function ruleScope(
@@ -53,6 +69,7 @@ export function ruleScope(
   nodes: readonly { id: string; name: string }[],
 ): string {
   if (rule.metric === "certificate") return "This panel";
+  if (rule.metric === "certificates") return "All managed certificates";
   if (!rule.nodeIds.length) return "All nodes";
   if (rule.nodeIds.length === 1)
     return nodes.find((node) => node.id === rule.nodeIds[0])?.name ?? "1 node";

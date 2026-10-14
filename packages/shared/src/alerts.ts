@@ -2,7 +2,85 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 export type AlertSeverity = "warning" | "critical";
-export type AlertMetric = "offline" | "cpu" | "memory" | "disk" | "swap" | "certificate";
+export type AlertMetric =
+  | "offline"
+  | "cpu"
+  | "memory"
+  | "disk"
+  | "swap"
+  | "load"
+  | "network_in"
+  | "network_out"
+  | "connections"
+  | "restarted"
+  | "certificate"
+  | "certificates";
+
+export interface AlertMetricSpec {
+  label: string;
+  /** Unit the threshold is written in. */
+  unit: "%" | "Mbit/s" | "connections" | "min" | "days" | "";
+  /** `above` fires at or above the threshold, `below` at or below it; offline has none. */
+  direction: "above" | "below" | "none";
+  min: number;
+  max: number;
+  /** Panel-wide targets instead of nodes. */
+  panel?: true;
+}
+
+/** Conditions a rule can watch. Shared so the editor and the evaluator agree on units and limits. */
+export const ALERT_METRICS: Record<AlertMetric, AlertMetricSpec> = {
+  offline: { label: "Node goes offline", unit: "", direction: "none", min: 1, max: 1 },
+  cpu: { label: "CPU usage", unit: "%", direction: "above", min: 1, max: 100 },
+  memory: { label: "Memory usage", unit: "%", direction: "above", min: 1, max: 100 },
+  disk: { label: "System disk usage", unit: "%", direction: "above", min: 1, max: 100 },
+  swap: { label: "Swap usage", unit: "%", direction: "above", min: 1, max: 100 },
+  load: {
+    label: "Load per CPU core (5-minute average)",
+    unit: "%",
+    direction: "above",
+    min: 1,
+    max: 1000,
+  },
+  network_in: {
+    label: "Inbound traffic",
+    unit: "Mbit/s",
+    direction: "above",
+    min: 1,
+    max: 100_000,
+  },
+  network_out: {
+    label: "Outbound traffic",
+    unit: "Mbit/s",
+    direction: "above",
+    min: 1,
+    max: 100_000,
+  },
+  connections: {
+    label: "Open TCP connections",
+    unit: "connections",
+    direction: "above",
+    min: 1,
+    max: 1_000_000,
+  },
+  restarted: { label: "Server restarted", unit: "min", direction: "below", min: 1, max: 1440 },
+  certificate: {
+    label: "Panel certificate expires",
+    unit: "days",
+    direction: "below",
+    min: 1,
+    max: 90,
+    panel: true,
+  },
+  certificates: {
+    label: "Any managed certificate expires",
+    unit: "days",
+    direction: "below",
+    min: 1,
+    max: 90,
+    panel: true,
+  },
+};
 export type EmailProvider = "smtp" | "resend" | "postmark";
 /**
  * An earlier, lower level on a critical rule. One incident opens as a warning and is raised to
