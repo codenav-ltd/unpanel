@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Web terminal. Node → Terminal opens a login shell on the server in the browser, with several sessions as tabs, the account to log in as when the server allows more than one, links that open on click, and a key bar with Ctrl, Alt, Esc, Tab, arrows, `|` and `~` on phones and tablets. Pasting several lines asks first unless the shell protects pastes itself. Only owners and admins can open a terminal, after confirming their identity within the last five minutes; each session is recorded in Audit with the account, source address and duration. On the server each shell runs as a login shell in its own systemd scope, is closed after 30 minutes without input or output, and everything it started is stopped when the terminal closes. Servers allow terminals as root by default; set `UNPANEL_TERMINAL=off` or `UNPANEL_TERMINAL_USERS=root,deploy` in the agent's `agent.env` to change that. Terminals need this release on both the panel and the server's agent.
+
 ## [0.1.0-alpha.42] - 2026-10-14
 
 ### Added

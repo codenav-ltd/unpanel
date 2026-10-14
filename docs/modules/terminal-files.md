@@ -60,6 +60,8 @@ node-pty.spawn("systemd-run", [
 - Mobile key toolbar (Esc, Tab, Ctrl, Alt, arrows, `|`, `~`);
 - Copy/paste: copy on select (configurable); multi-line paste asks for confirmation to avoid accidental execution.
 
+Current implementation (`apps/web/src/components/TerminalPage.vue`, `TerminalPane.vue`, `gateway-client.ts`): the page at `/nodes/:id/terminal` opens one session when it loads and more with New terminal, up to the node's 8; tabs switch with the arrow keys and closing a running one asks first. Credit for terminal output is returned once xterm has parsed it, so backpressure reaches the browser's screen. Multi-line paste is confirmed only when the shell has not enabled bracketed paste. The key toolbar shows below 768 px or on coarse pointers; Ctrl and Alt are sticky for the next key. Leaving the page closes its terminals; the browser asks before unloading while one is running. Not yet implemented: copy on select, reattach after a disconnect, and the bundled JetBrains Mono font (the system monospace stack is used).
+
 ## 2. File manager
 
 ### 2.1 Methods

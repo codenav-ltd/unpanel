@@ -48,13 +48,14 @@ import VitalTile from "../components/VitalTile.vue";
 import { loadLayout, saveLayout, type CardId } from "../dashboard-layout.ts";
 import { formatBytes, formatUptime } from "../format.ts";
 import { copyText } from "../copy.ts";
-import { formatPath, parsePath, type SettingsSection } from "./route.ts";
+import { formatPath, isNodePage, parsePath, type SettingsSection } from "./route.ts";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import { applyTheme, savedTheme, type ThemeName } from "../theme/tokens.ts";
 import { defaultLoginSecurity, type LoginSecuritySettings } from "../security.ts";
 const AlertsPage = defineAsyncComponent(() => import("../components/AlertsPage.vue"));
 const DockerPage = defineAsyncComponent(() => import("../components/DockerPage.vue"));
+const TerminalPage = defineAsyncComponent(() => import("../components/TerminalPage.vue"));
 const SecurityUpdateNotice = defineAsyncComponent(
   () => import("../components/SecurityUpdateNotice.vue"),
 );
@@ -149,6 +150,8 @@ interface NodeCard {
   uptime: number | null;
   agentVersion: string | null;
   canUpdateAgent: boolean;
+  /** Absent from panels before terminals; null when the node's agent offers none. */
+  terminalUsers?: string[] | null;
   error: string | null;
 }
 
@@ -628,7 +631,7 @@ async function refreshList(): Promise<void> {
 
 function openNode(id: string): void {
   nodeId.value = id;
-  if (page.value !== "docker") page.value = "dashboard";
+  if (page.value !== "docker" && page.value !== "terminal") page.value = "dashboard";
   void refresh();
 }
 
@@ -879,7 +882,7 @@ const addressText = computed(() => {
 const selectedNode = computed(() => catalog.value.find((node) => node.id === nodeId.value));
 
 function chooseNode(id: string): void {
-  const stay = page.value === "dashboard" || page.value === "host" || page.value === "docker";
+  const stay = isNodePage(page.value);
   nodeId.value = id;
   if (!stay) page.value = "dashboard";
   void refresh();
@@ -1040,9 +1043,11 @@ const pageTitle = computed(() => {
   const section =
     page.value === "docker"
       ? en.nav.docker
-      : page.value === "host"
-        ? en.nav.host
-        : en.nav.dashboard;
+      : page.value === "terminal"
+        ? en.nav.terminal
+        : page.value === "host"
+          ? en.nav.host
+          : en.nav.dashboard;
   return `${section} · ${nodeLabel.value}`;
 });
 
@@ -1168,7 +1173,7 @@ function restrictPage(): void {
   )
     settingsSection.value = "security";
   if (
-    (page.value === "dashboard" || page.value === "host" || page.value === "docker") &&
+    isNodePage(page.value) &&
     access.value.nodeIds !== null &&
     !access.value.nodeIds.includes(nodeId.value)
   )
@@ -1436,6 +1441,16 @@ onUnmounted(() => {
               :node-id="nodeId"
               :can-operate="canOperate"
               :can-manage="canManage"
+            />
+            <TerminalPage
+              v-else-if="page === 'terminal'"
+              :key="nodeId"
+              :node-id="nodeId"
+              :node-name="selectedNode?.name || selectedNode?.hostname || nodeId"
+              :online="selectedNode?.online ?? false"
+              :users="selectedNode?.terminalUsers ?? null"
+              :can-manage="canManage"
+              :theme="theme"
             />
             <SettingsPage
               v-else-if="page === 'settings'"

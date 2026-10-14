@@ -27,11 +27,19 @@ import {
   UnorderedListOutlined,
 } from "@ant-design/icons-vue";
 import { product } from "@unpanel/shared";
+import { isNodePage } from "../app/route.ts";
 import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch, type Component } from "vue";
 import { en } from "../i18n/en.ts";
 
 export type ShellPage =
-  "overview" | "dashboard" | "host" | "docker" | "settings" | "certificates" | "alerts";
+  | "overview"
+  | "dashboard"
+  | "host"
+  | "docker"
+  | "terminal"
+  | "settings"
+  | "certificates"
+  | "alerts";
 
 export interface SideNode {
   id: string;
@@ -65,8 +73,7 @@ const emit = defineEmits<{
 }>();
 
 const sectionLabel = computed(() => {
-  if (props.page !== "dashboard" && props.page !== "host" && props.page !== "docker")
-    return en.nav.node;
+  if (!isNodePage(props.page)) return en.nav.node;
   const node = props.nodes.find((item) => item.id === props.nodeId);
   return node?.name || node?.hostname || en.shell.localNode;
 });
@@ -141,7 +148,7 @@ const items: Item[] = [
     id: "terminal",
     label: en.nav.terminal,
     group: "node",
-    enabled: false,
+    enabled: true,
     icon: CodeOutlined,
   },
   {

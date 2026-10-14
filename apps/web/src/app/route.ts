@@ -13,6 +13,13 @@ export interface ShellLocation {
   unknown: string | null;
 }
 
+const nodePages = ["dashboard", "host", "docker", "terminal"] as const;
+
+/** Pages that show one node and keep showing it when another node is chosen. */
+export function isNodePage(page: ShellPage): boolean {
+  return (nodePages as readonly string[]).includes(page);
+}
+
 /** The shell used to keep its page in memory, so a refresh always opened the overview. */
 export function parsePath(path: string): ShellLocation {
   const parts = path.split("/").filter(Boolean);
@@ -41,7 +48,7 @@ export function parsePath(path: string): ShellLocation {
       return { page: "overview", nodeId: "local", settings: "panel", unknown: path };
     }
     return {
-      page: parts[2] === "docker" ? "docker" : parts[2] === "host" ? "host" : "dashboard",
+      page: nodePages.find((page) => page !== "dashboard" && page === parts[2]) ?? "dashboard",
       nodeId,
       settings: "panel",
       unknown: null,
@@ -59,13 +66,9 @@ export function formatPath(location: ShellLocation): string {
   if (location.page === "settings") {
     return location.settings === "panel" ? "/settings" : `/settings/${location.settings}`;
   }
-  if (location.page === "dashboard" || location.page === "host" || location.page === "docker") {
+  if (isNodePage(location.page)) {
     const id = encodeURIComponent(location.nodeId || "local");
-    return location.page === "docker"
-      ? `/nodes/${id}/docker`
-      : location.page === "host"
-        ? `/nodes/${id}/host`
-        : `/nodes/${id}`;
+    return location.page === "dashboard" ? `/nodes/${id}` : `/nodes/${id}/${location.page}`;
   }
   return "/";
 }

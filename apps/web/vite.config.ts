@@ -11,7 +11,8 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
     proxy: {
-      "/api": "http://127.0.0.1:28517",
+      // ws: the browser gateway at /api/ws (terminals).
+      "/api": { target: "http://127.0.0.1:28517", ws: true },
       "/_agent": { target: "http://127.0.0.1:28517", ws: true },
     },
   },
