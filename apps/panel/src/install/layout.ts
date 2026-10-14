@@ -142,6 +142,9 @@ export function agentEnvironment(plan: InstallPlan): string {
   });
 }
 
+/** A 1 MB young generation keeps idle processes a few MB smaller than V8's default. */
+const nodeOptions = "Environment=NODE_OPTIONS=--max-semi-space-size=1";
+
 export function panelService(plan: InstallPlan): string {
   const lines = [
     "[Unit]",
@@ -156,6 +159,7 @@ export function panelService(plan: InstallPlan): string {
     `WorkingDirectory=${plan.root}`,
     `EnvironmentFile=${plan.etc}/panel.env`,
     "Environment=NODE_ENV=production",
+    nodeOptions,
     `Environment=HOME=${plan.lib}`,
     `ExecStart=${panelExec(plan)}`,
     "Restart=on-failure",
@@ -206,6 +210,7 @@ export function agentService(plan: InstallPlan): string {
     `WorkingDirectory=${plan.root}`,
     `EnvironmentFile=${plan.agentEtc}/agent.env`,
     "Environment=NODE_ENV=production",
+    nodeOptions,
     `ExecStart=${agentExec(plan)}`,
     "Restart=always",
     "RestartSec=3",

@@ -162,6 +162,7 @@ User=root
 WorkingDirectory=${PREFIX}
 EnvironmentFile=${ETC}/agent.env
 Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-semi-space-size=1
 ExecStart=${NODE} ${PREFIX}/agent.cjs
 Restart=always
 RestartSec=3

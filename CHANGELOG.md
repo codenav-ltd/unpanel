@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Inode alerts. Agents now report how many of the system disk's inodes are in use, and a Disk inodes rule warns at 80% and turns critical at 90%, catching disks filled by small files while space remains. Filesystems that allocate inodes on demand, such as Btrfs, report none and are not checked.
 - New installations also start with the disk forecast and inode rules. All three are in Alerts → Rules → Add from templates.
 
+### Changed
+
+- Run the panel and agents with a 1 MB V8 young generation. Idle memory for the panel and local agent together drops from about 140 MB to 124 MB. New installs and panel updates rewrite the units; remote agents receive the option as a systemd drop-in on their next update.
+
 ### Fixed
 
 - The Docker page and Docker dashboard card failed to list containers on Docker Engine 29 when any container published no ports, because the engine now reports their ports as null. Updating the agent fixes it.

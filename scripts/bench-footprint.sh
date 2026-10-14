@@ -29,7 +29,7 @@ snapshot() {
   ss -Hltnu | awk '{print $1, $5}' | sort -u >"$dir/listen"
   ps -eo pid=,user=,comm= | sort -n >"$dir/ps"
   systemctl list-units --type=service --state=running --no-legend --plain | awk '{print $1}' | sort >"$dir/services"
-  df -B1 --output=used / | tail -1 | tr -d ' ' >"$dir/disk"
+  du -sxb / 2>/dev/null | cut -f1 >"$dir/disk"
 }
 
 # Prints the pids of processes absent from the "before" snapshot.

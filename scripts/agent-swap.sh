@@ -13,6 +13,10 @@ PREV="${ROOT}.agent-previous"
 NEXT="${ROOT}.agent-next"
 LIB=/var/lib/unpanel-agent
 UNIT=unpanel-agent.service
+# Remote units are written once at enrollment, so later runtime options arrive as a drop-in.
+DROPIN_DIR=/etc/systemd/system/unpanel-agent.service.d
+DROPIN="$DROPIN_DIR/runtime.conf"
+ADDED_DROPIN=0
 
 case "$ROOT" in
   /*) ;;
@@ -80,6 +84,10 @@ restore_previous() {
   if [ -d "$PREV" ]; then
     mv "$PREV" "$ROOT"
   fi
+  if [ "$ADDED_DROPIN" -eq 1 ]; then
+    rm -f "$DROPIN"
+    systemctl daemon-reload >/dev/null 2>&1 || true
+  fi
   systemctl start "$UNIT" >/dev/null 2>&1 || true
 }
 
@@ -97,6 +105,13 @@ fi
 if ! mv "$NEXT" "$ROOT"; then
   restore_previous
   exit 1
+fi
+
+if [ ! -f "$DROPIN" ] && ! grep -q '^Environment=NODE_OPTIONS=' "/etc/systemd/system/$UNIT" 2>/dev/null; then
+  mkdir -p "$DROPIN_DIR"
+  printf '[Service]\nEnvironment=NODE_OPTIONS=--max-semi-space-size=1\n' > "$DROPIN"
+  ADDED_DROPIN=1
+  systemctl daemon-reload
 fi
 
 if ! systemctl start "$UNIT"; then

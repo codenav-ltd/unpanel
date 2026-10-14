@@ -43,6 +43,27 @@ function copyWithSelection(text: string): boolean {
   }
 }
 
+// One run each on 2026-10-14; see scripts/bench-footprint.sh and scripts/bench-update.sh.
+const panels = ["Unpanel", "1Panel", "aaPanel", "BaoTa"];
+const measured: { label: string; note?: string; values: string[] }[] = [
+  { label: "Update download", values: ["1.5 MB", "61 MB", "—", "—"] },
+  { label: "Panel offline during an update", values: ["0.3 s", "none seen", "—", "—"] },
+  {
+    label: "Install",
+    note: "Depends on the network",
+    values: ["34 s", "40 s", "25 min", "14 min"],
+  },
+  { label: "System packages added", values: ["0", "0", "275", "270"] },
+  { label: "New files under /etc", values: ["7", "4", "397", "397"] },
+  {
+    label: "Disk used",
+    note: "Unpanel needs Node.js 24, another 207 MB",
+    values: ["8 MB", "197 MB", "1.8 GB", "1.3 GB"],
+  },
+  { label: "Processes running as root", values: ["1 of 2", "2 of 2", "4 of 5", "4 of 4"] },
+  { label: "Idle memory (PSS)", values: ["140 MB", "138 MB", "94 MB", "74 MB"] },
+];
+
 const trace =
   "M0 92 H70 L86 92 L100 36 L118 128 L136 64 L152 92 H250 L268 92 L284 22 L306 138 L326 58 L344 92 H470 L488 92 L504 44 L522 124 L540 72 L556 92 H640";
 </script>
@@ -65,6 +86,7 @@ const trace =
       </a>
       <nav class="links" aria-label="Site">
         <a href="#install">Install</a>
+        <a href="#numbers">Numbers</a>
         <a href="#now">This version</a>
         <a :href="product.sourceUrl">Source</a>
       </nav>
@@ -100,8 +122,8 @@ const trace =
             <button type="button" @click="copy">{{ copied ? "Copied" : "Copy" }}</button>
           </div>
           <p class="fine">
-            Linux with systemd. Node.js 24 for the account that runs sudo. The page it opens is
-            HTTP, on a port you trust.
+            Linux with systemd. Node.js 24 for the account that runs sudo. New installs serve
+            self-signed HTTPS; compare the printed fingerprint before you trust it.
           </p>
         </div>
       </section>
@@ -121,23 +143,77 @@ const trace =
         </div>
       </section>
 
+      <section id="numbers" class="numbers">
+        <p class="kicker">Measured on a fresh Ubuntu 22.04</p>
+        <h2>A 1.5 MB update, not a stack on your server</h2>
+        <dl class="stats">
+          <div>
+            <dt>Update download</dt>
+            <dd>1.5 MB</dd>
+          </div>
+          <div>
+            <dt>Panel offline during an update</dt>
+            <dd>0.3 s</dd>
+          </div>
+          <div>
+            <dt>System packages installed</dt>
+            <dd>0</dd>
+          </div>
+          <div>
+            <dt>Processes running as root</dt>
+            <dd>1</dd>
+          </div>
+        </dl>
+
+        <div class="compare-wrap">
+          <table class="compare">
+            <thead>
+              <tr>
+                <th scope="col"><span class="sr-only">Measurement</span></th>
+                <th v-for="panel in panels" :key="panel" scope="col">{{ panel }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in measured" :key="row.label">
+                <th scope="row">
+                  {{ row.label }}
+                  <span v-if="row.note" class="row-note">{{ row.note }}</span>
+                </th>
+                <td v-for="(value, index) in row.values" :key="panels[index]">{{ value }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="fine method">
+          Default install from each project's own instructions, one disposable systemd container per
+          panel on the same arm64 host, measured once on 14 October 2026: Unpanel 0.1.0-alpha.41,
+          1Panel v2.3.2 without Docker, aaPanel 8.0.7 and BaoTa 13.1.0. Updates went from Unpanel
+          alpha.40 and 1Panel v2.3.1; aaPanel and BaoTa only install their latest release, so their
+          update was not measured. Update time is left out because it is the download on this host's
+          network. Memory and CPU were read after five idle minutes.
+          <a :href="`${product.sourceUrl}/blob/main/scripts/bench-footprint.sh`">Run it yourself</a
+          >.
+        </p>
+      </section>
+
       <section id="now" class="split">
         <div>
           <p class="kicker">In {{ product.version }}</p>
           <h2>What you can use today</h2>
           <ul>
-            <li>Live CPU, memory, and disk, with history you can open per host</li>
-            <li>Add a node, then disable, enable, re-enroll, or remove it</li>
-            <li>Password and TOTP, an audit log, and a panel backup</li>
+            <li>Live CPU, memory, disk, and network, with history for every host</li>
+            <li>Docker containers, images, networks, volumes, and Compose stacks</li>
+            <li>Alerts by Telegram or email, and trusted certificates for the panel</li>
+            <li>TOTP, passkeys, and team roles scoped to nodes</li>
           </ul>
         </div>
         <div>
           <p class="kicker">Not in this version</p>
           <h2>Left out on purpose</h2>
           <ul>
-            <li>Docker, PM2, Nginx, and certificates</li>
-            <li>A signed package, and HTTPS on the panel itself</li>
-            <li>Anything the host cannot measure, shown as a number</li>
+            <li>PM2, Nginx sites, and systemd services</li>
+            <li>A web terminal and a file manager</li>
+            <li>A bundled Node.js runtime</li>
           </ul>
         </div>
       </section>
