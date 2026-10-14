@@ -6,7 +6,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { join } from "node:path";
 import { compareVersions, product } from "@unpanel/shared";
-import { privateKeyFromPem, publicKeyFromPem } from "@unpanel/protocol";
+import { privateKeyFromPem, publicKeyFromPem, termOpen } from "@unpanel/protocol";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createAudit } from "./audit/log.ts";
 import { createAuth } from "./auth/service.ts";
@@ -22,6 +22,7 @@ import { createUpdateSecurity } from "./updates/security.ts";
 import { readUpdateHistory } from "./updates/history.ts";
 import { createApi, sessionTokenFromCookie } from "./http/api.ts";
 import { createGateway } from "./http/gateway.ts";
+import { terminalStream } from "./http/terminal.ts";
 import { handleHttp } from "./http/node.ts";
 import { createCertificates } from "./tls/store.ts";
 import { createAcmeIssuer } from "./tls/acme.ts";
@@ -30,7 +31,7 @@ import { createAlerts } from "./alerts/service.ts";
 import { createContainerWatch } from "./alerts/containers.ts";
 import { FORECAST_WINDOW_MINUTES, hoursUntilFull } from "./metrics/forecast.ts";
 import { createEmailMethods } from "./email/store.ts";
-import { createFactors } from "./auth/factors.ts";
+import { createFactors, digest } from "./auth/factors.ts";
 import { createAccess } from "./auth/access.ts";
 
 export async function startPanel(options: {
@@ -285,7 +286,16 @@ export async function startPanel(options: {
     sessionUser: (token) => auth.sessionUser(token),
     tokenFromCookie: (cookie) => sessionTokenFromCookie(cookie, secureCookie()),
     publicOrigin: () => settings.view().publicUrl,
-    methods: new Map(),
+    methods: new Map([
+      [
+        termOpen.name,
+        terminalStream({
+          access: (userId) => access.get(userId),
+          elevated: (userId, token) => factors.view(userId, digest(token)).elevated,
+          audit,
+        }),
+      ],
+    ]),
     openStream: (nodeId, request, callbacks) => hub.openStream(nodeId, request, callbacks),
   });
   routeUpgrades(listener.http, agentSockets, gateway, plainSockets);

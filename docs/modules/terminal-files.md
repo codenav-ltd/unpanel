@@ -8,6 +8,8 @@
 
 Opening a terminal requires all of: RBAC `term:danger` + an active sudo session + the node allowing terminals + the requested user being on the node's list.
 
+Currently `term:danger` means an owner or admin who can see the node (operators, viewers and demo accounts cannot), and the sudo session is the identity confirmation of the last five minutes; without it the gateway answers `E_SUDO_REQUIRED` and the browser asks the user to confirm. The check applies when the terminal opens. Signing out, or the session expiring, closes the browser connection and every terminal on it (`apps/panel/src/http/terminal.ts`).
+
 The node-local policy lives in the agent's `agent.env` and takes effect when the agent restarts:
 
 | Setting | Default | Effect |
@@ -44,7 +46,7 @@ node-pty.spawn("systemd-run", [
 
 ### 1.4 Audit and recording
 
-- Audit record: open time, close time, duration, panel user, node, system user, source IP.
+- Audit record: open time, close time, duration, panel user, node, system user, source IP. They are written as `term.open` and `term.close`; a close caused by an error (including the node disconnecting) is recorded with result `error` and its code.
 - Recording (P2, off by default, per-node opt-in): **output** is recorded in asciicast v2 format to `/var/lib/unpanel-agent/recordings/`. Input is not recorded by default (so passwords typed into the terminal are not captured). Playback in the UI; kept 30 days.
 
 ### 1.5 Container terminals

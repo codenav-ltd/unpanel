@@ -24,6 +24,8 @@ import {
   signMessage,
   systemInfo,
   metricsCpu,
+  termCapabilityMeta,
+  termOpen,
   verifyMessage,
   welcomeMessage,
   type AgentUpgradeResult,
@@ -108,6 +110,8 @@ export interface NodeLive {
   uptime: number | null;
   agentVersion: string | null;
   canUpdateAgent: boolean;
+  /** Accounts a terminal may run as, or null when the agent offers no terminal. */
+  terminalUsers: string[] | null;
 }
 
 export function blankNodeLive(id: string): NodeLive {
@@ -141,6 +145,7 @@ export function blankNodeLive(id: string): NodeLive {
     uptime: null,
     agentVersion: null,
     canUpdateAgent: false,
+    terminalUsers: null,
   };
 }
 
@@ -221,6 +226,7 @@ interface Link {
   pending: Map<number, Pending>;
   readTimeouts: Map<number, ReturnType<typeof setTimeout>>;
   capabilities: Set<string>;
+  terminalUsers: string[] | null;
   /** Streams on the current socket; replaced on every connection. */
   streams: ReturnType<typeof createStreamClient> | null;
 }
@@ -327,6 +333,7 @@ export function createHub(options: {
       pending: new Map(),
       readTimeouts: new Map(),
       capabilities: new Set(),
+      terminalUsers: null,
       streams: null,
     };
   }
@@ -878,6 +885,10 @@ export function createHub(options: {
         current.socket = socket;
         current.agentVersion = agentVersion;
         current.capabilities = new Set(frame.caps.map((capability) => capability.name));
+        const terminal = termCapabilityMeta.safeParse(
+          frame.caps.find((capability) => capability.name === termOpen.capability)?.meta,
+        );
+        current.terminalUsers = terminal.success ? terminal.data.users : null;
         current.streams = createStreamClient({
           send: (out) => {
             if (socket.readyState === WebSocket.OPEN) socket.send(encodeTextFrame(out));
@@ -1142,6 +1153,7 @@ export function createHub(options: {
           uptime: sample?.uptime ?? null,
           agentVersion: info?.unpanel ?? link.agentVersion,
           canUpdateAgent: link.canUpdateAgent,
+          terminalUsers: link.terminalUsers,
         };
       });
     },
