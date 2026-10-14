@@ -39,8 +39,8 @@ content_type() {
 }
 
 # Packages first and SHA256SUMS last, so a client never sees sums for files not yet there.
-mapfile -t files < <(awk '{print $2}' "$dir/SHA256SUMS")
-for name in "${files[@]}" SHA256SUMS; do
+files=$(awk '{print $2}' "$dir/SHA256SUMS")
+for name in $files SHA256SUMS; do
   [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || {
     echo "Unexpected file name: $name" >&2
     exit 1
@@ -51,7 +51,7 @@ done
 
 check=$(mktemp -d)
 trap 'rm -rf "$check"' EXIT
-for name in "${files[@]}"; do
+for name in $files; do
   curl -fsSL --retry 3 "$site/releases/$version/$name" -o "$check/$name"
 done
 cp "$dir/SHA256SUMS" "$check/SHA256SUMS"
