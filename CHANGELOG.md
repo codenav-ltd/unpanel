@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.41] - 2026-10-14
+
 ### Added
 
 - More alert conditions: load per CPU core, inbound and outbound traffic in Mbit/s, open TCP connections, server restarted (uptime under a few minutes), and expiry of every managed certificate, not only the panel's. Alerts → Rules → Add from templates lists them with the panel's existing conditions, grouped by resources, network, availability and certificates, each with why it matters and the warning and critical levels it starts with.
