@@ -93,6 +93,9 @@ export function registerAlertApi(
   app.post("/api/v1/alerts/rules", (c) =>
     run(c, "alert.rule.create", (body) => alerts.engine.save(body)),
   );
+  app.post("/api/v1/alerts/rules/recommended", (c) =>
+    run(c, "alert.rule.recommended", () => alerts.engine.adoptRecommended()),
+  );
   app.put("/api/v1/alerts/rules/:id", (c) =>
     run(c, "alert.rule.update", (body) => alerts.engine.save(body, id(c))),
   );

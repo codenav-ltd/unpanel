@@ -4,6 +4,15 @@
 export type AlertSeverity = "warning" | "critical";
 export type AlertMetric = "offline" | "cpu" | "memory" | "disk" | "swap" | "certificate";
 export type EmailProvider = "smtp" | "resend" | "postmark";
+/**
+ * An earlier, lower level on a critical rule. One incident opens as a warning and is raised to
+ * critical in place, so a reading past both levels never produces two notifications.
+ */
+export interface AlertWarningLevel {
+  /** Usage percent, or days remaining for a certificate. Unused for offline. */
+  threshold: number;
+  durationSeconds: number;
+}
 export interface AlertRule {
   id: string;
   name: string;
@@ -12,6 +21,8 @@ export interface AlertRule {
   threshold: number;
   durationSeconds: number;
   severity: AlertSeverity;
+  /** Only on critical rules; null when the rule has a single level. */
+  warning: AlertWarningLevel | null;
   nodeIds: string[];
   channelIds: string[];
   recovery: boolean;
@@ -82,4 +93,6 @@ export interface AlertsView {
   channels: NotificationChannel[];
   deliveries: DeliveryLog[];
   nodes: { id: string; name: string }[];
+  /** Rules still exactly as seeded before alpha.41, which the recommended set can replace. */
+  legacyDefaults: number;
 }

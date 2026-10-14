@@ -29,6 +29,7 @@ export function createAlerts(
         rules: engine.rules(),
         incidents: engine.incidents(),
         nodes: options.nodes().map((node) => ({ id: node.id, name: node.name || node.id })),
+        legacyDefaults: engine.legacyDefaults(),
       };
     },
     async close(): Promise<void> {

@@ -28,6 +28,33 @@ describe("alert text", () => {
     );
   });
 
+  it("states both levels of a two-level rule", () => {
+    expect(
+      ruleCondition({
+        metric: "memory",
+        threshold: 90,
+        durationSeconds: 180,
+        warning: { threshold: 80, durationSeconds: 300 },
+      }),
+    ).toBe("Memory: warning ≥ 80% for 5 min, critical ≥ 90% for 3 min");
+    expect(
+      ruleCondition({
+        metric: "offline",
+        threshold: 1,
+        durationSeconds: 300,
+        warning: { threshold: 1, durationSeconds: 60 },
+      }),
+    ).toBe("Node offline: warning after 1 min, critical after 5 min");
+    expect(
+      ruleCondition({
+        metric: "certificate",
+        threshold: 7,
+        durationSeconds: 0,
+        warning: { threshold: 21, durationSeconds: 0 },
+      }),
+    ).toBe("Panel certificate: warning at 21 days left, critical at 7 days");
+  });
+
   it("names what a rule covers", () => {
     const nodes = [{ id: "a", name: "web-01" }];
     expect(ruleScope({ metric: "cpu", nodeIds: [] }, nodes)).toBe("All nodes");

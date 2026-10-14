@@ -31,6 +31,7 @@ export type {
   AlertSeverity,
   AlertMetric,
   AlertRule,
+  AlertWarningLevel,
   AlertIncident,
   EmailProvider,
   EmailSettings,

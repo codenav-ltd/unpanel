@@ -3,7 +3,13 @@
 
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { AlertIncident, AlertMetric, AlertRule } from "@unpanel/shared";
+import type {
+  AlertIncident,
+  AlertMetric,
+  AlertRule,
+  AlertSeverity,
+  AlertWarningLevel,
+} from "@unpanel/shared";
 import type { NodeLive } from "../hub.ts";
 import type { NodeRecord } from "../nodes/store.ts";
 import type { createChannels } from "./channels.ts";
@@ -19,8 +25,82 @@ interface IncidentRow extends AlertIncident {
   lastNotified: number;
 }
 interface Pending {
+  /** When the critical (or single) level started to hold. */
   breachAt: number | null;
+  /** When the earlier warning level started to hold. */
+  warnAt: number | null;
   recoveryAt: number | null;
+  /** When a critical incident fell back below its critical level. */
+  calmAt: number | null;
+}
+
+type Seed = [string, AlertMetric, number, number, AlertSeverity, AlertWarningLevel | null];
+
+/** Seeded before alpha.41. Rules still exactly like these can be replaced by the current set. */
+const LEGACY_DEFAULTS: Seed[] = [
+  ["Node offline", "offline", 1, 120, "critical", null],
+  ["Disk almost full", "disk", 90, 300, "warning", null],
+  ["Disk critically full", "disk", 97, 60, "critical", null],
+  ["Memory pressure", "memory", 95, 300, "warning", null],
+  ["Sustained CPU load", "cpu", 95, 600, "warning", null],
+  ["Panel certificate expires soon", "certificate", 14, 0, "warning", null],
+  ["Panel certificate needs renewal", "certificate", 3, 0, "critical", null],
+];
+
+/** Warn early, then raise the same incident to critical. */
+export const RECOMMENDED_RULES: Seed[] = [
+  ["Node offline", "offline", 1, 300, "critical", { threshold: 1, durationSeconds: 60 }],
+  ["CPU usage", "cpu", 90, 300, "critical", { threshold: 80, durationSeconds: 300 }],
+  ["Memory usage", "memory", 90, 180, "critical", { threshold: 80, durationSeconds: 300 }],
+  ["System disk usage", "disk", 90, 60, "critical", { threshold: 80, durationSeconds: 300 }],
+  ["Swap usage", "swap", 80, 300, "critical", { threshold: 50, durationSeconds: 600 }],
+  [
+    "Panel certificate expiry",
+    "certificate",
+    7,
+    0,
+    "critical",
+    { threshold: 21, durationSeconds: 0 },
+  ],
+];
+
+function seeded([name, metric, threshold, durationSeconds, severity, warning]: Seed): AlertRule {
+  return {
+    id: randomUUID(),
+    name,
+    metric,
+    threshold,
+    durationSeconds,
+    severity,
+    warning,
+    enabled: true,
+    nodeIds: [],
+    channelIds: [],
+    recovery: true,
+    repeatMinutes: severity === "critical" ? 60 : 0,
+  };
+}
+
+function untouchedLegacy(rule: AlertRule): boolean {
+  return LEGACY_DEFAULTS.some(
+    ([name, metric, threshold, durationSeconds, severity]) =>
+      rule.name === name &&
+      rule.metric === metric &&
+      rule.threshold === threshold &&
+      rule.durationSeconds === durationSeconds &&
+      rule.severity === severity &&
+      rule.warning === null &&
+      rule.enabled &&
+      rule.recovery &&
+      !rule.nodeIds.length &&
+      !rule.channelIds.length &&
+      rule.repeatMinutes === (severity === "critical" ? 60 : 0),
+  );
+}
+
+/** True when `value` meets a level: usage at or above it, days remaining at or below it. */
+function meets(metric: AlertMetric, value: number, threshold: number): boolean {
+  return metric === "certificate" ? value <= threshold : value >= threshold;
 }
 export function createAlertEngine(options: {
   db: DatabaseSync;
@@ -52,7 +132,11 @@ export function createAlertEngine(options: {
   function rules(): AlertRule[] {
     return (
       db.prepare("SELECT config FROM alert_rules ORDER BY rowid").all() as { config: string }[]
-    ).map((row) => JSON.parse(row.config) as AlertRule);
+    ).map((row) => {
+      const rule = JSON.parse(row.config) as AlertRule;
+      // Rules saved before alpha.41 have no warning level.
+      return { ...rule, warning: rule.warning ?? null };
+    });
   }
   function persist(rule: AlertRule): void {
     db.prepare(
@@ -60,29 +144,7 @@ export function createAlertEngine(options: {
     ).run(rule.id, JSON.stringify(rule));
   }
   if (!db.prepare("SELECT 1 FROM alert_meta WHERE key = 'seeded'").get()) {
-    const defaults: [string, AlertMetric, number, number, "warning" | "critical"][] = [
-      ["Node offline", "offline", 1, 120, "critical"],
-      ["Disk almost full", "disk", 90, 300, "warning"],
-      ["Disk critically full", "disk", 97, 60, "critical"],
-      ["Memory pressure", "memory", 95, 300, "warning"],
-      ["Sustained CPU load", "cpu", 95, 600, "warning"],
-      ["Panel certificate expires soon", "certificate", 14, 0, "warning"],
-      ["Panel certificate needs renewal", "certificate", 3, 0, "critical"],
-    ];
-    for (const [name, metric, threshold, durationSeconds, level] of defaults)
-      persist({
-        id: randomUUID(),
-        name,
-        metric,
-        threshold,
-        durationSeconds,
-        severity: level,
-        enabled: true,
-        nodeIds: [],
-        channelIds: [],
-        recovery: true,
-        repeatMinutes: level === "critical" ? 60 : 0,
-      });
+    for (const seed of RECOMMENDED_RULES) persist(seeded(seed));
     db.prepare("INSERT INTO alert_meta VALUES ('seeded', '1')").run();
   }
   function targets(rule: AlertRule, nodes: NodeRecord[], live: Map<string, NodeLive>): Target[] {
@@ -131,32 +193,50 @@ export function createAlertEngine(options: {
         };
       });
   }
-  function detail(rule: AlertRule, target: Target): string {
+  /** The threshold behind an incident's current severity. */
+  function levelThreshold(rule: AlertRule, level: AlertSeverity): number {
+    return level === "warning" && rule.warning ? rule.warning.threshold : rule.threshold;
+  }
+  function detail(rule: AlertRule, target: Target, level: AlertSeverity = rule.severity): string {
     if (rule.metric === "offline")
       return target.value === 1
         ? "The node is not connected to the panel."
         : "The node is connected again.";
     if (rule.metric === "certificate")
       return `The active panel certificate has ${Math.max(0, Math.ceil(target.value ?? 0))} days remaining.`;
-    return `${rule.metric[0]?.toUpperCase()}${rule.metric.slice(1)} usage is ${(target.value ?? 0).toFixed(1)}% (threshold ${rule.threshold}%).`;
+    return `${rule.metric[0]?.toUpperCase()}${rule.metric.slice(1)} usage is ${(target.value ?? 0).toFixed(1)}% (${level} at ${levelThreshold(rule, level)}%).`;
   }
   function notify(
     rule: AlertRule,
     incident: IncidentRow,
     target: Target,
-    kind: "firing" | "resolved" | "repeat",
+    kind: "firing" | "resolved" | "repeat" | "escalated",
   ): void {
     if (target.maintenance || incident.silencedUntil > now()) return;
-    const title = `Unpanel · ${kind === "resolved" ? "Resolved" : rule.severity === "critical" ? "Critical" : "Warning"}: ${rule.name}`;
+    const level = incident.severity;
+    const label =
+      kind === "resolved"
+        ? "Resolved"
+        : kind === "escalated"
+          ? "Now critical"
+          : level === "critical"
+            ? "Critical"
+            : "Warning";
+    const title = `Unpanel · ${label}: ${rule.name}`;
     const address = options.publicUrl();
     const queued = channels.notify(
       {
         title,
-        text: `${target.name}\n${detail(rule, target)}\n${new Date(now()).toISOString()}${address ? `\n\n${address}/alerts` : ""}`,
+        text: `${target.name}\n${detail(rule, target, level)}\n${new Date(now()).toISOString()}${address ? `\n\n${address}/alerts` : ""}`,
         key: incident.id,
-        source: { ruleId: rule.id, incidentId: incident.id, event: kind },
+        // An escalation is a new firing at the higher level, so critical-only channels get it.
+        source: {
+          ruleId: rule.id,
+          incidentId: incident.id,
+          event: kind === "escalated" ? "firing" : kind,
+        },
       },
-      rule.severity,
+      level,
       rule.channelIds,
     );
     if (queued)
@@ -164,6 +244,35 @@ export function createAlertEngine(options: {
         now(),
         incident.id,
       );
+  }
+  function warningLevel(value: unknown, rule: AlertRule): AlertWarningLevel | null {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== "object" || Array.isArray(value))
+      throw new AlertError("Send the warning level as an object, or null for none.");
+    if (rule.severity !== "critical")
+      throw new AlertError("An earlier warning level needs a critical rule.");
+    const level = value as Record<string, unknown>;
+    const durationSeconds = integer(
+      level["durationSeconds"],
+      "Warning duration in seconds",
+      0,
+      86400,
+    );
+    if (rule.metric === "offline") {
+      if (durationSeconds >= rule.durationSeconds)
+        throw new AlertError("Warn about an offline node sooner than the critical alert.");
+      return { threshold: 1, durationSeconds };
+    }
+    if (rule.metric === "certificate") {
+      const threshold = integer(level["threshold"], "Warning days", 1, 90);
+      if (threshold <= rule.threshold)
+        throw new AlertError("The warning needs more days remaining than the critical level.");
+      return { threshold, durationSeconds: 0 };
+    }
+    const threshold = integer(level["threshold"], "Warning threshold", 1, 100);
+    if (threshold >= rule.threshold)
+      throw new AlertError("The warning threshold must be below the critical threshold.");
+    return { threshold, durationSeconds };
   }
   function closeRule(id: string, reason: string): void {
     channels.cancelRule(id);
@@ -239,7 +348,9 @@ export function createAlertEngine(options: {
         channelIds,
         recovery: booleanField(body["recovery"]),
         repeatMinutes: integer(body["repeatMinutes"], "Repeat interval in minutes", 0, 10080),
+        warning: null,
       };
+      rule.warning = warningLevel(body["warning"], rule);
       if (rule.repeatMinutes > 0 && rule.repeatMinutes < 5)
         throw new AlertError("Use at least 5 minutes between reminders, or 0 to turn them off.");
       if (old)
@@ -248,6 +359,20 @@ export function createAlertEngine(options: {
           "Rule settings changed. New readings will be evaluated against the updated rule.",
         );
       persist(rule);
+    },
+    /** How many rules are still the untouched defaults from before alpha.41. */
+    legacyDefaults(): number {
+      return rules().filter(untouchedLegacy).length;
+    },
+    /** Replaces untouched old defaults with the current set; edited rules are left alone. */
+    adoptRecommended(): void {
+      const current = rules();
+      for (const rule of current.filter(untouchedLegacy)) {
+        closeRule(rule.id, "Replaced by the recommended rules.");
+        db.prepare("DELETE FROM alert_rules WHERE id = ?").run(rule.id);
+      }
+      const names = new Set(rules().map((rule) => rule.name));
+      for (const seed of RECOMMENDED_RULES) if (!names.has(seed[0])) persist(seeded(seed));
     },
     remove(id: string): void {
       closeRule(id, "Rule removed by an administrator.");
@@ -290,7 +415,12 @@ export function createAlertEngine(options: {
         for (const target of targets(rule, nodes, live)) {
           const key = `${rule.id}:${target.id}`;
           valid.add(key);
-          const state = pending.get(key) ?? { breachAt: null, recoveryAt: null };
+          const state = pending.get(key) ?? {
+            breachAt: null,
+            warnAt: null,
+            recoveryAt: null,
+            calmAt: null,
+          };
           const incident = openMap.get(key);
           pending.set(key, state);
           if (
@@ -301,39 +431,52 @@ export function createAlertEngine(options: {
             incident.lastNotified = refreshNotificationTime(incident.id);
           if (target.value === null || !Number.isFinite(target.value)) {
             state.breachAt = null;
+            state.warnAt = null;
             state.recoveryAt = null;
+            state.calmAt = null;
             continue;
           }
-          const breach =
-            rule.metric === "certificate"
-              ? target.value <= rule.threshold
-              : target.value >= rule.threshold;
+          const value = target.value;
+          // Offline has no threshold; its two levels differ only in how long it lasts.
+          const breach = meets(rule.metric, value, rule.threshold);
+          const warn = rule.warning ? meets(rule.metric, value, rule.warning.threshold) : false;
+          if (breach) state.breachAt ??= now();
+          else state.breachAt = null;
+          if (warn) state.warnAt ??= now();
+          else state.warnAt = null;
+          const criticalHeld =
+            state.breachAt !== null && now() - state.breachAt >= rule.durationSeconds * 1000;
+          const warningHeld =
+            rule.warning !== null &&
+            state.warnAt !== null &&
+            now() - state.warnAt >= rule.warning.durationSeconds * 1000;
+          const level: AlertSeverity | null = criticalHeld
+            ? rule.severity
+            : warningHeld
+              ? "warning"
+              : null;
+          const floor = rule.warning?.threshold ?? rule.threshold;
           const recovered =
             rule.metric === "certificate"
-              ? target.value > rule.threshold + 1
+              ? value > floor + 1
               : rule.metric === "offline"
-                ? target.value === 0
-                : target.value < rule.threshold * 0.95;
+                ? value === 0
+                : value < floor * 0.95;
           if (!incident) {
             state.recoveryAt = null;
-            if (!breach) {
-              state.breachAt = null;
-              continue;
-            }
-            state.breachAt ??= now();
-            if (now() - state.breachAt < rule.durationSeconds * 1000) continue;
+            if (!level) continue;
             const created: IncidentRow = {
               id: randomUUID(),
               ruleId: rule.id,
               name: rule.name,
               targetId: target.id,
               targetName: target.name,
-              severity: rule.severity,
+              severity: level,
               startedAt: now(),
               resolvedAt: null,
               acknowledgedAt: null,
               silencedUntil: 0,
-              detail: detail(rule, target),
+              detail: detail(rule, target, level),
               lastNotified: 0,
             };
             db.prepare(
@@ -344,7 +487,7 @@ export function createAlertEngine(options: {
               rule.name,
               target.id,
               target.name,
-              rule.severity,
+              level,
               now(),
               created.detail,
             );
@@ -362,17 +505,46 @@ export function createAlertEngine(options: {
                 ]);
                 db.prepare(
                   "UPDATE alert_incidents SET resolvedAt = ?, detail = ? WHERE id = ?",
-                ).run(now(), detail(rule, target), incident.id);
+                ).run(now(), detail(rule, target, incident.severity), incident.id);
                 if (rule.recovery && incident.lastNotified)
                   notify(rule, incident, target, "resolved");
                 pending.delete(key);
                 continue;
               }
             } else state.recoveryAt = null;
+            if (incident.severity === "warning" && level === "critical") {
+              // Raise in place: one incident, one new notification at the higher level.
+              incident.severity = "critical";
+              incident.acknowledgedAt = null;
+              state.calmAt = null;
+              db.prepare(
+                "UPDATE alert_incidents SET severity = 'critical', acknowledgedAt = NULL, detail = ? WHERE id = ?",
+              ).run(detail(rule, target, "critical"), incident.id);
+              notify(rule, incident, target, "escalated");
+              continue;
+            }
+            if (
+              rule.warning &&
+              incident.severity === "critical" &&
+              !recovered &&
+              !meets(rule.metric, value, rule.threshold)
+            ) {
+              // Back under critical but still past the warning: step down quietly once stable.
+              state.calmAt ??= now();
+              if (now() - state.calmAt >= 60_000) {
+                incident.severity = "warning";
+                state.calmAt = null;
+                db.prepare(
+                  "UPDATE alert_incidents SET severity = 'warning', detail = ? WHERE id = ?",
+                ).run(detail(rule, target, "warning"), incident.id);
+              }
+            } else state.calmAt = null;
+            // Reminders are for the rule's top level; an early warning is said once.
             if (
               !incident.acknowledgedAt &&
               (!incident.lastNotified ||
                 (rule.repeatMinutes > 0 &&
+                  incident.severity === rule.severity &&
                   now() - incident.lastNotified >= rule.repeatMinutes * 60_000))
             )
               notify(rule, incident, target, incident.lastNotified ? "repeat" : "firing");

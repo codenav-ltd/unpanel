@@ -309,6 +309,34 @@ onUnmounted(() => {
               Create rule
             </button>
           </div>
+          <div v-if="data.legacyDefaults" class="alert-recommend" role="note">
+            <p>
+              <strong>Earlier warnings are available.</strong>
+              {{ data.legacyDefaults }} built-in
+              {{ data.legacyDefaults === 1 ? "rule is" : "rules are" }} still at the old levels,
+              such as memory at 95%. The recommended rules warn at 80% and turn critical at 90%, and
+              add swap. Rules you changed are kept.
+            </p>
+            <button
+              class="primary"
+              :disabled="Boolean(busy)"
+              :aria-busy="busy === '/rules/recommended'"
+              @click="
+                act(
+                  '/rules/recommended',
+                  'POST',
+                  {},
+                  'Recommended rules are on. Your edited rules were kept.',
+                )
+              "
+            >
+              <span
+                v-if="busy === '/rules/recommended'"
+                class="button-spinner"
+                aria-hidden="true"
+              />Use recommended rules
+            </button>
+          </div>
           <div v-if="!data.rules.length" class="alert-empty">
             <SettingOutlined aria-hidden="true" />
             <h3>No rules configured</h3>
@@ -334,9 +362,13 @@ onUnmounted(() => {
                 <strong>{{ rule.name }}</strong>
                 <span>{{ ruleCondition(rule) }} · {{ ruleScope(rule, data.nodes) }}</span>
               </div>
-              <span class="alert-rule-severity" :data-severity="rule.severity">{{
-                rule.severity
-              }}</span>
+              <span class="alert-rule-levels">
+                <span v-if="rule.warning" class="alert-rule-severity" data-severity="warning"
+                  >Warning</span
+                ><span class="alert-rule-severity" :data-severity="rule.severity">{{
+                  rule.severity
+                }}</span>
+              </span>
               <span class="alert-rule-channels">{{
                 rule.channelIds.length
                   ? `${rule.channelIds.length} ${rule.channelIds.length === 1 ? "channel" : "channels"}`

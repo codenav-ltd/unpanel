@@ -12,15 +12,22 @@ From alpha.24, the editor shows the condition, threshold, duration presets and n
 
 Supported conditions are CPU, memory, system disk and swap usage, node offline, and **the active panel certificate**. Disk is the existing agent's system disk aggregate, not every mounted filesystem. Swap without configured capacity and missing readings are unknown, not zero. Certificate expiry watches the panel listener, not certificates on arbitrary remote services.
 
-Default enabled rules:
+A critical rule can carry an earlier **warning level** (alpha.41): its own threshold and hold duration, below the critical threshold (more days remaining for a certificate, a shorter outage for offline). One incident opens as a warning and is raised to critical in place, with one more notification marked “Now critical”; channels that accept only critical alerts receive that one. If the reading falls back under the critical threshold but stays past the warning, the incident steps back to warning quietly after 60 seconds. Recovery is measured against the warning threshold. Reminders repeat only while the incident is at the rule's top level, so an early warning is sent once. The editor shows the two levels as rows that can each be turned off; a single level is an ordinary rule of that severity. The warning level is an optional key in the stored rule JSON, so earlier releases still read the rule.
 
-- Node offline for 120 seconds: critical. After panel startup, a separate 180-second grace period precedes offline evaluation.
-- System disk usage at least 90% for 5 minutes: warning; at least 97% for 1 minute: critical.
-- Memory usage at least 95% for 5 minutes: warning.
-- CPU usage at least 95% for 10 minutes: warning.
-- Active panel certificate has at most 14 days remaining: warning; at most 3 days: critical.
+Default enabled rules (alpha.41), each warning first and then critical:
 
-Critical defaults repeat hourly; warning defaults do not repeat. These are editable defaults, seeded only once. Removing every rule does not recreate them on restart. Without a notification channel, incidents still appear in the panel and an onboarding notice explains how to connect a destination. An incident is not marked notified until at least one eligible delivery is queued, so connecting the first channel can notify an already active incident on the next evaluation.
+| Rule | Warning | Critical |
+|---|---|---|
+| Node offline | 1 minute | 5 minutes |
+| CPU usage | ≥ 80% for 5 minutes | ≥ 90% for 5 minutes |
+| Memory usage | ≥ 80% for 5 minutes | ≥ 90% for 3 minutes |
+| System disk usage | ≥ 80% for 5 minutes | ≥ 90% for 1 minute |
+| Swap usage | ≥ 50% for 10 minutes | ≥ 80% for 5 minutes |
+| Panel certificate expiry | 21 days left | 7 days left |
+
+After panel startup, a 180-second grace period precedes offline evaluation. Installations seeded before alpha.41 keep their rules. Rules tab offers **Use recommended rules** while any of the old seven defaults is still exactly as seeded; it replaces only those, adds the recommended rules whose names are missing, and leaves edited rules alone.
+
+Default rules repeat hourly once critical. These are editable defaults, seeded only once. Removing every rule does not recreate them on restart. Without a notification channel, incidents still appear in the panel and an onboarding notice explains how to connect a destination. An incident is not marked notified until at least one eligible delivery is queued, so connecting the first channel can notify an already active incident on the next evaluation.
 
 ## State and recovery
 

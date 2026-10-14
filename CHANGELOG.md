@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Alert rules can warn early and then turn critical. Give a critical rule a warning level with its own threshold and duration; one incident opens as a warning and is raised to critical in place, with a single “Now critical” notification that also reaches critical-only channels. It steps back to warning quietly when the reading drops under the critical level, recovers below the warning level, and repeats reminders only while critical. The rule editor shows Warning and Critical as two rows that can each be turned off.
+
+### Changed
+
+- New installations start with earlier two-level rules: CPU, memory and disk warn at 80% and turn critical at 90%, swap warns at 50% and turns critical at 80%, an offline node warns after 1 minute and is critical after 5, and the panel certificate warns at 21 days and is critical at 7. Existing installations keep their rules; Alerts → Rules offers Use recommended rules while the old defaults are unchanged, and it keeps any rule you edited.
+
 ## [0.1.0-alpha.40] - 2026-10-14
 
 ### Added

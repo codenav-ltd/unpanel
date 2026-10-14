@@ -20,15 +20,32 @@ const METRIC: Record<AlertRule["metric"], string> = {
   certificate: "Panel certificate",
 };
 
-/** One line a person reads as the rule: "Memory ≥ 95% for 5 min". */
+function after(seconds: number): string {
+  return seconds ? ` for ${humanDuration(seconds)}` : "";
+}
+
+/**
+ * One line a person reads as the rule: "Memory ≥ 95% for 5 min", or with an earlier warning
+ * "Memory: warning ≥ 80% for 5 min, critical ≥ 90% for 3 min".
+ */
 export function ruleCondition(
-  rule: Pick<AlertRule, "metric" | "threshold" | "durationSeconds">,
+  rule: Pick<AlertRule, "metric" | "threshold" | "durationSeconds"> &
+    Partial<Pick<AlertRule, "warning">>,
 ): string {
-  const wait = rule.durationSeconds ? ` for ${humanDuration(rule.durationSeconds)}` : "";
-  if (rule.metric === "offline") return `${METRIC.offline}${wait}`;
-  if (rule.metric === "certificate")
-    return `${METRIC.certificate} expires within ${rule.threshold} ${rule.threshold === 1 ? "day" : "days"}`;
-  return `${METRIC[rule.metric]} ≥ ${rule.threshold}%${wait}`;
+  const warning = rule.warning ?? null;
+  if (rule.metric === "offline")
+    return warning
+      ? `${METRIC.offline}: warning after ${humanDuration(warning.durationSeconds)}, critical after ${humanDuration(rule.durationSeconds)}`
+      : `${METRIC.offline}${after(rule.durationSeconds)}`;
+  if (rule.metric === "certificate") {
+    const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+    return warning
+      ? `${METRIC.certificate}: warning at ${days(warning.threshold)} left, critical at ${days(rule.threshold)}`
+      : `${METRIC.certificate} expires within ${days(rule.threshold)}`;
+  }
+  return warning
+    ? `${METRIC[rule.metric]}: warning ≥ ${warning.threshold}%${after(warning.durationSeconds)}, critical ≥ ${rule.threshold}%${after(rule.durationSeconds)}`
+    : `${METRIC[rule.metric]} ≥ ${rule.threshold}%${after(rule.durationSeconds)}`;
 }
 
 export function ruleScope(
