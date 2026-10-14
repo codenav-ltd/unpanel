@@ -27,6 +27,7 @@ import {
   waitForPanelUpdate,
 } from "../update-flow.ts";
 import { formatDuration, type UpdateOperation } from "../update-history.ts";
+import { rolloutPlan } from "../agent-rollout.ts";
 import ReleaseDetailsDialog from "./ReleaseDetailsDialog.vue";
 import DowngradeDialog from "./DowngradeDialog.vue";
 import UpdateDetailsDrawer from "./UpdateDetailsDrawer.vue";
@@ -238,6 +239,12 @@ const bansError = ref("");
 const bansNote = ref("");
 const unbanBusy = ref("");
 const remoteNodes = computed(() => props.nodes.filter((node) => node.id !== "local"));
+const rollout = computed(() => rolloutPlan(remoteNodes.value, product.version));
+/** Update all: one agent at a time, stopping at the first that does not come back current. */
+const fleetRun = ref<{ done: number; total: number; current: string; stopping: boolean } | null>(
+  null,
+);
+const fleetNote = ref<{ kind: "success" | "error"; text: string } | null>(null);
 const panelBlocksAgentUpdates = computed(
   () => updateState.value !== "current" || Boolean(updateVersion.value),
 );
@@ -1031,8 +1038,8 @@ function canUpdateNode(node: UpdateNode): boolean {
   );
 }
 
-async function updateAgent(node: UpdateNode): Promise<void> {
-  if (!canUpdateNode(node)) return;
+async function updateAgent(node: UpdateNode): Promise<boolean> {
+  if (!canUpdateNode(node)) return false;
   agentBusy.value = node.id;
   agentResult.value = {
     ...agentResult.value,
@@ -1047,7 +1054,7 @@ async function updateAgent(node: UpdateNode): Promise<void> {
         ...agentResult.value,
         [node.id]: { kind: "error", text: await readProblem(response, "update this agent") },
       };
-      return;
+      return false;
     }
     agentResult.value = {
       ...agentResult.value,
@@ -1061,6 +1068,7 @@ async function updateAgent(node: UpdateNode): Promise<void> {
         : { kind: "error", text: en.updates.agentReconnectFailed },
     };
     emit("refreshNodes");
+    return current;
   } catch {
     agentResult.value = {
       ...agentResult.value,
@@ -1072,8 +1080,40 @@ async function updateAgent(node: UpdateNode): Promise<void> {
         ),
       },
     };
+    return false;
   } finally {
     agentBusy.value = "";
+  }
+}
+
+async function updateAllAgents(): Promise<void> {
+  if (fleetRun.value || panelBlocksAgentUpdates.value) return;
+  const queue = [...rollout.value.ready];
+  if (!queue.length) return;
+  const skipped = rollout.value.offline.length + rollout.value.manual.length;
+  fleetNote.value = null;
+  fleetRun.value = { done: 0, total: queue.length, current: "", stopping: false };
+  try {
+    for (const node of queue) {
+      if (fleetRun.value.stopping || settingsUnmounted) break;
+      fleetRun.value.current = updateNodeName(node);
+      if (!(await updateAgent(node))) {
+        const left = queue.length - fleetRun.value.done - 1;
+        fleetNote.value = {
+          kind: "error",
+          text: `Stopped at ${updateNodeName(node)}, which did not come back on v${product.version}.${left ? ` ${left} more ${left === 1 ? "agent was" : "agents were"} not touched.` : ""} Fix it before updating the rest.`,
+        };
+        return;
+      }
+      fleetRun.value.done += 1;
+    }
+    const { done, total } = fleetRun.value;
+    fleetNote.value = {
+      kind: "success",
+      text: `${done} of ${total} ${total === 1 ? "agent" : "agents"} updated to v${product.version}.${done < total ? " Stopped as asked." : ""}${skipped ? ` ${skipped} skipped: offline or needing manual steps.` : ""}`,
+    };
+  } finally {
+    fleetRun.value = null;
   }
 }
 
@@ -1694,10 +1734,42 @@ onUnmounted(() => {
                 <span class="vital-kicker">{{ en.updates.nodesTitle }}</span>
                 <p class="hint">{{ en.updates.nodesHint }}</p>
               </div>
-              <span v-if="remoteNodes.length" class="fleet-count">
-                {{ en.updates.nodeCount.replace("{count}", String(remoteNodes.length)) }}
-              </span>
+              <div class="fleet-actions">
+                <span v-if="remoteNodes.length" class="fleet-count">
+                  {{ en.updates.nodeCount.replace("{count}", String(remoteNodes.length)) }}
+                </span>
+                <button
+                  v-if="fleetRun"
+                  type="button"
+                  class="quiet"
+                  :disabled="fleetRun.stopping"
+                  @click="fleetRun.stopping = true"
+                >
+                  {{ fleetRun.stopping ? "Stopping after this agent…" : "Stop after this agent" }}
+                </button>
+                <button
+                  v-else-if="rollout.ready.length"
+                  type="button"
+                  :disabled="panelBlocksAgentUpdates || Boolean(agentBusy)"
+                  @click="updateAllAgents"
+                >
+                  Update all ({{ rollout.ready.length }})
+                </button>
+              </div>
             </div>
+            <p v-if="fleetRun" class="fleet-progress" role="status">
+              <span class="spinner" aria-hidden="true" />
+              Updating {{ fleetRun.done + 1 }} of {{ fleetRun.total }} · {{ fleetRun.current }}. One
+              at a time; each agent must reconnect on the new version before the next starts.
+            </p>
+            <p
+              v-else-if="fleetNote"
+              class="agent-update-result fleet-note"
+              :data-state="fleetNote.kind"
+              role="status"
+            >
+              {{ fleetNote.text }}
+            </p>
             <p v-if="updateState === 'available'" class="security-warning" role="status">
               <WarningOutlined aria-hidden="true" />
               <span>{{ en.updates.panelFirstHint }}</span>

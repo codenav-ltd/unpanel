@@ -1270,6 +1270,29 @@ button.settings-tab[aria-current="true"] {
   }
 }
 
+.fleet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fleet-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.agent-update-result.fleet-note {
+  margin: 12px 0 0;
+  padding: 0;
+}
+
 .fleet-count {
   padding: 5px 8px;
 }
