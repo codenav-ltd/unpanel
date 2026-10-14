@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Docker container alerts. A Container down rule watches every container on its nodes and opens one incident per container that crashes, keeps restarting or fails its health check, and resolves it when the container runs again. Containers that exited cleanly, containers stopped or paused from Unpanel's Docker page, and containers that failed days before the panel saw them run are not reported. It uses the container list agents already provide, so it works with older agents too.
+- System disk forecast alerts. A System disk filling up rule fits the last six hours of disk usage and warns when, at that rate, the disk would be full within a set number of hours (72 by default) and turns critical closer to it (12). A forecast needs two hours of history, and it clears once the disk stops growing.
+- Inode alerts. Agents now report how many of the system disk's inodes are in use, and a Disk inodes rule warns at 80% and turns critical at 90%, catching disks filled by small files while space remains. Filesystems that allocate inodes on demand, such as Btrfs, report none and are not checked.
+- New installations also start with the disk forecast and inode rules. All three are in Alerts → Rules → Add from templates.
+
+### Fixed
+
+- The Docker page and Docker dashboard card failed to list containers on Docker Engine 29 when any container published no ports, because the engine now reports their ports as null. Updating the agent fixes it.
+
 ## [0.1.0-alpha.41] - 2026-10-14
 
 ### Added

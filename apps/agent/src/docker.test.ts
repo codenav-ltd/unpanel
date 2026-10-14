@@ -72,6 +72,23 @@ describe("Docker socket operations", () => {
     ]);
     expect(JSON.stringify(rows)).not.toContain("secret");
   });
+  it("lists containers whose ports Docker 29 reports as null", async () => {
+    const f = await engine(() => ({
+      body: [
+        {
+          Id: id,
+          Names: ["/worker"],
+          Image: "worker:1",
+          State: "running",
+          Status: "Up 2 minutes",
+          Ports: null,
+          Created: 1,
+          Labels: null,
+        },
+      ],
+    }));
+    expect(await f.docker.run("containers", {})).toMatchObject([{ Names: ["/worker"], Ports: [] }]);
+  });
   it("projects inspect safely even for secrets without conventional names", async () => {
     const f = await engine(() => ({
       body: {

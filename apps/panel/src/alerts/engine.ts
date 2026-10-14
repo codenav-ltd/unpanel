@@ -14,6 +14,8 @@ import type {
 import type { NodeLive } from "../hub.ts";
 import type { NodeRecord } from "../nodes/store.ts";
 import type { createChannels } from "./channels.ts";
+import type { ContainerWatch } from "./containers.ts";
+import { NOT_FILLING } from "../metrics/forecast.ts";
 import { AlertError, booleanField, ids, integer, severity, textField } from "./validation.ts";
 
 interface Target {
@@ -21,6 +23,8 @@ interface Target {
   name: string;
   value: number | null;
   maintenance: boolean;
+  /** How a yes-or-no target reads right now, for its message. */
+  note?: string;
 }
 interface IncidentRow extends AlertIncident {
   lastNotified: number;
@@ -55,6 +59,15 @@ export const RECOMMENDED_RULES: Seed[] = [
   ["Memory usage", "memory", 90, 180, "critical", { threshold: 80, durationSeconds: 300 }],
   ["System disk usage", "disk", 90, 60, "critical", { threshold: 80, durationSeconds: 300 }],
   ["Swap usage", "swap", 80, 300, "critical", { threshold: 50, durationSeconds: 600 }],
+  [
+    "System disk filling up",
+    "disk_forecast",
+    12,
+    900,
+    "critical",
+    { threshold: 72, durationSeconds: 1800 },
+  ],
+  ["Disk inodes", "inodes", 90, 300, "critical", { threshold: 80, durationSeconds: 300 }],
   [
     "Panel certificate expiry",
     "certificate",
@@ -101,14 +114,17 @@ function untouchedLegacy(rule: AlertRule): boolean {
 
 /** True when `value` meets a level: at or above it, or at or below it for countdowns. */
 function meets(metric: AlertMetric, value: number, threshold: number): boolean {
+  if (ALERT_METRICS[metric].direction === "none") return value >= 1;
   return ALERT_METRICS[metric].direction === "below" ? value <= threshold : value >= threshold;
 }
 
 /** Recovered with a margin, so a reading hovering at the line does not flap. */
 function clear(metric: AlertMetric, value: number, floor: number): boolean {
-  if (metric === "offline") return value === 0;
-  if (ALERT_METRICS[metric].direction === "below")
-    return value > floor + (metric === "restarted" ? 0 : 1);
+  const direction = ALERT_METRICS[metric].direction;
+  if (direction === "none") return value === 0;
+  // A forecast moves a lot between readings; ask for a clear margin before calling it over.
+  if (metric === "disk_forecast") return value > floor * 1.5;
+  if (direction === "below") return value > floor + (metric === "restarted" ? 0 : 1);
   return value < floor * 0.95;
 }
 export function createAlertEngine(options: {
@@ -119,6 +135,9 @@ export function createAlertEngine(options: {
   sampledAt: (id: string) => number;
   certificates: () => { id: string; host: string; notAfter: number; active: boolean }[];
   publicUrl: () => string;
+  /** Hours until the system disk fills at its recent rate; null without enough history. */
+  diskForecast?: (nodeId: string) => number | null;
+  containers?: Pick<ContainerWatch, "read" | "refresh">;
   now?: () => number;
 }) {
   const { db, channels } = options;
@@ -167,52 +186,69 @@ export function createAlertEngine(options: {
           value: (cert.notAfter - now()) / 86_400_000,
           maintenance: false,
         }));
-    return nodes
-      .filter(
-        (node) =>
-          node.status === "active" && (!rule.nodeIds.length || rule.nodeIds.includes(node.id)),
-      )
-      .map((node) => {
+    const watched = nodes.filter(
+      (node) =>
+        node.status === "active" && (!rule.nodeIds.length || rule.nodeIds.includes(node.id)),
+    );
+    if (rule.metric === "container")
+      return watched.flatMap((node) => {
         const reading = live.get(node.id);
-        let value: number | null = null;
-        if (rule.metric === "offline")
-          value = reading?.online ? 0 : now() - startedAt >= 180_000 ? 1 : null;
-        else if (
-          reading?.online &&
-          options.sampledAt(node.id) > 0 &&
-          now() - options.sampledAt(node.id) <= 45_000
-        ) {
-          if (rule.metric === "cpu")
-            value = reading.cpuRatio === null ? null : reading.cpuRatio * 100;
-          if (rule.metric === "memory")
-            value = reading.memRatio === null ? null : reading.memRatio * 100;
-          if (rule.metric === "disk")
-            value = reading.diskRatio === null ? null : reading.diskRatio * 100;
-          if (rule.metric === "swap")
-            value =
-              reading.swapTotal && reading.swapUsed !== null
-                ? (reading.swapUsed / reading.swapTotal) * 100
-                : null;
-          if (rule.metric === "load")
-            value =
-              reading.load5 !== null && reading.threads
-                ? (reading.load5 / reading.threads) * 100
-                : null;
-          if (rule.metric === "network_in")
-            value = reading.rxBps === null ? null : (reading.rxBps * 8) / 1_000_000;
-          if (rule.metric === "network_out")
-            value = reading.txBps === null ? null : (reading.txBps * 8) / 1_000_000;
-          if (rule.metric === "connections") value = reading.tcpCount;
-          if (rule.metric === "restarted")
-            value = reading.uptime === null ? null : reading.uptime / 60;
-        }
-        return {
-          id: node.id,
-          name: node.name || reading?.hostname || node.id,
-          value,
+        const known = options.containers?.read(node.id);
+        const nodeName = node.name || reading?.hostname || node.id;
+        // Stale or offline: keep the last known containers with no reading, so open incidents wait.
+        const current = Boolean(reading?.online && known?.fresh);
+        return (known?.containers ?? []).map((container) => ({
+          id: `${node.id}:container:${container.name}`,
+          name: `${container.name} on ${nodeName}`,
+          value: current ? (container.down ? 1 : 0) : null,
           maintenance: node.maintenance,
-        };
+          note: `Container ${container.name} ${container.note}`,
+        }));
       });
+    return watched.map((node) => {
+      const reading = live.get(node.id);
+      let value: number | null = null;
+      if (rule.metric === "offline")
+        value = reading?.online ? 0 : now() - startedAt >= 180_000 ? 1 : null;
+      else if (
+        reading?.online &&
+        options.sampledAt(node.id) > 0 &&
+        now() - options.sampledAt(node.id) <= 45_000
+      ) {
+        if (rule.metric === "cpu")
+          value = reading.cpuRatio === null ? null : reading.cpuRatio * 100;
+        if (rule.metric === "memory")
+          value = reading.memRatio === null ? null : reading.memRatio * 100;
+        if (rule.metric === "disk")
+          value = reading.diskRatio === null ? null : reading.diskRatio * 100;
+        if (rule.metric === "inodes")
+          value = reading.inodeRatio === null ? null : reading.inodeRatio * 100;
+        if (rule.metric === "disk_forecast") value = options.diskForecast?.(node.id) ?? null;
+        if (rule.metric === "swap")
+          value =
+            reading.swapTotal && reading.swapUsed !== null
+              ? (reading.swapUsed / reading.swapTotal) * 100
+              : null;
+        if (rule.metric === "load")
+          value =
+            reading.load5 !== null && reading.threads
+              ? (reading.load5 / reading.threads) * 100
+              : null;
+        if (rule.metric === "network_in")
+          value = reading.rxBps === null ? null : (reading.rxBps * 8) / 1_000_000;
+        if (rule.metric === "network_out")
+          value = reading.txBps === null ? null : (reading.txBps * 8) / 1_000_000;
+        if (rule.metric === "connections") value = reading.tcpCount;
+        if (rule.metric === "restarted")
+          value = reading.uptime === null ? null : reading.uptime / 60;
+      }
+      return {
+        id: node.id,
+        name: node.name || reading?.hostname || node.id,
+        value,
+        maintenance: node.maintenance,
+      };
+    });
   }
   /** The threshold behind an incident's current severity. */
   function levelThreshold(rule: AlertRule, level: AlertSeverity): number {
@@ -229,6 +265,16 @@ export function createAlertEngine(options: {
       case "certificate":
       case "certificates":
         return `${rule.metric === "certificate" ? "The active panel certificate" : `The certificate for ${target.name}`} has ${Math.max(0, Math.ceil(value))} days remaining (${level} at ${line}).`;
+      case "container":
+        return `${target.note ?? "The container changed state"}.`;
+      case "disk_forecast":
+        return value >= NOT_FILLING
+          ? "The system disk is no longer filling up."
+          : value <= 0
+            ? "The system disk is full."
+            : `At its recent rate the system disk fills in about ${hours(value)} (${level} within ${line} hours).`;
+      case "inodes":
+        return `${value.toFixed(1)}% of the system disk's inodes are used (${level} at ${line}%).`;
       case "restarted":
         return `The server started ${Math.max(0, Math.floor(value))} minutes ago.`;
       case "network_in":
@@ -241,6 +287,11 @@ export function createAlertEngine(options: {
       default:
         return `${rule.metric[0]?.toUpperCase()}${rule.metric.slice(1)} usage is ${value.toFixed(1)}% (${level} at ${line}%).`;
     }
+  }
+  function hours(value: number): string {
+    if (value < 1) return "less than an hour";
+    if (value < 48) return `${Math.round(value)} ${Math.round(value) === 1 ? "hour" : "hours"}`;
+    return `${Math.round(value / 24)} days`;
   }
   function notify(
     rule: AlertRule,
@@ -294,9 +345,13 @@ export function createAlertEngine(options: {
       0,
       86400,
     );
-    if (rule.metric === "offline") {
+    if (ALERT_METRICS[rule.metric].direction === "none") {
       if (durationSeconds >= rule.durationSeconds)
-        throw new AlertError("Warn about an offline node sooner than the critical alert.");
+        throw new AlertError(
+          rule.metric === "offline"
+            ? "Warn about an offline node sooner than the critical alert."
+            : "Warn about a stopped container sooner than the critical alert.",
+        );
       return { threshold: 1, durationSeconds };
     }
     const spec = ALERT_METRICS[rule.metric];
@@ -305,7 +360,9 @@ export function createAlertEngine(options: {
       throw new AlertError(
         rule.metric === "restarted"
           ? "The warning window must be longer than the critical one."
-          : "The warning needs more days remaining than the critical level.",
+          : rule.metric === "disk_forecast"
+            ? "The warning needs more hours remaining than the critical level."
+            : "The warning needs more days remaining than the critical level.",
       );
     if (spec.direction === "above" && threshold >= rule.threshold)
       throw new AlertError("The warning threshold must be below the critical threshold.");
@@ -378,7 +435,9 @@ export function createAlertEngine(options: {
         metric,
         enabled: booleanField(body["enabled"]),
         threshold:
-          metric === "offline" ? 1 : integer(body["threshold"], "Threshold", spec.min, spec.max),
+          spec.direction === "none"
+            ? 1
+            : integer(body["threshold"], "Threshold", spec.min, spec.max),
         durationSeconds: integer(body["durationSeconds"], "Duration in seconds", 0, 86400),
         severity: severity(body["severity"]),
         nodeIds: spec.panel ? [] : nodeIds,
@@ -448,6 +507,22 @@ export function createAlertEngine(options: {
         open.map((incident) => [`${incident.ruleId}:${incident.targetId}`, incident]),
       );
       const valid = new Set<string>();
+      const containerRules = currentRules.filter(
+        (rule) => rule.enabled && rule.metric === "container",
+      );
+      if (containerRules.length && options.containers)
+        options.containers.refresh(
+          nodes
+            .filter(
+              (node) =>
+                node.status === "active" &&
+                live.get(node.id)?.online &&
+                containerRules.some(
+                  (rule) => !rule.nodeIds.length || rule.nodeIds.includes(node.id),
+                ),
+            )
+            .map((node) => node.id),
+        );
       for (const rule of currentRules.filter((rule) => rule.enabled))
         for (const target of targets(rule, nodes, live)) {
           const key = `${rule.id}:${target.id}`;

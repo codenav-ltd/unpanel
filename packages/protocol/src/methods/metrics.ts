@@ -22,6 +22,9 @@ export const metricsCpu = defineMethod({
     memTotal: z.number().int().nonnegative(),
     diskUsed: z.number().int().nonnegative().nullable(),
     diskTotal: z.number().int().nonnegative().nullable(),
+    /** Root filesystem inodes. Absent from agents before alpha.42; null where the filesystem has no fixed count. */
+    inodesUsed: z.number().int().nonnegative().nullable().optional(),
+    inodesTotal: z.number().int().nonnegative().nullable().optional(),
     swapUsed: z.number().int().nonnegative().nullable(),
     swapTotal: z.number().int().nonnegative().nullable(),
     load1: z.number().nonnegative().nullable(),

@@ -80,6 +80,7 @@ const thresholdLabel = computed(() => {
   const unit = spec.value.unit;
   if (form.value.metric === "restarted") return "Up for less than (minutes)";
   if (unit === "days") return "Days left at or below";
+  if (unit === "hours") return "Predicted full within (hours)";
   if (unit === "%") return "At or above (%)";
   if (unit === "Mbit/s") return "At or above (Mbit/s)";
   return "At or above";
@@ -202,7 +203,7 @@ async function save(): Promise<void> {
             <label class="alert-check alert-level-name"
               ><input v-model="item.level.on" type="checkbox" />{{ item.label }}</label
             >
-            <label v-if="form.metric !== 'offline'" class="field"
+            <label v-if="spec.direction !== 'none'" class="field"
               ><span>{{ thresholdLabel }}</span
               ><input
                 v-model.number="item.level.threshold"
@@ -215,7 +216,13 @@ async function save(): Promise<void> {
             <SelectField
               v-if="timed"
               v-model="item.level.duration"
-              :label="form.metric === 'offline' ? 'Offline for' : 'Lasting'"
+              :label="
+                form.metric === 'offline'
+                  ? 'Offline for'
+                  : form.metric === 'container'
+                    ? 'Down for'
+                    : 'Lasting'
+              "
               :options="durations(item.level.duration)"
               :disabled="!item.level.on"
             />

@@ -13,7 +13,7 @@ import {
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import type { AlertIncident, AlertRule, AlertsView, NotificationChannel } from "@unpanel/shared";
 import { alertRequest } from "../alerts-client.ts";
-import { ruleCondition, ruleScope, timeAgo } from "../alert-text.ts";
+import { incidentNode, ruleCondition, ruleScope, timeAgo } from "../alert-text.ts";
 import AppDialog from "./AppDialog.vue";
 import SelectField from "./SelectField.vue";
 import AlertRuleDialog from "./AlertRuleDialog.vue";
@@ -239,9 +239,11 @@ onUnmounted(() => {
               </div>
               <p>
                 <a
-                  v-if="data.nodes.some((node) => node.id === incident.targetId)"
+                  v-if="
+                    data.nodes.some((node) => node.id === incidentNode(incident.targetId).nodeId)
+                  "
                   class="alert-target"
-                  :href="`/nodes/${encodeURIComponent(incident.targetId)}`"
+                  :href="incidentNode(incident.targetId).href"
                   >{{ incident.targetName }}</a
                 ><strong v-else>{{ incident.targetName }}</strong> · {{ incident.detail }}
               </p>
@@ -347,7 +349,10 @@ onUnmounted(() => {
           <div v-if="!data.rules.length" class="alert-empty">
             <SettingOutlined aria-hidden="true" />
             <h3>No rules configured</h3>
-            <p>Create a rule to watch resource usage, offline nodes, or your panel certificate.</p>
+            <p>
+              Create a rule to watch resource usage, offline nodes, Docker containers, or
+              certificates.
+            </p>
             <button class="primary" :disabled="Boolean(busy)" @click="editRule(null)">
               Create your first rule
             </button>

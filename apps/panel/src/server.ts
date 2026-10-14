@@ -26,6 +26,8 @@ import { createCertificates } from "./tls/store.ts";
 import { createAcmeIssuer } from "./tls/acme.ts";
 import { createPanelListener } from "./tls/listener.ts";
 import { createAlerts } from "./alerts/service.ts";
+import { createContainerWatch } from "./alerts/containers.ts";
+import { FORECAST_WINDOW_MINUTES, hoursUntilFull } from "./metrics/forecast.ts";
 import { createEmailMethods } from "./email/store.ts";
 import { createFactors } from "./auth/factors.ts";
 import { createAccess } from "./auth/access.ts";
@@ -132,7 +134,21 @@ export async function startPanel(options: {
   });
   const secureCookie = (): boolean =>
     certificates.view().activeId !== null || (options.secureCookie ?? false);
+  const containers = createContainerWatch({
+    list: (nodeId) => hub.docker(nodeId, "containers", {}),
+  });
+  // Six hours of minute rows per node; refitting once a minute is plenty for an hours-ahead answer.
+  const forecasts = new Map<string, { at: number; hours: number | null }>();
+  const diskForecast = (nodeId: string): number | null => {
+    const cached = forecasts.get(nodeId);
+    if (cached && Date.now() - cached.at < 60_000) return cached.hours;
+    const hours = hoursUntilFull(history.series(nodeId, Date.now(), FORECAST_WINDOW_MINUTES).disk);
+    forecasts.set(nodeId, { at: Date.now(), hours });
+    return hours;
+  };
   const alerts = createAlerts({
+    containers,
+    diskForecast,
     email,
     db: data.db,
     masterKey: data.masterKey,
@@ -188,7 +204,15 @@ export async function startPanel(options: {
     live: () => hub.live(),
     control: (nodeId, action) => hub.control(nodeId, action),
     configureSwap: (nodeId, sizeGib) => hub.configureSwap(nodeId, sizeGib),
-    docker: (nodeId, operation, params) => hub.docker(nodeId, operation, params),
+    docker: async (nodeId, operation, params) => {
+      const result = await hub.docker(nodeId, operation, params);
+      // Stopping from here is deliberate; container alerts should not report it.
+      if ((operation === "stop" || operation === "pause") && typeof params["id"] === "string")
+        containers.stopped(nodeId, params["id"]);
+      if (["start", "restart", "unpause", "recreate", "remove"].includes(operation))
+        containers.changed(nodeId);
+      return result;
+    },
     disconnect: (nodeId, code) => hub.disconnect(nodeId, code),
     exportDb: (dest) => exportPanelDb(data.db, dest),
     stageRestore: (bytes) => stageRestore(options.dataDir, bytes),

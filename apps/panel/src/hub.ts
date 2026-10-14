@@ -46,6 +46,8 @@ interface HostSample {
   memTotal: number;
   diskUsed: number | null;
   diskTotal: number | null;
+  inodesUsed?: number | null | undefined;
+  inodesTotal?: number | null | undefined;
   swapUsed: number | null;
   swapTotal: number | null;
   load1: number | null;
@@ -91,6 +93,8 @@ export interface NodeLive {
   diskUsed: number | null;
   diskTotal: number | null;
   diskRatio: number | null;
+  /** Root filesystem inodes in use; null from older agents and filesystems without a fixed count. */
+  inodeRatio: number | null;
   swapUsed: number | null;
   swapTotal: number | null;
   load1: number | null;
@@ -123,6 +127,7 @@ export function blankNodeLive(id: string): NodeLive {
     diskUsed: null,
     diskTotal: null,
     diskRatio: null,
+    inodeRatio: null,
     swapUsed: null,
     swapTotal: null,
     load1: null,
@@ -1094,6 +1099,7 @@ export function createHub(options: {
           diskUsed: sample?.diskUsed ?? null,
           diskTotal: sample?.diskTotal ?? null,
           diskRatio: usageRatio(sample?.diskUsed ?? null, sample?.diskTotal ?? null),
+          inodeRatio: usageRatio(sample?.inodesUsed ?? null, sample?.inodesTotal ?? null),
           swapUsed: sample?.swapUsed ?? null,
           swapTotal: sample?.swapTotal ?? null,
           load1: sample?.load1 ?? null,

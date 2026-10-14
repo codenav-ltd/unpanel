@@ -158,14 +158,28 @@ export function diskPath(): string {
   return "/";
 }
 
-export function readDisk(path: string): { used: number; total: number } | null {
+export function readDisk(path: string): {
+  used: number;
+  total: number;
+  inodesUsed: number | null;
+  inodesTotal: number | null;
+} | null {
   try {
     const stat = statfsSync(path);
     const total = Number(stat.blocks) * Number(stat.bsize);
     const available = Number(stat.bavail) * Number(stat.bsize);
     if (!Number.isFinite(total) || total <= 0) return null;
     const used = Math.min(total, Math.max(0, total - available));
-    return { used: Math.round(used), total: Math.round(total) };
+    // Btrfs and some network filesystems allocate inodes on demand and report zero.
+    const files = Number(stat.files);
+    const free = Number(stat.ffree);
+    const counted = Number.isFinite(files) && files > 0 && Number.isFinite(free);
+    return {
+      used: Math.round(used),
+      total: Math.round(total),
+      inodesUsed: counted ? Math.min(files, Math.max(0, files - free)) : null,
+      inodesTotal: counted ? files : null,
+    };
   } catch {
     return null;
   }
@@ -264,6 +278,8 @@ export function sampleHost(now = Date.now()): {
   memTotal: number;
   diskUsed: number | null;
   diskTotal: number | null;
+  inodesUsed: number | null;
+  inodesTotal: number | null;
   swapUsed: number | null;
   swapTotal: number | null;
   load1: number | null;
@@ -299,6 +315,8 @@ export function sampleHost(now = Date.now()): {
     memTotal,
     diskUsed: disk?.used ?? null,
     diskTotal: disk?.total ?? null,
+    inodesUsed: disk?.inodesUsed ?? null,
+    inodesTotal: disk?.inodesTotal ?? null,
     swapUsed: swap?.used ?? null,
     swapTotal: swap?.total ?? null,
     load1: load?.load1 ?? null,

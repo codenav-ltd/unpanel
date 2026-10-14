@@ -7,20 +7,26 @@ export type AlertMetric =
   | "cpu"
   | "memory"
   | "disk"
+  | "disk_forecast"
+  | "inodes"
   | "swap"
   | "load"
   | "network_in"
   | "network_out"
   | "connections"
   | "restarted"
+  | "container"
   | "certificate"
   | "certificates";
 
 export interface AlertMetricSpec {
   label: string;
   /** Unit the threshold is written in. */
-  unit: "%" | "Mbit/s" | "connections" | "min" | "days" | "";
-  /** `above` fires at or above the threshold, `below` at or below it; offline has none. */
+  unit: "%" | "Mbit/s" | "connections" | "min" | "hours" | "days" | "";
+  /**
+   * `above` fires at or above the threshold, `below` at or below it. `none` is a yes-or-no state
+   * (offline, a container down) whose levels differ only in how long it lasts.
+   */
   direction: "above" | "below" | "none";
   min: number;
   max: number;
@@ -34,6 +40,14 @@ export const ALERT_METRICS: Record<AlertMetric, AlertMetricSpec> = {
   cpu: { label: "CPU usage", unit: "%", direction: "above", min: 1, max: 100 },
   memory: { label: "Memory usage", unit: "%", direction: "above", min: 1, max: 100 },
   disk: { label: "System disk usage", unit: "%", direction: "above", min: 1, max: 100 },
+  disk_forecast: {
+    label: "System disk predicted to fill",
+    unit: "hours",
+    direction: "below",
+    min: 1,
+    max: 720,
+  },
+  inodes: { label: "System disk inodes used", unit: "%", direction: "above", min: 1, max: 100 },
   swap: { label: "Swap usage", unit: "%", direction: "above", min: 1, max: 100 },
   load: {
     label: "Load per CPU core (5-minute average)",
@@ -64,6 +78,13 @@ export const ALERT_METRICS: Record<AlertMetric, AlertMetricSpec> = {
     max: 1_000_000,
   },
   restarted: { label: "Server restarted", unit: "min", direction: "below", min: 1, max: 1440 },
+  container: {
+    label: "A Docker container stops or turns unhealthy",
+    unit: "",
+    direction: "none",
+    min: 1,
+    max: 1,
+  },
   certificate: {
     label: "Panel certificate expires",
     unit: "days",
@@ -87,7 +108,7 @@ export type EmailProvider = "smtp" | "resend" | "postmark";
  * critical in place, so a reading past both levels never produces two notifications.
  */
 export interface AlertWarningLevel {
-  /** Usage percent, or days remaining for a certificate. Unused for offline. */
+  /** In the condition's unit (percent, hours, days, minutes). Unused for yes-or-no conditions. */
   threshold: number;
   durationSeconds: number;
 }

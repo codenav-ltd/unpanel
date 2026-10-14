@@ -309,7 +309,8 @@ export function createDocker(
           Image: row["Image"],
           State: row["State"],
           Status: row["Status"],
-          Ports: row["Ports"],
+          // Newer engines send null for containers that are not running.
+          Ports: row["Ports"] ?? [],
           Created: row["Created"],
           Project:
             (row["Labels"] as Record<string, string> | undefined)?.["com.docker.compose.project"] ??

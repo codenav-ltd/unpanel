@@ -16,12 +16,15 @@ const SHORT: Record<AlertRule["metric"], string> = {
   cpu: "CPU",
   memory: "Memory",
   disk: "System disk",
+  disk_forecast: "System disk",
+  inodes: "Disk inodes",
   swap: "Swap",
   load: "Load per core",
   network_in: "Inbound traffic",
   network_out: "Outbound traffic",
   connections: "TCP connections",
   restarted: "Server restarted",
+  container: "Container down",
   certificate: "Panel certificate",
   certificates: "Managed certificates",
 };
@@ -33,6 +36,7 @@ export function amount(metric: AlertRule["metric"], value: number): string {
   if (unit === "Mbit/s") return `${value} Mbit/s`;
   if (unit === "days") return `${value} ${value === 1 ? "day" : "days"}`;
   if (unit === "min") return `${value} min`;
+  if (unit === "hours") return `${value} ${value === 1 ? "hour" : "hours"}`;
   return value.toLocaleString("en-US");
 }
 
@@ -50,11 +54,15 @@ export function ruleCondition(
 ): string {
   const warning = rule.warning ?? null;
   const name = SHORT[rule.metric];
-  if (rule.metric === "offline")
+  if (ALERT_METRICS[rule.metric].direction === "none")
     return warning
-      ? `${name}: warning after ${humanDuration(warning.durationSeconds)}, critical after ${humanDuration(rule.durationSeconds)}`
+      ? `${name}: warning ${warning.durationSeconds ? `after ${humanDuration(warning.durationSeconds)}` : "immediately"}, critical after ${humanDuration(rule.durationSeconds)}`
       : `${name}${after(rule.durationSeconds)}`;
   if (rule.metric === "restarted") return `${name} (up less than ${rule.threshold} min)`;
+  if (rule.metric === "disk_forecast")
+    return warning
+      ? `${name} full within: warning ${amount(rule.metric, warning.threshold)}, critical ${amount(rule.metric, rule.threshold)}`
+      : `${name} full within ${amount(rule.metric, rule.threshold)}`;
   if (ALERT_METRICS[rule.metric].unit === "days")
     return warning
       ? `${name}: warning at ${amount(rule.metric, warning.threshold)} left, critical at ${amount(rule.metric, rule.threshold)}`
@@ -62,6 +70,13 @@ export function ruleCondition(
   return warning
     ? `${name}: warning ≥ ${amount(rule.metric, warning.threshold)}${after(warning.durationSeconds)}, critical ≥ ${amount(rule.metric, rule.threshold)}${after(rule.durationSeconds)}`
     : `${name} ≥ ${amount(rule.metric, rule.threshold)}${after(rule.durationSeconds)}`;
+}
+
+/** The node an incident is about: the target itself, or the node a container runs on. */
+export function incidentNode(targetId: string): { nodeId: string; href: string } {
+  const [nodeId = targetId, container] = targetId.split(":container:");
+  const base = `/nodes/${encodeURIComponent(nodeId)}`;
+  return { nodeId, href: container === undefined ? base : `${base}/docker` };
 }
 
 export function ruleScope(

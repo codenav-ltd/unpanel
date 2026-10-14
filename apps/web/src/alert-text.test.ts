@@ -2,7 +2,7 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 import { describe, expect, it } from "vitest";
-import { humanDuration, ruleCondition, ruleScope, timeAgo } from "./alert-text.ts";
+import { humanDuration, incidentNode, ruleCondition, ruleScope, timeAgo } from "./alert-text.ts";
 
 describe("alert text", () => {
   it("reads durations in the largest whole unit", () => {
@@ -53,6 +53,36 @@ describe("alert text", () => {
         warning: { threshold: 21, durationSeconds: 0 },
       }),
     ).toBe("Panel certificate: warning at 21 days left, critical at 7 days");
+  });
+
+  it("writes container, inode and forecast rules", () => {
+    expect(
+      ruleCondition({
+        metric: "container",
+        threshold: 1,
+        durationSeconds: 300,
+        warning: { threshold: 1, durationSeconds: 0 },
+      }),
+    ).toBe("Container down: warning immediately, critical after 5 min");
+    expect(
+      ruleCondition({
+        metric: "disk_forecast",
+        threshold: 12,
+        durationSeconds: 900,
+        warning: { threshold: 72, durationSeconds: 1800 },
+      }),
+    ).toBe("System disk full within: warning 72 hours, critical 12 hours");
+    expect(ruleCondition({ metric: "inodes", threshold: 90, durationSeconds: 300 })).toBe(
+      "Disk inodes ≥ 90% for 5 min",
+    );
+  });
+
+  it("finds the node behind a container incident", () => {
+    expect(incidentNode("nd_1")).toEqual({ nodeId: "nd_1", href: "/nodes/nd_1" });
+    expect(incidentNode("nd_1:container:web")).toEqual({
+      nodeId: "nd_1",
+      href: "/nodes/nd_1/docker",
+    });
   });
 
   it("writes the new conditions in their own units", () => {

@@ -15,11 +15,14 @@ Supported conditions (definitions, units and limits are shared in `ALERT_METRICS
 | Condition | Value | Notes |
 |---|---|---|
 | CPU, memory, system disk, swap usage | % | Disk is the agent's system disk aggregate, not every mount. Swap without capacity is unknown, not zero. |
+| System disk predicted to fill | hours until full | Least-squares fit over the last six hours of the minute history (`metrics/forecast.ts`), projected from the latest readings. Unknown until two hours of readings exist; a flat or shrinking disk reports “not filling” and clears. Clearing needs the forecast to move 50% past the warning level, because the projection moves between readings. |
+| System disk inodes | % | `statfs` file counts reported by agents from alpha.42. Filesystems that allocate inodes on demand (Btrfs, many network mounts) report none and are skipped. |
 | Load per CPU core | % of cores, up to 1000 | 5-minute load average ÷ threads. |
 | Inbound / outbound traffic | Mbit/s | Sum of metered interfaces from the agent's byte rates. |
 | Open TCP connections | count | From the agent's socket count; unknown where the host does not report it. |
 | Server restarted | minutes of uptime | Fires while uptime is under the threshold and clears once it is past it; usually a single warning without a recovery message. |
 | Node offline | — | Levels differ only by how long the node is gone. |
+| Docker container down | — | One incident per container (target `<node>:container:<name>`, so a recreated container keeps its incident). Down means restarting, running but unhealthy, dead, or exited with a non-zero code. Not watched: clean exits (code 0), containers stopped or paused from Unpanel's Docker page, created or paused containers, and failures older than a day that the panel never saw running. The panel polls the agents' existing container list every 30 seconds, only for nodes an enabled container rule covers, so older agents work and no agent-side collector runs. A failed or stale poll keeps open incidents waiting rather than resolving them. Levels differ only by how long the container is down. |
 | Panel certificate | days left | The certificate on the panel listener. |
 | Managed certificates | days left | Every certificate in Certificates, one incident each; not certificates on arbitrary remote services. |
 
@@ -27,7 +30,7 @@ Rules can be added from **Add from templates** on the Rules tab: grouped templat
 
 A critical rule can carry an earlier **warning level** (alpha.41): its own threshold and hold duration, below the critical threshold (more days remaining for a certificate, a shorter outage for offline). One incident opens as a warning and is raised to critical in place, with one more notification marked “Now critical”; channels that accept only critical alerts receive that one. If the reading falls back under the critical threshold but stays past the warning, the incident steps back to warning quietly after 60 seconds. Recovery is measured against the warning threshold. Reminders repeat only while the incident is at the rule's top level, so an early warning is sent once. The editor shows the two levels as rows that can each be turned off; a single level is an ordinary rule of that severity. The warning level is an optional key in the stored rule JSON, so earlier releases still read the rule.
 
-Default enabled rules (alpha.41), each warning first and then critical:
+Default enabled rules (alpha.41; the last two from alpha.42), each warning first and then critical:
 
 | Rule | Warning | Critical |
 |---|---|---|
@@ -37,6 +40,8 @@ Default enabled rules (alpha.41), each warning first and then critical:
 | System disk usage | ≥ 80% for 5 minutes | ≥ 90% for 1 minute |
 | Swap usage | ≥ 50% for 10 minutes | ≥ 80% for 5 minutes |
 | Panel certificate expiry | 21 days left | 7 days left |
+| System disk filling up | full within 72 hours, for 30 minutes | full within 12 hours, for 15 minutes |
+| Disk inodes | ≥ 80% for 5 minutes | ≥ 90% for 5 minutes |
 
 After panel startup, a 180-second grace period precedes offline evaluation. Installations seeded before alpha.41 keep their rules. Rules tab offers **Use recommended rules** while any of the old seven defaults is still exactly as seeded; it replaces only those, adds the recommended rules whose names are missing, and leaves edited rules alone.
 
@@ -62,7 +67,7 @@ Telegram connection uses a guided, confirmed conversation discovery flow. Requir
 
 ## Planned extensions (not shipped)
 
-Keep rule evaluation separate from notification providers so later conditions and delivery drivers can be added without coupling them to the UI or agent protocol. Planned conditions include per-mount disk/inodes, CPU iowait/steal, load per core, traffic quota, disk-full forecast, Docker crash/OOM/restart loops, PM2 failures, watched systemd services, probes, SSH login events, clock skew, and outdated agents.
+Keep rule evaluation separate from notification providers so later conditions and delivery drivers can be added without coupling them to the UI or agent protocol. Planned conditions include per-mount disk and inodes, CPU iowait/steal, load per core, traffic quota, Docker OOM kills, PM2 failures, watched systemd services, probes, SSH login events, clock skew, and outdated agents.
 
 Planned UX includes a historical rule preview, filterable incident timeline, resource deep links, scheduled silence management, and richer grouping. Alert-storm digests and mass-outage correlation are not implemented; the current queue bounds, cooldowns and delivery log make overload visible rather than silently dropping it.
 

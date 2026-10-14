@@ -6,6 +6,7 @@ Copyright (C) 2026 CodeNav Ltd and contributors
 import { CheckCircleOutlined } from "@ant-design/icons-vue";
 import type { AlertsView } from "@unpanel/shared";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { incidentNode } from "../alert-text.ts";
 import { alertRequest } from "../alerts-client.ts";
 
 const props = defineProps<{ nodeId: string }>();
@@ -20,7 +21,7 @@ let controller = new AbortController(),
 
 const active = computed(() =>
   (view.value?.incidents ?? [])
-    .filter((item) => item.targetId === props.nodeId && !item.resolvedAt)
+    .filter((item) => incidentNode(item.targetId).nodeId === props.nodeId && !item.resolvedAt)
     .sort(
       (a, b) =>
         Number(b.severity === "critical") - Number(a.severity === "critical") ||
