@@ -42,7 +42,7 @@ node-pty.spawn("systemd-run", [
 | Concurrent terminals per node | 8 |
 | Idle timeout (no input and no output) | 30 minutes |
 | Reattach | After the browser disconnects, the pty is kept for 60 s and can be reattached (P1) |
-| Close | Closing the tab sends SIGHUP to the pty; if still running after 10 s, the whole scope gets SIGKILL |
+| Close | Closing the tab sends SIGHUP to every process in the session's scope (signalling only the pty's child would stop at `runuser`, which does not pass it on). 10 s later the scope gets SIGKILL, even if the shell has already exited, so jobs that ignore SIGHUP do not outlive the terminal. A shell the user exits leaves its background jobs running, as with SSH |
 
 ### 1.4 Audit and recording
 

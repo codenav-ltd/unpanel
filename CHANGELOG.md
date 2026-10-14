@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Closing a terminal now ends its shell at once. The hang-up only reached `runuser`, which does not pass it on, so the shell kept running until it was killed 10 seconds later and still counted against the server's 8 terminals until then. The whole session now receives the hang-up, and anything that ignores it is still stopped after 10 seconds. Updating the agent fixes it.
+
 ## [0.1.0-alpha.43] - 2026-10-15
 
 ### Added

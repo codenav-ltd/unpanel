@@ -52,7 +52,7 @@ function fixture(options: { users?: string[]; maxSessions?: number } = {}) {
   });
   const launcher = {
     command: vi.fn((user: string, unit: string) => ({ file: "shell", args: [user, unit] })),
-    killScope: vi.fn(),
+    signalScope: vi.fn(),
   } satisfies ShellLauncher;
   const method = terminalMethod({
     policy: { enabled: true, users: options.users ?? ["root"] },
@@ -162,28 +162,45 @@ describe("terminal sessions", () => {
     expect(() => f.open()).not.toThrow();
   });
 
-  it("hangs up when the stream closes and kills the scope if the shell stays", () => {
+  it("hangs up the whole scope when the stream closes and kills it if something stays", () => {
     vi.useFakeTimers();
     const f = fixture({ maxSessions: 1 });
     const { handler, pty } = f.open();
+    const unit = f.launcher.command.mock.calls[0]?.[1];
     handler.close();
+    // The shell sits behind runuser, so the hang-up must reach the scope, not just the child.
+    expect(f.launcher.signalScope).toHaveBeenCalledExactlyOnceWith(unit, "SIGHUP");
     expect(pty?.pty.kill).toHaveBeenCalledWith("SIGHUP");
     handler.data?.(new Uint8Array([1]));
     expect(pty?.pty.write).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1000);
-    expect(f.launcher.killScope).toHaveBeenCalledWith(f.launcher.command.mock.calls[0]?.[1]);
+    expect(f.launcher.signalScope).toHaveBeenLastCalledWith(unit, "SIGKILL");
     expect(pty?.pty.kill).toHaveBeenCalledWith("SIGKILL");
     expect(() => f.open()).not.toThrow();
   });
 
-  it("does not kill the scope when the shell exits after hanging up", () => {
+  it("still kills the scope after the grace period when the shell exits on hang-up", () => {
     vi.useFakeTimers();
-    const f = fixture();
+    const f = fixture({ maxSessions: 1 });
     const { handler, pty } = f.open();
+    const unit = f.launcher.command.mock.calls[0]?.[1];
     handler.close();
     pty?.exit(129);
+    // The session slot is free as soon as the shell is gone.
+    expect(() => f.open()).not.toThrow();
     vi.advanceTimersByTime(1000);
-    expect(f.launcher.killScope).not.toHaveBeenCalled();
+    // A job that ignored SIGHUP may still be running in the scope.
+    expect(f.launcher.signalScope).toHaveBeenCalledWith(unit, "SIGKILL");
+    expect(pty?.pty.kill).not.toHaveBeenCalledWith("SIGKILL");
+  });
+
+  it("leaves background jobs alone when the user exits the shell", () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const { pty } = f.open();
+    pty?.exit(0);
+    vi.advanceTimersByTime(60_000);
+    expect(f.launcher.signalScope).not.toHaveBeenCalled();
   });
 
   it("closes a terminal left idle and says why", () => {
@@ -214,7 +231,7 @@ describe("terminal over a real pseudoterminal", () => {
           file: "/bin/sh",
           args: ["-c", 'stty size; read line; printf "got %s\\n" "$line"; exit 3'],
         }),
-        killScope: () => undefined,
+        signalScope: () => undefined,
       },
     });
     const toPanel: (() => void)[] = [];

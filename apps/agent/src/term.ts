@@ -36,8 +36,11 @@ export interface TerminalPolicy {
 /** How a shell for `user` is started; `unit` names its systemd scope. */
 export interface ShellLauncher {
   command(user: string, unit: string): { file: string; args: string[] };
-  /** Kills everything left in the session's scope. */
-  killScope(unit: string): void;
+  /**
+   * Signals every process in the session's scope. Hanging up the pty's child alone is not
+   * enough: runuser keeps its PAM session and does not pass SIGHUP on to the shell.
+   */
+  signalScope(unit: string, signal: "SIGHUP" | "SIGKILL"): void;
 }
 
 const MAX_SESSIONS = 8;
@@ -77,15 +80,15 @@ export const systemdLauncher: ShellLauncher = {
       user,
     ],
   }),
-  killScope(unit) {
-    execFile("systemctl", ["kill", "--signal=SIGKILL", `${unit}.scope`], () => undefined);
+  signalScope(unit, signal) {
+    execFile("systemctl", ["kill", `--signal=${signal}`, `${unit}.scope`], () => undefined);
   },
 };
 
 /** macOS development only: a login shell as the developer, with no scope. */
 const developmentLauncher: ShellLauncher = {
   command: () => ({ file: process.env["SHELL"] || "/bin/zsh", args: ["-l"] }),
-  killScope: () => undefined,
+  signalScope: () => undefined,
 };
 
 /**
@@ -194,22 +197,25 @@ export function terminalMethod(options: {
       let ending = false;
       let idle: ReturnType<typeof setTimeout> | undefined;
       let grace: ReturnType<typeof setTimeout> | undefined;
+      // The shell has ended. A close in progress still runs its grace timer: jobs that
+      // ignore SIGHUP outlive the shell and are only stopped by the scope kill.
       const release = (): void => {
         if (exited) return;
         exited = true;
         sessions -= 1;
         clearTimeout(idle);
-        clearTimeout(grace);
       };
       const stop = (): void => {
         if (exited || ending) return;
         ending = true;
         clearTimeout(idle);
+        // Like a dropped connection: the shell and its jobs get SIGHUP.
+        options.launcher.signalScope(unit, "SIGHUP");
         pty.kill("SIGHUP");
         grace = setTimeout(() => {
-          // The shell ignored SIGHUP, or left children behind: end the whole session.
-          options.launcher.killScope(unit);
-          pty.kill("SIGKILL");
+          // Something ignored SIGHUP: end the whole session.
+          options.launcher.signalScope(unit, "SIGKILL");
+          if (!exited) pty.kill("SIGKILL");
           release();
         }, killGraceMs);
         grace.unref?.();

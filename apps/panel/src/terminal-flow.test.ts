@@ -81,7 +81,7 @@ describe("terminal from browser to shell", () => {
                 file: "/bin/sh",
                 args: ["-c", 'stty size; read line; stty size; printf "got %s\\n" "$line"; exit 3'],
               }),
-              killScope: () => undefined,
+              signalScope: () => undefined,
             },
           }),
         ],
