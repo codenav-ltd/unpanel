@@ -16,7 +16,9 @@ import { AccountError } from "../auth/account-error.ts";
 import { UpdateError, type ReleaseFile, type UpdateView } from "./check.ts";
 
 const HOUR = 3_600_000,
-  DAY = 24 * HOUR;
+  DAY = 24 * HOUR,
+  /** How long a manual install may use the manifest the user reviewed. */
+  REVIEWED_MANIFEST_MS = 10 * 60_000;
 export function createUpdateSecurity(options: {
   db: DatabaseSync;
   current: string;
@@ -250,7 +252,16 @@ export function createUpdateSecurity(options: {
         "E_CONFLICT",
         "An update is already running. Wait for the panel to restart.",
       );
-    await check();
+    // A manual install names the release the user just reviewed. Re-reading both manifests here
+    // kept the user waiting seconds before the download began; the package hash is still checked.
+    const reviewed =
+      !automatic &&
+      expectedVersion !== undefined &&
+      !last.error &&
+      now() - cachedAt < REVIEWED_MANIFEST_MS &&
+      (release?.version === expectedVersion ||
+        catalog.some((item) => item.version === expectedVersion));
+    if (!reviewed) await check();
     if (closed || installing)
       throw new UpdateError("E_CONFLICT", "An update is already running or the panel is stopping.");
     if (expectedVersion === current)

@@ -184,14 +184,17 @@ export async function findUpdate(options: {
   const found: ReleaseFile[] = [];
   const catalog: ReleaseFile[] = [];
   let sawAnswer = false;
-  const site = await readChannels(fetchImpl, options.manifestUrl);
+  // Both sources are always read; fetching them together halves the wait.
+  const [site, github] = await Promise.all([
+    readChannels(fetchImpl, options.manifestUrl),
+    readGitHubChannels(fetchImpl, options.sourceUrl),
+  ]);
   if (site) {
     sawAnswer = true;
     const release = selectUpdate(options.current, site);
     if (release) found.push(release);
     catalog.push(...allReleases(site));
   }
-  const github = await readGitHubChannels(fetchImpl, options.sourceUrl);
   if (github) {
     sawAnswer = true;
     const release = selectUpdate(options.current, github);
@@ -295,9 +298,11 @@ export async function releaseForVersion(options: {
 }): Promise<ReleaseFile> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const candidates: ReleaseFile[] = [];
-  const site = await readChannels(fetchImpl, options.manifestUrl);
+  const [site, github] = await Promise.all([
+    readChannels(fetchImpl, options.manifestUrl),
+    readGitHubChannels(fetchImpl, options.sourceUrl),
+  ]);
   if (site) candidates.push(...matchingReleases(site, options.version));
-  const github = await readGitHubChannels(fetchImpl, options.sourceUrl);
   if (github) candidates.push(...matchingReleases(github, options.version));
   const release = candidates[0];
   if (!release) {

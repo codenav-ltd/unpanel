@@ -352,6 +352,7 @@ export const en = {
     updatedTitle: "Updated to v{version}",
     updatedHint:
       "The panel restarted successfully and this page loaded the new frontend bundle. Remote agents can now be reviewed below.",
+    updatedWait: "You waited {duration} from clicking Update to this page loading.",
     waitingForRestart: "Waiting for the updated panel",
     updateRolledBack:
       "The panel returned on v{version}, so the update did not stay active and the previous version was restored. Check Logs or unpanel.service before trying again.",

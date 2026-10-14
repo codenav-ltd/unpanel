@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Remove the warning banner that was always shown to owners at the top of Settings → Updates. It repeated the Security update policy section below it, which still shows the active policy. Security warnings at the top of the page now only appear when an advisory affects the installed version.
+
+### Fixed
+
+- Start panel updates sooner after clicking Update. A manual install now reuses the release information reviewed in the last ten minutes instead of reading the site manifest and GitHub again before the download starts. Those two sources are now read in parallel, and a restarted panel reads them immediately so Settings → Updates is ready when the page reloads. The success notice also shows the time measured in the browser from clicking Update to the new page loading, next to the server-side timings in update history.
+
 ## [0.1.0-alpha.39] - 2026-10-14
 
 ### Changed

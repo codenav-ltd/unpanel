@@ -2,7 +2,12 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { updateResultVersion, waitForPanelUpdate } from "./update-flow.ts";
+import {
+  rememberUpdateClick,
+  takeUpdateWait,
+  updateResultVersion,
+  waitForPanelUpdate,
+} from "./update-flow.ts";
 
 function health(version: string): Response {
   return new Response(JSON.stringify({ ok: true, version }), {
@@ -161,5 +166,41 @@ describe("panel update flow", () => {
   it("only accepts a success parameter for the running build", () => {
     expect(updateResultVersion("?updated=0.1.0-alpha.18", "0.1.0-alpha.18")).toBe("0.1.0-alpha.18");
     expect(updateResultVersion("?updated=0.1.0-alpha.17", "0.1.0-alpha.18")).toBe("");
+  });
+});
+
+describe("update wait timing", () => {
+  function memoryStorage(): Storage {
+    const items = new Map<string, string>();
+    return {
+      get length() {
+        return items.size;
+      },
+      clear: () => items.clear(),
+      getItem: (key) => items.get(key) ?? null,
+      key: (index) => [...items.keys()][index] ?? null,
+      removeItem: (key) => void items.delete(key),
+      setItem: (key, value) => void items.set(key, value),
+    };
+  }
+
+  it("reports the wait once for the version that loaded", () => {
+    const storage = memoryStorage();
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    rememberUpdateClick("0.1.0-alpha.40", storage);
+    vi.restoreAllMocks();
+    expect(takeUpdateWait("", storage, 2_000)).toBeNull();
+    expect(takeUpdateWait("0.1.0-alpha.40", storage, 3_400)).toBe(2_400);
+    expect(takeUpdateWait("0.1.0-alpha.40", storage, 3_400)).toBeNull();
+  });
+
+  it("ignores another version, stale clicks and malformed values", () => {
+    const storage = memoryStorage();
+    storage.setItem("unpanel.update-clicked", JSON.stringify({ version: "a", at: 0 }));
+    expect(takeUpdateWait("b", storage, 1)).toBeNull();
+    storage.setItem("unpanel.update-clicked", JSON.stringify({ version: "a", at: 0 }));
+    expect(takeUpdateWait("a", storage, 11 * 60_000)).toBeNull();
+    storage.setItem("unpanel.update-clicked", "{");
+    expect(takeUpdateWait("a", storage, 1)).toBeNull();
   });
 });

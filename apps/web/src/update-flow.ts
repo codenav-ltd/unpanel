@@ -88,3 +88,35 @@ export function updateResultVersion(search: string, runningVersion: string): str
   const version = new URLSearchParams(search).get("updated")?.trim() ?? "";
   return version === runningVersion ? version : "";
 }
+
+const CLICK_KEY = "unpanel.update-clicked";
+
+/** Remembers when Update was clicked so the reloaded page can report the wait the user saw. */
+export function rememberUpdateClick(version: string, storage: Storage = sessionStorage): void {
+  try {
+    storage.setItem(CLICK_KEY, JSON.stringify({ version, at: Date.now() }));
+  } catch {
+    // Storage can be unavailable; the timing note is optional.
+  }
+}
+
+/** Milliseconds from the Update click to this page load, once, for the version that loaded. */
+export function takeUpdateWait(
+  version: string,
+  storage: Storage = sessionStorage,
+  now = Date.now(),
+): number | null {
+  try {
+    // A reload during the restart has no version yet and must leave the click in place.
+    if (!version) return null;
+    const raw = storage.getItem(CLICK_KEY);
+    storage.removeItem(CLICK_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as { version?: unknown; at?: unknown };
+    if (value.version !== version || typeof value.at !== "number") return null;
+    const elapsed = now - value.at;
+    return elapsed >= 0 && elapsed <= 10 * 60_000 ? elapsed : null;
+  } catch {
+    return null;
+  }
+}

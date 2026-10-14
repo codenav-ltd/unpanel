@@ -225,6 +225,28 @@ describe("security release policy", () => {
       f.db.close();
     }
   });
+  it("installs a reviewed release without re-reading the manifests for ten minutes", async () => {
+    const f = fixture();
+    try {
+      await f.service.check();
+      expect(f.check).toHaveBeenCalledTimes(1);
+      f.advance(5 / 60);
+      await expect(f.service.install(f.release.version)).resolves.toMatchObject({
+        version: f.release.version,
+      });
+      expect(f.check).toHaveBeenCalledTimes(1);
+      f.service.close();
+
+      const later = f.make();
+      await later.check();
+      f.advance(11 / 60);
+      await later.install(f.release.version);
+      expect(f.check).toHaveBeenCalledTimes(3);
+      later.close();
+    } finally {
+      f.db.close();
+    }
+  });
   it("caps attempts across restarts, permits an explicit manual retry and rejects changed target versions", async () => {
     const f = fixture();
     try {

@@ -351,6 +351,8 @@ export async function startPanel(options: {
     }
   };
   armUpdateWatch();
+  // After an update the browser reloads straight into Settings → Updates; have its answer ready.
+  if (auth.initialized()) void updates.check();
   const startupUpdate = setTimeout(() => {
     if (
       settings.view().ops.updateHours > 0 ||

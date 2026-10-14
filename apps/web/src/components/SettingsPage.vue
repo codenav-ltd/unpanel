@@ -13,20 +13,19 @@ import {
   TeamOutlined,
   WarningOutlined,
 } from "@ant-design/icons-vue";
-import {
-  compareVersions,
-  product,
-  managesPanel,
-  type UserAccess,
-  type SecurityUpdatePolicy as UpdatePolicy,
-} from "@unpanel/shared";
+import { compareVersions, product, managesPanel, type UserAccess } from "@unpanel/shared";
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import { downgradeImpact, type ReleaseChange, type ReleaseOption } from "../release-details.ts";
 import type { BanDurationMode, LoginSecuritySettings, RateLimitMode } from "../security.ts";
 import { applyTheme, type ThemeName } from "../theme/tokens.ts";
-import { updateResultVersion, waitForPanelUpdate } from "../update-flow.ts";
+import {
+  rememberUpdateClick,
+  takeUpdateWait,
+  updateResultVersion,
+  waitForPanelUpdate,
+} from "../update-flow.ts";
 import { formatDuration, type UpdateOperation } from "../update-history.ts";
 import ReleaseDetailsDialog from "./ReleaseDetailsDialog.vue";
 import DowngradeDialog from "./DowngradeDialog.vue";
@@ -39,9 +38,6 @@ const AccountSecurity = defineAsyncComponent(() => import("./AccountSecurity.vue
 const EmailSettings = defineAsyncComponent(() => import("./EmailSettings.vue"));
 const UserSettings = defineAsyncComponent(() => import("./UserSettings.vue"));
 const SecurityUpdatePolicy = defineAsyncComponent(() => import("./SecurityUpdatePolicy.vue"));
-const securityPolicy = ref<UpdatePolicy | null>(null);
-const securityPolicyUnavailable = ref(false);
-const policyEditor = ref<{ review: () => void } | null>(null);
 
 export interface PanelOps {
   pollSec: 2 | 5 | 10 | 30;
@@ -194,6 +190,8 @@ function downgradeRisky(release: ReleaseOption): boolean {
 const releaseDetailsOpen = ref(false);
 const updateError = ref("");
 const updateSuccessVersion = ref(updateResultVersion(globalThis.location.search, product.version));
+/** What the user actually waited: from clicking Update to this page loading the new version. */
+const updateWaitMs = ref(takeUpdateWait(updateSuccessVersion.value));
 const updateHistory = ref<UpdateOperation[]>([]);
 const updateHistoryError = ref("");
 const selectedOperation = ref<UpdateOperation | null>(null);
@@ -910,6 +908,7 @@ async function applyUpdate(): Promise<void> {
   updateState.value = "working";
   updateError.value = "";
   setUpdateMarker("updating", target);
+  rememberUpdateClick(target);
   try {
     const response = await fetch("/api/v1/updates?version=" + encodeURIComponent(target), {
       method: "POST",
@@ -984,6 +983,7 @@ function resumePanelUpdate(): boolean {
   if (runningAgainstTarget === 0) {
     setUpdateMarker("updated", product.version);
     updateSuccessVersion.value = product.version;
+    updateWaitMs.value = takeUpdateWait(product.version);
     void checkUpdates();
     return true;
   }
@@ -1485,36 +1485,6 @@ onUnmounted(() => {
           <UserSettings :account-id="accountId" :nodes="nodes" />
         </div>
         <div v-else-if="section === 'updates'" class="page-stack">
-          <aside v-if="access.role === 'owner'" class="security-policy-banner" role="status">
-            <WarningOutlined aria-hidden="true" />
-            <div>
-              <strong>Review your security update preferences</strong>
-              <p v-if="securityPolicy">
-                {{
-                  securityPolicy.criticalAction === "notify"
-                    ? ops.autoUpdate
-                      ? "Critical vulnerabilities trigger warnings. Ordinary automatic updates are enabled and may install eligible fixes."
-                      : "Critical vulnerabilities trigger warnings. You currently install the fixes yourself."
-                    : `Critical fixes can install automatically after at least ${securityPolicy.graceHours} hours, even when ordinary automatic updates are off.`
-                }}
-                Alert channel notifications are
-                {{ securityPolicy.notifyChannels ? "enabled" : "off" }}.
-              </p>
-              <p v-else-if="securityPolicyUnavailable">
-                Could not load your current policy. Open the preferences below to retry.
-              </p>
-              <p v-else>
-                <span class="spinner" aria-hidden="true" />Loading your current security policy…
-              </p>
-              <p>
-                Choose how this panel handles vulnerabilities. Changes take effect only after you
-                review and save.
-              </p>
-            </div>
-            <button class="quiet" :disabled="!policyEditor" @click="policyEditor?.review()">
-              Review preferences
-            </button>
-          </aside>
           <Transition name="update-result">
             <div v-if="updateSuccessVersion" class="update-success" role="status">
               <CheckCircleOutlined aria-hidden="true" />
@@ -1522,7 +1492,12 @@ onUnmounted(() => {
                 <strong>{{
                   en.updates.updatedTitle.replace("{version}", updateSuccessVersion)
                 }}</strong>
-                <p>{{ en.updates.updatedHint }}</p>
+                <p>
+                  {{ en.updates.updatedHint }}
+                  <template v-if="updateWaitMs !== null">{{
+                    en.updates.updatedWait.replace("{duration}", formatDuration(updateWaitMs))
+                  }}</template>
+                </p>
                 <button
                   v-if="updateHistory.length"
                   type="button"
@@ -1794,13 +1769,7 @@ onUnmounted(() => {
           </section>
           <SecurityUpdatePolicy
             v-if="access.role === 'owner'"
-            ref="policyEditor"
             :ordinary-auto-update="ops.autoUpdate"
-            @loaded="
-              securityPolicy = $event;
-              securityPolicyUnavailable = false;
-            "
-            @unavailable="securityPolicyUnavailable = true"
             @changed="emit('securityUpdated')"
           />
           <section v-if="releaseVersions.length" class="wide version-picker">
@@ -2205,49 +2174,6 @@ onUnmounted(() => {
   </div>
 </template>
 <style scoped>
-.security-policy-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 16px;
-  background: var(--warn-tint);
-  border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line));
-  border-radius: var(--radius);
-  color: var(--warn);
-}
-.security-policy-banner > .anticon {
-  margin-top: 2px;
-  font-size: 18px;
-}
-.security-policy-banner > div {
-  flex: 1;
-  min-width: 0;
-}
-.security-policy-banner strong {
-  font-size: 14px;
-}
-.security-policy-banner p {
-  margin: 6px 0 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-2);
-}
-.security-policy-banner .spinner {
-  margin-right: 6px;
-}
-.security-policy-banner > button {
-  flex-shrink: 0;
-}
-@media (max-width: 640px) {
-  .security-policy-banner {
-    display: grid;
-    grid-template-columns: 18px minmax(0, 1fr);
-  }
-  .security-policy-banner > button {
-    grid-column: 2;
-    justify-self: start;
-  }
-}
 .settings-content {
   min-width: 0;
 }
