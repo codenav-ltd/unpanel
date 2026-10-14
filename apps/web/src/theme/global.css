@@ -535,22 +535,6 @@ h1 {
   width: min(64rem, 100%);
 }
 
-/* auto-fit keeps the row full whatever the viewport and the card count are, so a
-   fifth tile joins the row instead of being orphaned under three empty columns. */
-.vitals {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 12px;
-  margin-top: 16px;
-}
-
-/* All five cards fit one row on a laptop; auto-fit alone would leave the fifth alone on a row. */
-@media (min-width: 1200px) {
-  .vitals:has(> :nth-child(5):last-child) {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-
 .bar-actions {
   display: flex;
   align-items: center;
@@ -674,11 +658,45 @@ button.history-tab[aria-pressed="true"] {
   margin-top: 14px;
 }
 
+.history-plot {
+  position: relative;
+  margin-top: 10px;
+  padding-right: 40px;
+}
+
+/* Reference lines for the fixed 0–100% scale; the pointer still reaches the chart below. */
+.history-scale {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.history-scale span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 6px;
+  height: 0;
+  text-align: right;
+  color: var(--text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-scale span::before {
+  content: "";
+  border-top: 1px dashed color-mix(in srgb, var(--line) 70%, transparent);
+}
+
 .history-axis {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 10px;
+  padding-right: 40px;
   color: var(--text-3);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -708,6 +726,39 @@ button.history-tab[aria-pressed="true"] {
   color: var(--text-2);
   font-size: 13px;
   line-height: 1.45;
+}
+
+/*
+ * A page's own header. It owns the space below it, so the gap is the same whether the next
+ * element is a tab row, an empty state, a skeleton or an error.
+ */
+/* Read by screen readers, not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin: 0 0 20px;
+}
+
+.page-head h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.page-head .hint {
+  margin: 6px 0 0;
 }
 
 .page-stack {
@@ -1549,10 +1600,6 @@ button.theme-choice[aria-checked="true"] {
   font-size: 13px;
 }
 
-.history .vitals {
-  margin-top: 0;
-}
-
 .history .vital-head {
   padding-bottom: 8px;
 }
@@ -1691,26 +1738,6 @@ button.theme-choice[aria-checked="true"] {
 .spark-empty {
   stroke: var(--line);
   stroke-width: 1;
-}
-
-.strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 12px;
-  padding: 14px 16px;
-  background: var(--raised);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
-.strip-cell {
-  min-width: 0;
-}
-
-.strip-cell + .strip-cell {
-  padding-inline-start: 16px;
-  border-inline-start: 1px solid var(--line);
 }
 
 .strip-head {
@@ -2685,17 +2712,6 @@ button.tag-chip[aria-pressed="true"] {
   color: var(--text);
 }
 
-.mid {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.mid:has(> :only-child) {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .wide {
   min-width: 0;
   margin: 0;
@@ -2841,19 +2857,11 @@ button.tag-chip[aria-pressed="true"] {
 }
 
 /* Placed after every rule it overrides: these all share one class of specificity. */
-@media (max-width: 1100px) {
-  .mid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 @media (max-width: 560px) {
-  .strip,
   .wide-foot {
     grid-template-columns: 1fr;
   }
 
-  .strip-cell + .strip-cell,
   .wide-foot > * + * {
     padding-inline-start: 0;
     padding-top: 12px;

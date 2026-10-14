@@ -29,7 +29,9 @@ import AppDialog from "../components/AppDialog.vue";
 import AppSidebar, { type ShellPage } from "../components/AppSidebar.vue";
 import AuditLog from "../components/AuditLog.vue";
 import BackupDialog from "../components/BackupDialog.vue";
-import CardPicker from "../components/CardPicker.vue";
+import DashboardGrid from "../components/DashboardGrid.vue";
+import DockerCard from "../components/DockerCard.vue";
+import AlertsCard from "../components/AlertsCard.vue";
 import ConnectionsCard from "../components/ConnectionsCard.vue";
 import CoreGrid from "../components/CoreGrid.vue";
 import HistoryDialog from "../components/HistoryDialog.vue";
@@ -43,7 +45,7 @@ import ThroughputCard from "../components/ThroughputCard.vue";
 import TurnstileWidget from "../components/TurnstileWidget.vue";
 import MfaChallenge from "../components/MfaChallenge.vue";
 import VitalTile from "../components/VitalTile.vue";
-import { loadCards, saveCards, type CardVisibility } from "../cards.ts";
+import { loadLayout, saveLayout, type CardId } from "../dashboard-layout.ts";
 import { formatBytes, formatUptime } from "../format.ts";
 import { copyText } from "../copy.ts";
 import { formatPath, parsePath, type SettingsSection } from "./route.ts";
@@ -209,14 +211,14 @@ const showAdd = ref(false);
 const sidebarOpen = ref(false);
 const showHistory = ref(false);
 const showLogs = ref(false);
-const showCustomize = ref(false);
+const editingDashboard = ref(false);
 const showBackup = ref(false);
 const confirmAction = ref<"restart" | "stop" | null>(null);
 const controlBusy = ref(false);
 const controlError = ref("");
 const controlNote = ref("");
 const showAddresses = ref(false);
-const cards = ref<CardVisibility>(loadCards());
+const dashboardLayout = ref(loadLayout());
 const phase = ref<"loading" | "offline" | "error" | "online">("loading");
 const info = ref<LocalInfo | null>(null);
 const cpuTrace = ref<number[]>([]);
@@ -437,7 +439,7 @@ async function signOut(): Promise<void> {
     showAdd.value = false;
     showHistory.value = false;
     showLogs.value = false;
-    showCustomize.value = false;
+    editingDashboard.value = false;
     showBackup.value = false;
     confirmAction.value = null;
     controlBusy.value = false;
@@ -1062,24 +1064,14 @@ const loadText = computed(() => {
 const hasBreakdown = computed(() => (sample.value?.cores.length ?? 0) > 0);
 const hasStorage = computed(() => Boolean(sample.value?.diskTotal));
 
-const visibleVitals = computed(
-  () =>
-    [
-      cards.value.cpu,
-      cards.value.memory,
-      cards.value.swap,
-      cards.value.storage && hasStorage.value,
-      cards.value.breakdown && hasBreakdown.value,
-    ].filter(Boolean).length,
-);
-
-const visibleMid = computed(
-  () => [cards.value.throughput, cards.value.connections].filter(Boolean).length,
-);
-
-const emptyDashboard = computed(
-  () => visibleVitals.value + visibleMid.value === 0 && !cards.value.system,
-);
+/** Cards without data on this node stay out of the view; Customize can still arrange them. */
+const cardAvailable = computed<Partial<Record<CardId, boolean>>>(() => ({
+  storage: hasStorage.value,
+  breakdown: hasBreakdown.value,
+  uptime: Boolean(info.value),
+  processes: Boolean(info.value),
+  addresses: Boolean(info.value),
+}));
 
 function openConfirm(action: "restart" | "stop"): void {
   confirmAction.value = action;
@@ -1138,7 +1130,7 @@ function askRestartFromBackup(): void {
   openConfirm("restart");
 }
 
-watch(cards, (value) => saveCards(value), { deep: true });
+watch(dashboardLayout, (value) => saveLayout(value));
 
 watch(
   nodeId,
@@ -1334,8 +1326,8 @@ onUnmounted(() => {
           <button
             class="bar-action"
             type="button"
-            aria-haspopup="dialog"
-            @click="showCustomize = true"
+            :aria-pressed="editingDashboard"
+            @click="editingDashboard = !editingDashboard"
           >
             <SlidersOutlined aria-hidden="true" />
             {{ en.shell.customize }}
@@ -1459,132 +1451,156 @@ onUnmounted(() => {
               @refresh-nodes="refreshList"
               @open-node="openNodeHost"
             />
-            <div v-else-if="page === 'dashboard' && visibleVitals > 0" class="vitals">
-              <VitalTile
-                v-if="cards.cpu"
-                :label="en.shell.cpu"
-                :percent="cpuPercent"
-                :detail="cpuCaption"
-                :samples="cpuSeries"
-                :left="cpuFoot.left"
-                :right="cpuFoot.right"
-              />
-              <VitalTile
-                v-if="cards.memory"
-                :label="en.shell.memory"
-                :percent="memoryPercent"
-                :detail="memoryText"
-                :samples="memorySeries"
-                :left="memoryFoot.left"
-                :right="memoryFoot.right"
-              />
-              <VitalTile
-                v-if="cards.swap"
-                :label="en.shell.swap"
-                :percent="swapPercent"
-                :detail="swapText"
-                :samples="swapSeries"
-                :left="swapFoot.left"
-                :right="swapFoot.right"
-              />
-              <VitalTile
-                v-if="cards.storage && hasStorage"
-                :label="en.shell.storage"
-                :percent="diskPercent"
-                :detail="diskText"
-                :samples="diskSeries"
-                :left="diskFoot.left"
-                :right="diskFoot.right"
-              />
-              <CoreGrid
-                v-if="cards.breakdown && sample && hasBreakdown"
-                :cores="info?.cpu.cores ?? sample.cores.length"
-                :threads="info?.cpu.threads ?? sample.cores.length"
-                :detail="info?.cpu.model ?? ''"
-                :ratios="sample.cores"
-              />
-            </div>
-            <p v-if="page === 'dashboard' && emptyDashboard" class="history-empty">
-              {{ en.shell.allCardsHidden }}
-            </p>
-            <div v-if="page === 'dashboard' && visibleMid > 0" class="mid">
-              <ThroughputCard
-                v-if="cards.throughput"
-                :up="rates.up"
-                :down="rates.down"
-                :up-now="sample?.txBps ?? null"
-                :down-now="sample?.rxBps ?? null"
-                :sent="sample?.txTotal ?? null"
-                :received="sample?.rxTotal ?? null"
-              />
-              <ConnectionsCard
-                v-if="cards.connections"
-                :tcp="rates.tcp"
-                :udp="rates.udp"
-                :tcp-now="sample?.tcpCount ?? null"
-                :udp-now="sample?.udpCount ?? null"
-              />
-            </div>
-            <div v-if="page === 'dashboard' && cards.system && info" class="strip">
-              <div class="strip-cell">
-                <span class="vital-kicker">{{ en.shell.uptime }}</span>
-                <div class="strip-split">
-                  <div>
-                    <span class="strip-part-label">{{ en.shell.panelProcess }}</span>
-                    <p class="strip-part-value">
-                      {{ panelProcess ? formatUptime(panelProcess.uptime) : "—" }}
-                    </p>
+            <DashboardGrid
+              v-else-if="page === 'dashboard'"
+              :layout="dashboardLayout"
+              :editing="editingDashboard"
+              :available="cardAvailable"
+              @update="dashboardLayout = $event"
+              @done="editingDashboard = false"
+            >
+              <template #cpu>
+                <VitalTile
+                  :label="en.shell.cpu"
+                  :percent="cpuPercent"
+                  :detail="cpuCaption"
+                  :samples="cpuSeries"
+                  :left="cpuFoot.left"
+                  :right="cpuFoot.right"
+                />
+              </template>
+              <template #memory>
+                <VitalTile
+                  :label="en.shell.memory"
+                  :percent="memoryPercent"
+                  :detail="memoryText"
+                  :samples="memorySeries"
+                  :left="memoryFoot.left"
+                  :right="memoryFoot.right"
+                />
+              </template>
+              <template #swap>
+                <VitalTile
+                  :label="en.shell.swap"
+                  :percent="swapPercent"
+                  :detail="swapText"
+                  :samples="swapSeries"
+                  :left="swapFoot.left"
+                  :right="swapFoot.right"
+                />
+              </template>
+              <template #storage>
+                <VitalTile
+                  :label="en.shell.storage"
+                  :percent="diskPercent"
+                  :detail="diskText"
+                  :samples="diskSeries"
+                  :left="diskFoot.left"
+                  :right="diskFoot.right"
+                />
+              </template>
+              <template #breakdown>
+                <CoreGrid
+                  v-if="sample && hasBreakdown"
+                  :cores="info?.cpu.cores ?? sample.cores.length"
+                  :threads="info?.cpu.threads ?? sample.cores.length"
+                  :detail="info?.cpu.model ?? ''"
+                  :ratios="sample.cores"
+                />
+              </template>
+              <template #throughput>
+                <ThroughputCard
+                  :up="rates.up"
+                  :down="rates.down"
+                  :up-now="sample?.txBps ?? null"
+                  :down-now="sample?.rxBps ?? null"
+                  :sent="sample?.txTotal ?? null"
+                  :received="sample?.rxTotal ?? null"
+                />
+              </template>
+              <template #connections>
+                <ConnectionsCard
+                  :tcp="rates.tcp"
+                  :udp="rates.udp"
+                  :tcp-now="sample?.tcpCount ?? null"
+                  :udp-now="sample?.udpCount ?? null"
+                />
+              </template>
+              <template #docker>
+                <DockerCard :node-id="nodeId" />
+              </template>
+              <template #alerts>
+                <AlertsCard :key="nodeId" :node-id="nodeId" />
+              </template>
+              <template #uptime>
+                <section v-if="info" class="wide dash-card strip-card">
+                  <span class="vital-kicker">{{ en.shell.uptime }}</span>
+                  <div class="strip-split">
+                    <div>
+                      <span class="strip-part-label">{{ en.shell.panelProcess }}</span>
+                      <p class="strip-part-value">
+                        {{ panelProcess ? formatUptime(panelProcess.uptime) : "—" }}
+                      </p>
+                    </div>
+                    <span class="strip-split-sep" aria-hidden="true" />
+                    <div>
+                      <span class="strip-part-label">{{ en.shell.osShort }}</span>
+                      <p class="strip-part-value">
+                        {{ sample ? formatUptime(sample.uptime) : "—" }}
+                      </p>
+                    </div>
                   </div>
-                  <span class="strip-split-sep" aria-hidden="true" />
-                  <div>
-                    <span class="strip-part-label">{{ en.shell.osShort }}</span>
-                    <p class="strip-part-value">
-                      {{ sample ? formatUptime(sample.uptime) : "—" }}
-                    </p>
+                  <p class="strip-sub">
+                    {{ info.os.pretty }} · {{ info.kernel }} · {{ info.arch }}
+                  </p>
+                </section>
+              </template>
+              <template #processes>
+                <section v-if="info" class="wide dash-card strip-card">
+                  <span class="vital-kicker">{{ en.shell.systemStrip }}</span>
+                  <div class="strip-split">
+                    <div>
+                      <span class="strip-part-label">{{ en.shell.panelProcess }}</span>
+                      <p class="strip-part-value">
+                        {{ panelProcess ? formatBytes(panelProcess.rss) : "—" }}
+                      </p>
+                    </div>
+                    <span class="strip-split-sep" aria-hidden="true" />
+                    <div>
+                      <span class="strip-part-label">{{ en.shell.agentProcess }}</span>
+                      <p class="strip-part-value">
+                        {{ sample ? formatBytes(sample.agentRss) : "—" }}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <p class="strip-sub">{{ info.os.pretty }} · {{ info.kernel }} · {{ info.arch }}</p>
-              </div>
-              <div class="strip-cell">
-                <span class="vital-kicker">{{ en.shell.systemStrip }}</span>
-                <div class="strip-split">
-                  <div>
-                    <span class="strip-part-label">{{ en.shell.panelProcess }}</span>
-                    <p class="strip-part-value">
-                      {{ panelProcess ? formatBytes(panelProcess.rss) : "—" }}
-                    </p>
+                  <p class="strip-sub">
+                    {{ info.hostname }} · {{ info.tz
+                    }}<template v-if="loadText"> · {{ en.shell.load }} {{ loadText }}</template>
+                  </p>
+                </section>
+              </template>
+              <template #addresses>
+                <section v-if="info" class="wide dash-card strip-card">
+                  <div class="strip-head">
+                    <span class="vital-kicker">{{ en.shell.ipAddresses }}</span>
+                    <button
+                      class="strip-eye"
+                      type="button"
+                      :aria-pressed="showAddresses"
+                      :title="showAddresses ? en.shell.hideAddresses : en.shell.showAddresses"
+                      :aria-label="showAddresses ? en.shell.hideAddresses : en.shell.showAddresses"
+                      @click="showAddresses = !showAddresses"
+                    >
+                      <EyeOutlined v-if="showAddresses" aria-hidden="true" />
+                      <EyeInvisibleOutlined v-else aria-hidden="true" />
+                    </button>
                   </div>
-                  <span class="strip-split-sep" aria-hidden="true" />
-                  <div>
-                    <span class="strip-part-label">{{ en.shell.agentProcess }}</span>
-                    <p class="strip-part-value">
-                      {{ sample ? formatBytes(sample.agentRss) : "—" }}
-                    </p>
-                  </div>
-                </div>
-                <p class="strip-sub">
-                  {{ info.hostname }} · {{ info.tz
-                  }}<template v-if="loadText"> · {{ en.shell.load }} {{ loadText }}</template>
-                </p>
-              </div>
-              <div class="strip-cell">
-                <div class="strip-head">
-                  <span class="vital-kicker">{{ en.shell.ipAddresses }}</span>
-                  <button
-                    class="strip-eye"
-                    type="button"
-                    :aria-pressed="showAddresses"
-                    :title="showAddresses ? en.shell.hideAddresses : en.shell.showAddresses"
-                    :aria-label="showAddresses ? en.shell.hideAddresses : en.shell.showAddresses"
-                    @click="showAddresses = !showAddresses"
-                  >
-                    <EyeOutlined v-if="showAddresses" aria-hidden="true" />
-                    <EyeInvisibleOutlined v-else aria-hidden="true" />
-                  </button>
-                </div>
-                <p class="strip-value strip-ips" :data-hidden="!showAddresses">{{ addressText }}</p>
-              </div>
-            </div>
+                  <p class="strip-value strip-ips" :data-hidden="!showAddresses">
+                    {{ addressText }}
+                  </p>
+                </section>
+              </template>
+            </DashboardGrid>
           </div>
         </Transition>
       </div>
@@ -1652,9 +1668,6 @@ onUnmounted(() => {
     </AppDialog>
     <AppDialog :open="showLogs" :title="en.audit.title" @close="showLogs = false">
       <AuditLog v-if="showLogs" />
-    </AppDialog>
-    <AppDialog :open="showCustomize" :title="en.shell.customize" @close="showCustomize = false">
-      <CardPicker :cards="cards" @update="cards = $event" />
     </AppDialog>
     <AppDialog narrow :open="showBackup" :title="en.shell.backup" @close="showBackup = false">
       <BackupDialog v-if="showBackup" @restart="askRestartFromBackup" />

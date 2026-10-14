@@ -13,8 +13,11 @@ const props = withDefaults(
     label: string;
     /** A second line drawn in the muted colour, for upload against download. */
     compare?: readonly (number | null)[];
-    /** Percent series fall back to a full 0–100 axis while they are flat at zero. */
-    scale?: "percent" | "auto";
+    /**
+     * `percent` follows the peak and falls back to 0–100 while flat at zero, which suits small
+     * trend lines. `full` always draws 0–100 so a reading's height matches its value.
+     */
+    scale?: "percent" | "full" | "auto";
     height?: number;
     /** Sample under the pointer. A gap stays a gap and is not drawn as zero. */
     cursor?: number | null;
@@ -34,13 +37,14 @@ const uid = useId().replaceAll(":", "");
 const fillId = `spark-fill-${uid}`;
 const compareId = `spark-compare-${uid}`;
 
-/** Y max follows the peak, the same way 3x-ui's overview sparkline does. */
+/** Y max follows the peak, the same way 3x-ui's overview sparkline does, unless the scale is full. */
 const chart = computed(() => {
   const primary = numeric(props.samples);
   if (primary.length === 0) return null;
   const secondary = numeric(props.compare);
   const peak = Math.max(...primary, ...secondary);
-  const max = peak > 0 ? peak * 1.1 : props.scale === "percent" ? 100 : 1;
+  const max =
+    props.scale === "full" ? 100 : peak > 0 ? peak * 1.1 : props.scale === "percent" ? 100 : 1;
   const height = props.height;
   const yOf = (value: number): number =>
     height - (Math.min(max, Math.max(0, value)) / max) * (height - 2) - 1;

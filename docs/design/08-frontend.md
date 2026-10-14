@@ -89,6 +89,7 @@ Everything else stays restrained: no decorative gradients, no background texture
 - Radius: `4` (tags) / `6` (inputs, buttons) / `10` (cards) / `14` (dialogs).
 - Shadows only on floating layers (dropdowns, dialogs, drawers); cards are separated by `line` borders and background steps.
 - 4 px spacing grid; 16 px card padding; 16 px page gutters (12 px on mobile).
+- A page that has its own heading uses `.page-head` (title, optional `.hint`, actions on the right). The header owns the 20 px below it, so the gap is the same whether a tab row, an empty state, a skeleton or an error follows. Never rely on the next element's top margin for that space.
 
 ### 2.5 Single source
 
@@ -186,10 +187,10 @@ Node-scoped pages share `NodeLayout`, which loads the node, checks capabilities,
 
 ### 5.1 Node dashboard details
 
-- **Customize**: a dialog of switches picks which cards the dashboard renders (CPU, memory, swap, storage, breakdown, overall speed, connection stats, system strip). The choice is per-browser `localStorage`, not server state — it is a view preference, not configuration. Unknown and missing keys default to visible so a card added in a later release shows up after the upgrade.
-- The tile row is `repeat(auto-fit, minmax(230px, 1fr))`, so hiding a card widens the rest instead of leaving a gap, and the count adapts to the viewport without per-count breakpoints.
+- **Cards** sit on a 12-column grid (`DashboardGrid`, model in `dashboard-layout.ts`). Each card has a width — quarter, third, half or full — limited to the widths it reads well at. Below 1100px quarter and third become half and half becomes full; below 640px every card is full width. Cards: CPU, memory, swap, storage, overall speed, connection stats, breakdown, Docker (running, stopped and failing counts, then failing containers first, polled every 20 s while the tab is visible), Alerts (this node's active incidents, or how many rules watch it), uptime, process memory, and IP addresses. A card without data on the node (no storage reading, no `system.info` yet) stays out of the view.
+- **Customize** turns the dashboard itself into edit mode, not a dialog. Each card shows its name, a drag handle, width buttons, earlier/later arrows (for touch and keyboard) and Remove; removed cards wait in an Add row in the edit bar, and Reset restores the defaults. Moves are announced to screen readers. The layout is per-browser `localStorage` and shared by every node. A card added in a later release is appended once (tracked by `known`); a card the user removed stays removed. The earlier show/hide map is migrated, and its `system` strip becomes the uptime, process memory and IP address cards.
 - **Unavailable is not zero**: a host that cannot report swap, network rates, or socket counts gets an em dash and a one-line reason, never `0.0%` or `0 B`. 3x-ui prints `0.0%` for a host with no swap; we do not.
-- **IP addresses** sit behind an eye toggle in the system strip. Pressing it **blurs** the value (`filter: blur(6px)`) rather than removing it, so the strip never reflows and a screenshot can be taken without redaction.
+- **IP addresses** sit behind an eye toggle on their card. Pressing it **blurs** the value (`filter: blur(6px)`) rather than removing it, so the card never reflows and a screenshot can be taken without redaction.
 - **Restart / Stop** open a confirm dialog, then `POST /nodes/local/{restart,stop}`. The agent answers first and acts after a short delay, because a successful stop takes the panel down with it. A host without systemd (Windows, a `pnpm dev` tree) returns `E_UNSUPPORTED` instead of guessing a process to kill.
 - **Backup & Restore** downloads a consistent copy of `panel.db`, or stages a previous copy to apply on the next panel start. This is the 3x-ui-style panel-database action, not the later multi-source backup module.
 - **Versions** (Settings → Updates) lists newer releases, the installed one, and earlier releases marked compatible with it. Each earlier release states what going back would undo, and turns red when that includes security fixes or the release is affected by a published advisory. Releases that cannot be installed are collapsed behind a count, with their reasons. Downgrade opens a dialog that lists security exposure first, then undone changes grouped by kind with the release that introduced each, then known issues; a downgrade with security exposure needs an explicit acknowledgement. Nothing changes until it is confirmed, and the install then runs through the Panel release card like an update.
@@ -221,6 +222,7 @@ const confirm = useConfirmDanger();  // await confirm({ title, typeToConfirm: co
 
 - uPlot instances are reused per component; points live in `Float64Array` ring buffers outside the reactivity system (`shallowRef` + manual `setData`).
 - Updates are coalesced with `requestAnimationFrame`, at most one render per frame.
+- Small trend lines (`Sparkline` default `percent` scale) follow their peak so small changes stay visible. Charts that are read for their value, such as System history, use `scale="full"` with 0/50/100% reference lines, so a line's height matches the percentage.
 - Live charts keep the last 5 minutes (150 points at 2 s). Selecting a historical range fetches over HTTP and stops live appends.
 
 ## 7. Key components

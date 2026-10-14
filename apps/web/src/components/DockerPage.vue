@@ -418,7 +418,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="docker-page">
-    <header class="docker-head">
+    <header class="page-head">
       <div>
         <h2>Docker</h2>
         <p class="hint">
@@ -830,7 +830,6 @@ onBeforeUnmount(() => {
   margin: 0;
   overflow-wrap: anywhere;
 }
-.docker-head,
 .docker-tools,
 .docker-tabs,
 .docker-actions {
@@ -948,12 +947,6 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 12px;
-}
-.docker-head {
-  justify-content: space-between;
-}
-h2 {
-  margin: 0;
 }
 .docker-tabs {
   margin: 20px 0;
@@ -1110,9 +1103,6 @@ pre {
   border-radius: var(--radius-sm);
 }
 @media (max-width: 640px) {
-  .docker-head {
-    align-items: flex-start;
-  }
   .docker-head-actions {
     width: 100%;
   }

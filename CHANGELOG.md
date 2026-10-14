@@ -6,12 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Dashboard cards can be reordered, resized and removed. Customize now edits the dashboard in place: drag a card or use its arrows, pick a quarter, third, half or full width, remove cards and add them back. The layout is saved in this browser and applies to every node.
+- Docker and Alerts dashboard cards. Docker shows running, stopped and failing containers with the failing ones listed first; Alerts shows this node's active incidents, or how many rules watch it. The system strip is now three separate cards: uptime, process memory and IP addresses.
+
 ### Changed
 
 - Remove the warning banner that was always shown to owners at the top of Settings → Updates. It repeated the Security update policy section below it, which still shows the active policy. Security warnings at the top of the page now only appear when an advisory affects the installed version.
 
 ### Fixed
 
+- Draw System history on a fixed 0–100% scale with 0%, 50% and 100% reference lines. The chart used to stretch to its highest reading, so 11% memory filled the full height.
+- Give page headers a shared `.page-head` style that owns the space below it. On Docker, the subtitle sat directly on the loading skeleton and the not-installed panel.
 - Start panel updates sooner after clicking Update. A manual install now reuses the release information reviewed in the last ten minutes instead of reading the site manifest and GitHub again before the download starts. Those two sources are now read in parallel, and a restarted panel reads them immediately so Settings → Updates is ready when the page reloads. The success notice also shows the time measured in the browser from clicking Update to the new page loading, next to the server-side timings in update history.
 
 ## [0.1.0-alpha.39] - 2026-10-14

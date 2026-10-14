@@ -1,0 +1,419 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 CodeNav Ltd and contributors */
+
+/* Twelve columns: a card spans a quarter, a third, a half or the full row. */
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.dash-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  grid-column: span 3;
+}
+
+.dash-cell > :first-child {
+  flex: 1;
+}
+
+.dash-cell[data-size="m"] {
+  grid-column: span 4;
+}
+
+.dash-cell[data-size="l"] {
+  grid-column: span 6;
+}
+
+.dash-cell[data-size="xl"] {
+  grid-column: span 12;
+}
+
+@media (max-width: 1100px) {
+  .dash-cell,
+  .dash-cell[data-size="m"] {
+    grid-column: span 6;
+  }
+
+  .dash-cell[data-size="l"] {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 640px) {
+  .dash-cell,
+  .dash-cell[data-size] {
+    grid-column: span 12;
+  }
+}
+
+/* Customizing */
+.dash-editbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px 16px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--primary) 7%, var(--raised));
+}
+
+.dash-editbar-copy strong {
+  font-size: 14px;
+}
+
+.dash-editbar-copy .hint {
+  margin-top: 4px;
+}
+
+.dash-editbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.dash-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.dash-add > span {
+  margin-inline-end: 4px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+button.dash-add-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 45%, var(--line));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+button.dash-add-card:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+/* Room for the controls even when the card itself is a single line. */
+.dash-grid[data-editing="true"] .dash-cell {
+  min-height: 132px;
+  cursor: grab;
+}
+
+.dash-cell[data-dragging="true"] {
+  opacity: 0.4;
+}
+
+.dash-edit {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 55%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.dash-edit-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dash-edit-top strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-grip {
+  color: var(--text-3);
+}
+
+.dash-edit-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dash-edit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+button.dash-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--text-2);
+}
+
+button.dash-icon:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.dash-sizes {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+}
+
+.dash-sizes button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dash-sizes button + button {
+  border-inline-start: 1px solid var(--line);
+}
+
+.dash-sizes button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--text);
+}
+
+.dash-move {
+  display: inline-flex;
+  gap: 4px;
+}
+
+/* Cards that live only on the dashboard */
+.dash-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.dash-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dash-card-link {
+  font-size: 12px;
+}
+
+.dash-card-note {
+  margin: 8px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.dash-card-skeleton {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dash-card-skeleton span {
+  display: block;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  background: var(--line);
+  opacity: 0.6;
+}
+
+.alerts-card-count {
+  margin: 8px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.docker-card-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.docker-card-counts strong,
+.alerts-card-count strong {
+  margin-inline-end: 4px;
+  color: var(--text);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.docker-card-failing,
+.docker-card-failing strong,
+.alerts-card-count strong {
+  color: var(--danger);
+}
+
+.docker-card-list,
+.alerts-card-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.docker-card-list li,
+.alerts-card-list li {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.docker-card-list li {
+  grid-template-columns: 8px minmax(0, 1fr) minmax(0, auto);
+}
+
+.docker-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.docker-card-list li[data-health="running"] .docker-card-dot {
+  background: var(--ok);
+}
+
+.docker-card-list li[data-health="failing"] .docker-card-dot {
+  background: var(--danger);
+}
+
+.docker-card-name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docker-card-status,
+.alerts-card-since {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docker-card-status {
+  max-width: 22ch;
+}
+
+.docker-card-more {
+  margin: 6px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.alerts-card-list li {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+}
+
+.alerts-card-severity {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--warn-tint);
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.alerts-card-severity[data-severity="critical"] {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+.alerts-card-name {
+  min-width: 0;
+}
+
+.alerts-card-name small {
+  display: block;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alerts-card-quiet {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.alerts-card-quiet > .anticon {
+  margin-top: 2px;
+  color: var(--ok);
+  font-size: 18px;
+}
+
+.alerts-card-quiet strong {
+  font-size: 14px;
+}
+
+.alerts-card-quiet .dash-card-note {
+  margin-top: 2px;
+}
+
+/* Every card is full width on a phone, so a width choice would do nothing there. */
+@media (max-width: 640px) {
+  .dash-sizes {
+    display: none;
+  }
+
+  .dash-edit-controls {
+    justify-content: flex-end;
+  }
+
+  .dash-editbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

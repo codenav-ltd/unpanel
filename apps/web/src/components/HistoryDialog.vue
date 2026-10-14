@@ -190,13 +190,19 @@ watch(tab, () => {
       :aria-busy="loading ? 'true' : 'false'"
     >
       <span class="vital-kicker">{{ labels[tab] }} · {{ windowLabel }}</span>
-      <Sparkline
-        :samples="samples"
-        :height="220"
-        :cursor="cursor"
-        :label="`${labels[tab]}, ${windowLabel}`"
-        @hover="cursor = $event"
-      />
+      <div class="history-plot">
+        <Sparkline
+          :samples="samples"
+          scale="full"
+          :height="220"
+          :cursor="cursor"
+          :label="`${labels[tab]}, ${windowLabel}`"
+          @hover="cursor = $event"
+        />
+        <div class="history-scale" aria-hidden="true">
+          <span>100%</span><span>50%</span><span>0%</span>
+        </div>
+      </div>
       <div v-if="axis" class="history-axis">
         <span>{{ axis.start }}</span>
         <span>{{ axis.mid }}</span>
