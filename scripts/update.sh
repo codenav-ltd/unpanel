@@ -88,15 +88,31 @@ esac
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-if ! curl -fsSL --max-filesize 268435456 -o "$work/$asset" "$url"; then
-  echo "Could not download the package. The running panel was not changed." >&2
-  exit 1
-fi
 printf '%s  %s\n' "$sha" "$asset" > "$work/SHA256SUMS"
-if ! (cd "$work" && sha256sum -c --ignore-missing SHA256SUMS); then
-  echo "The package checksum did not match. The running panel was not changed." >&2
+# Official GitHub assets are also on the site mirror, which is tried first.
+sources=$url
+case "$url" in
+  https://github.com/codenav-ltd/unpanel/releases/download/v*/"$asset")
+    version=$(printf '%s\n' "$choice" | sed -n '3p')
+    case "$version" in
+      ""|*[!0-9A-Za-z.-]*) ;;
+      *) sources="https://unpanel.codenav.dev/releases/$version/$asset $url" ;;
+    esac
+    ;;
+esac
+verified=0
+for source in $sources; do
+  if curl -fsSL --connect-timeout 10 --max-filesize 268435456 -o "$work/$asset" "$source" \
+    && (cd "$work" && sha256sum -c --status SHA256SUMS); then
+    verified=1
+    break
+  fi
+done
+if [ "$verified" -ne 1 ]; then
+  echo "Could not download a package that matches its published checksum. The running panel was not changed." >&2
   exit 1
 fi
+echo "$asset: OK"
 mkdir "$work/package"
 if ! tar -xzf "$work/$asset" -C "$work/package"; then
   echo "The package could not be unpacked. The running panel was not changed." >&2

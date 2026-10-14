@@ -18,7 +18,7 @@ export type {
 export { managesPanel, seesNode, controlsNodes } from "./access.ts";
 export type { UserRole, UserAccess, ManagedUser } from "./access.ts";
 export { product } from "./product.ts";
-export { allowedReleaseHost, assertReleaseUrl } from "./release-host.ts";
+export { allowedReleaseHost, assertReleaseUrl, releaseMirrorUrl } from "./release-host.ts";
 export { compareVersions } from "./version.ts";
 export type {
   FactorKind,

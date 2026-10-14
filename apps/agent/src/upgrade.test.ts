@@ -30,6 +30,32 @@ describe("downloadRelease", () => {
     );
   });
 
+  it("reads the site mirror first and falls back to GitHub", async () => {
+    const asked: string[] = [];
+    const answer =
+      (mirror: Response): typeof fetch =>
+      async (input) => {
+        asked.push(String(input));
+        return asked.length === 1 ? mirror : new Response(body);
+      };
+    const mirror = "https://unpanel.codenav.dev/releases/0.1.0-alpha.8/unpanel.tar.gz";
+
+    await expect(downloadRelease(url, sha, answer(new Response(body)))).resolves.toEqual(body);
+    expect(asked).toEqual([mirror]);
+
+    asked.length = 0;
+    await expect(
+      downloadRelease(url, sha, answer(new Response("missing", { status: 404 }))),
+    ).resolves.toEqual(body);
+    expect(asked).toEqual([mirror, url]);
+
+    asked.length = 0;
+    await expect(
+      downloadRelease(url, sha, answer(new Response(new Uint8Array([9])))),
+    ).resolves.toEqual(body);
+    expect(asked).toEqual([mirror, url]);
+  });
+
   it("rejects a host outside the release sites", async () => {
     await expect(
       downloadRelease("https://example.com/unpanel.tar.gz", sha, fetchBytes(body)),

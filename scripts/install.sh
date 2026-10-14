@@ -9,6 +9,8 @@ set -eu
 VERSION="0.1.0-alpha.41"
 REF="v${VERSION}"
 RELEASE="https://github.com/codenav-ltd/unpanel/releases/download/${REF}"
+# The site mirror is tried first; GitHub serves the same files if it is missing or slow.
+MIRROR="https://unpanel.codenav.dev/releases/${VERSION}"
 PREFIX="${UNPANEL_PREFIX:-/opt/unpanel}"
 
 release_asset() {
@@ -39,12 +41,20 @@ fetch_release() {
     exit 1
   fi
   tmp=$(mktemp -d)
-  curl -fsSL "$RELEASE/SHA256SUMS" -o "$tmp/SHA256SUMS"
-  curl -fsSL "$RELEASE/$asset" -o "$tmp/$asset"
-  (
-    cd "$tmp"
-    sha256sum -c --ignore-missing SHA256SUMS
-  )
+  for source in "$MIRROR" "$RELEASE"; do
+    if curl -fsSL --connect-timeout 10 "$source/SHA256SUMS" -o "$tmp/SHA256SUMS" \
+      && curl -fsSL --connect-timeout 10 "$source/$asset" -o "$tmp/$asset" \
+      && (cd "$tmp" && sha256sum -c --ignore-missing --status SHA256SUMS 2>/dev/null) \
+      && grep -q " $asset\$" "$tmp/SHA256SUMS"; then
+      break
+    fi
+    if [ "$source" = "$RELEASE" ]; then
+      echo "Could not download a package that matches its published checksum." >&2
+      exit 1
+    fi
+    echo "The release mirror did not answer correctly. Trying GitHub." >&2
+  done
+  echo "$asset: OK"
   mkdir -p "$dest"
   tar -xzf "$tmp/$asset" -C "$dest"
   chmod 755 "$dest"

@@ -29,6 +29,12 @@ jobs:
           files: build/release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Mirror packages to unpanel.codenav.dev/releases
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          RELEASE_BUCKET: ${{ vars.RELEASE_BUCKET || 'unpanel-releases' }}
+        run: bash scripts/upload-mirror.sh "${GITHUB_REF_NAME#v}" build/release
 
   website:
     needs: package

@@ -22,7 +22,7 @@ import {
   type AgentUpgradeResult,
   type PanelUpgradeResult,
 } from "@unpanel/protocol";
-import { assertReleaseUrl } from "@unpanel/shared";
+import { assertReleaseUrl, releaseMirrorUrl } from "@unpanel/shared";
 import { ControlUnsupported } from "./control.ts";
 
 const MAX_BYTES = 256 * 1024 * 1024;
@@ -135,10 +135,46 @@ async function downloadReleaseMeasured(
   trace?: UpgradeTrace,
 ): Promise<Uint8Array> {
   assertReleaseUrl(url);
+  // The site mirror is much faster than GitHub from many networks; GitHub stays the fallback.
+  const mirror = releaseMirrorUrl(url);
+  const sources: [string, number][] = mirror
+    ? [
+        [mirror, 60_000],
+        [url, 120_000],
+      ]
+    : [[url, 120_000]];
   const downloadAt = Date.now();
+  let verifyMs = 0;
+  for (const [index, [source, timeoutMs]] of sources.entries()) {
+    try {
+      const bytes = await fetchRelease(source, fetchImpl, timeoutMs);
+      const verifyAt = Date.now();
+      const actual = createHash("sha256").update(bytes).digest();
+      verifyMs += Date.now() - verifyAt;
+      const expected = Buffer.from(sha256, "hex");
+      if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+        throw new Error("The download did not match the published SHA-256.");
+      }
+      trace?.steps.push(
+        { name: "download", durationMs: Date.now() - downloadAt - verifyMs, downtime: false },
+        { name: "verify", durationMs: verifyMs, downtime: false },
+      );
+      return bytes;
+    } catch (error) {
+      if (index === sources.length - 1) throw error;
+    }
+  }
+  throw new Error("No release source was tried.");
+}
+
+async function fetchRelease(
+  url: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<Uint8Array> {
   const response = await fetchImpl(url, {
     redirect: "follow",
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (response.url) assertReleaseUrl(response.url);
   if (!response.ok) throw new Error(`Download returned ${response.status}.`);
@@ -146,14 +182,6 @@ async function downloadReleaseMeasured(
   if (length > MAX_BYTES) throw new Error("The release package is too large.");
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength > MAX_BYTES) throw new Error("The release package is too large.");
-  trace?.steps.push({ name: "download", durationMs: Date.now() - downloadAt, downtime: false });
-  const verifyAt = Date.now();
-  const actual = createHash("sha256").update(bytes).digest();
-  const expected = Buffer.from(sha256, "hex");
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-    throw new Error("The download did not match the published SHA-256.");
-  }
-  trace?.steps.push({ name: "verify", durationMs: Date.now() - verifyAt, downtime: false });
   return bytes;
 }
 

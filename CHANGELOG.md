@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Download release packages from unpanel.codenav.dev first, through Cloudflare, and fall back to GitHub when the mirror is missing or answers wrongly. The installers, `unpanel-manage update`, panel updates and remote agent updates all check the published SHA-256 whichever copy they use. On a network where GitHub release downloads ran at about 30 KB/s, the same 1.5 MB came from Cloudflare in under 3 seconds.
 - Run the panel and agents with a 1 MB V8 young generation. Idle memory for the panel and local agent together drops from about 140 MB to 124 MB. New installs and panel updates rewrite the units; remote agents receive the option as a systemd drop-in on their next update.
 
 ### Fixed

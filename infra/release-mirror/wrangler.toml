@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 CodeNav Ltd and contributors
+
+name = "unpanel-release-mirror"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+routes = [{ pattern = "unpanel.codenav.dev/releases/*", zone_name = "codenav.dev" }]
+
+[[r2_buckets]]
+binding = "RELEASES"
+bucket_name = "unpanel-releases"
