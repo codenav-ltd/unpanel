@@ -70,3 +70,9 @@ export {
   type ReceiveWindow,
   type SendWindow,
 } from "./streams.ts";
+export {
+  systemUserName,
+  termCapabilityMeta,
+  termOpen,
+  type TermOpenParams,
+} from "./methods/term.ts";

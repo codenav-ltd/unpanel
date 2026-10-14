@@ -71,6 +71,8 @@ export function connectAgent(options: {
   hostInfo?: () => HostInfo;
   /** Stream methods this agent serves, keyed by method name. */
   streams?: ReadonlyMap<string, StreamMethod>;
+  /** Capabilities reported in addition to the built-in ones, e.g. `term` when it loaded. */
+  capabilities?: { name: string; meta?: Record<string, unknown> }[];
 }): { stop: () => void } {
   const agentId = options.agentId ?? "local";
   const challenges = createHttp01Responder();
@@ -160,6 +162,10 @@ export function connectAgent(options: {
                 version: product.version,
                 meta: { agentUpgrade: true },
               },
+              ...(options.capabilities ?? []).map((capability) => ({
+                ...capability,
+                version: product.version,
+              })),
             ],
             policyDigest: createHash("sha256").update("").digest("base64url"),
             host,

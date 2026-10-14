@@ -6,7 +6,16 @@
 
 ### 1.1 Permission chain
 
-Opening a terminal requires all of: RBAC `term:danger` + an active sudo session + node-local policy `term.enabled = true` + the requested user listed in `term.users`.
+Opening a terminal requires all of: RBAC `term:danger` + an active sudo session + the node allowing terminals + the requested user being on the node's list.
+
+The node-local policy lives in the agent's `agent.env` and takes effect when the agent restarts:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `UNPANEL_TERMINAL` | on | `off` (or `0`, `false`, `no`) turns terminals off on this node |
+| `UNPANEL_TERMINAL_USERS` | `root` | Comma-separated accounts a terminal may run as; invalid names are ignored |
+
+The agent reports the `term` capability, with `meta.users` listing the allowed accounts, only when terminals are on, node-pty loaded, and the machine runs systemd (`/run/systemd/system` exists). Otherwise the panel answers `E_CAPABILITY_MISSING` without contacting the agent. On macOS outside production the agent offers a development shell: the developer's login shell as their own account, without a scope. Implementation: `apps/agent/src/term.ts`; protocol: `termOpen` in `packages/protocol/src/methods/term.ts`.
 
 ### 1.2 How shells are started
 
@@ -19,6 +28,8 @@ node-pty.spawn("systemd-run", [
 ```
 
 - `systemd-run --scope` puts the shell in its own cgroup; see [design/09](../design/09-deployment.md) §3.3 for why.
+- The shell starts in `/` with `TERM=xterm-256color`, the agent's `LANG` (or `C.UTF-8`) and a standard `PATH`; `runuser -l` then sets up the login environment.
+- When the shell exits, the agent sends CTRL `{"exit": <code>, "signal"?: <n>}` and closes the stream.
 - `runuser -l <user>` starts a login shell that loads the user's profile (so nvm and similar setups work); root goes through the same path.
 - No `ssh localhost`: no dependency on sshd configuration and no extra keys.
 
@@ -26,7 +37,7 @@ node-pty.spawn("systemd-run", [
 
 | Item | Default |
 |---|---|
-| Concurrent terminals per node | 8 (policy-configurable) |
+| Concurrent terminals per node | 8 |
 | Idle timeout (no input and no output) | 30 minutes |
 | Reattach | After the browser disconnects, the pty is kept for 60 s and can be reattached (P1) |
 | Close | Closing the tab sends SIGHUP to the pty; if still running after 10 s, the whole scope gets SIGKILL |

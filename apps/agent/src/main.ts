@@ -4,10 +4,11 @@
 import { createPublicKey, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { product } from "@unpanel/shared";
-import { privateKeyFromPem, PROTOCOL_VERSION, publicKeyFromPem } from "@unpanel/protocol";
+import { privateKeyFromPem, PROTOCOL_VERSION, publicKeyFromPem, termOpen } from "@unpanel/protocol";
 import { enrollAgent } from "./enroll.ts";
 import { collectHostInfo } from "./host-info.ts";
 import { connectAgent } from "./session.ts";
+import { createTerminal } from "./term.ts";
 
 if (process.argv[2] === "enroll") {
   runEnroll().catch((error: unknown) => {
@@ -27,18 +28,29 @@ if (process.argv[2] === "enroll") {
     );
     process.exit(1);
   }
-  connectAgent({
-    ...(socketPath ? { socketPath } : {}),
-    ...(url ? { url } : {}),
-    ...(process.env["UNPANEL_TLS_CA"]
-      ? { tlsCa: readFileSync(process.env["UNPANEL_TLS_CA"], "utf8") }
-      : {}),
-    agentKey: privateKeyFromPem(readFileSync(agentKeyFile, "utf8")),
-    panelPublicKey: publicKeyFromPem(readFileSync(panelPubFile, "utf8")),
-    ...(process.env["UNPANEL_AGENT_ID"] ? { agentId: process.env["UNPANEL_AGENT_ID"] } : {}),
-    hostInfo: collectHostInfo,
-  });
-  process.stdout.write(`${product.name} agent connecting\n`);
+  const agentKey = privateKeyFromPem(readFileSync(agentKeyFile, "utf8"));
+  const panelPublicKey = publicKeyFromPem(readFileSync(panelPubFile, "utf8"));
+  const tlsCa = process.env["UNPANEL_TLS_CA"];
+  const connect = (terminal: Awaited<ReturnType<typeof createTerminal>>): void => {
+    connectAgent({
+      ...(socketPath ? { socketPath } : {}),
+      ...(url ? { url } : {}),
+      ...(tlsCa ? { tlsCa: readFileSync(tlsCa, "utf8") } : {}),
+      agentKey,
+      panelPublicKey,
+      ...(process.env["UNPANEL_AGENT_ID"] ? { agentId: process.env["UNPANEL_AGENT_ID"] } : {}),
+      hostInfo: collectHostInfo,
+      streams: new Map(terminal ? [[termOpen.name, terminal.method]] : []),
+      capabilities: terminal
+        ? [{ name: termOpen.capability, meta: { users: terminal.users } }]
+        : [],
+    });
+    process.stdout.write(
+      `${product.name} agent connecting${terminal ? "" : " (terminal unavailable on this machine)"}\n`,
+    );
+  };
+  // The terminal loads node-pty first; without it the agent connects without terminals.
+  void createTerminal().then(connect);
 }
 
 async function runEnroll(): Promise<void> {
