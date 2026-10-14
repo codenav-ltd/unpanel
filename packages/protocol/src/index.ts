@@ -59,3 +59,14 @@ export {
   dockerId,
   type DockerOperation,
 } from "./methods/docker.ts";
+export {
+  CONNECTION_BUFFER_LIMIT,
+  MAX_STREAM_CTRL_BYTES,
+  MAX_STREAMS_PER_CONNECTION,
+  createReceiveWindow,
+  createSendWindow,
+  STREAM_OPEN_TIMEOUT_MS,
+  streamWindow,
+  type ReceiveWindow,
+  type SendWindow,
+} from "./streams.ts";

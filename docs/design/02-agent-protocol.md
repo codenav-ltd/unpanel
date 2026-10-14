@@ -199,10 +199,19 @@ The agent checks that the signature is valid, `|now - ts| ≤ 120 s`, and that `
 
 The panel sends `sopen{ch, m, p, win}`; the agent replies `sack{ch, ok, win}`. Each side's `win` is how many bytes **it** is willing to receive.
 
+- The panel sends no stream data before `sack`. An agent that does not answer within 10 s gets `sclose` and the open fails with `E_TIMEOUT`.
+- The panel opens a stream only when the agent reported the method's capability; otherwise it answers `E_CAPABILITY_MISSING` without sending `sopen`.
+- The agent refuses an odd or already-used channel (`E_INVALID_PARAMS`), an unknown method (`E_UNSUPPORTED`) and a 65th concurrent stream (`E_BUSY`).
+
+Implementation: `packages/protocol/src/streams.ts` (limits and windows), `apps/agent/src/stream-host.ts`, `apps/panel/src/stream-client.ts`.
+
 ### 5.2 Backpressure (credit-based windows)
 
 - Each channel tracks, per direction, how many bytes the sender may still send. Sending a DATA frame subtracts its payload length; at 0 the sender stops (the agent pauses its source: `pty.pause()`, stream `pause()`).
-- The receiver returns credit with `scredit{ch, n}` as it consumes data, ideally once half of the window has been consumed.
+- The receiver returns credit with `scredit{ch, n}` as it consumes data, once half of the window has been consumed.
+- Only DATA and DATA_ERR count against the window. CTRL frames do not, so a resize still gets through a full window; they are limited to 4 KiB of JSON and are delivered in order behind queued data.
+- A peer that sends more than its window, or an oversized CTRL frame, breaks the protocol: the receiver closes that stream with `sclose{e: E_INVALID_PARAMS}`. The connection stays up.
+- Senders split data into frames of at most 64 KiB.
 - Default windows: terminal 256 KiB; logs 1 MiB; file transfer 4 MiB.
 - Connection-level backpressure: when the WebSocket's `bufferedAmount` exceeds 8 MiB, all streams pause.
 

@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import {
   authMessage,
+  binaryKind,
+  decodeBinaryFrame,
   decodeTextFrame,
+  encodeBinaryFrame,
   encodeTextFrame,
   metricsCpu,
   PROTOCOL_VERSION,
@@ -19,10 +22,12 @@ import { createHub } from "./hub.ts";
 class Peer extends EventEmitter {
   readyState: number = WebSocket.OPEN;
   sent: TextFrame[] = [];
+  binary: Uint8Array[] = [];
   pings = 0;
 
-  send(raw: string): void {
-    this.sent.push(decodeTextFrame(raw));
+  send(raw: string | Uint8Array): void {
+    if (typeof raw === "string") this.sent.push(decodeTextFrame(raw));
+    else this.binary.push(raw);
   }
 
   ping(): void {
@@ -60,7 +65,7 @@ function fixture() {
     panelVersion: "test",
     onPresence: presence,
   });
-  const attach = (): Peer => {
+  const attach = (caps: string[] = []): Peer => {
     const peer = new Peer();
     hub.attach(peer as unknown as WebSocket);
     peer.receive({
@@ -76,7 +81,7 @@ function fixture() {
     peer.receive({
       t: "auth",
       sigA: signMessage(authMessage("local", welcome.nonceM, "test-nonce"), agent.privateKey),
-      caps: [],
+      caps: caps.map((name) => ({ name })),
       policyDigest: "test",
       host: {},
     });
@@ -84,6 +89,81 @@ function fixture() {
   };
   return { hub, attach, presence };
 }
+
+describe("hub streams", () => {
+  const callbacks = () => ({ data: vi.fn(), credit: vi.fn(), close: vi.fn() });
+  const request = { method: "term.open", capability: "term", window: 1024 };
+
+  it("refuses streams to offline nodes and agents without the capability", async () => {
+    const { hub, attach } = fixture();
+    try {
+      await expect(hub.openStream("local", request, callbacks())).rejects.toMatchObject({
+        code: "E_NODE_OFFLINE",
+      });
+      attach();
+      await expect(hub.openStream("local", request, callbacks())).rejects.toMatchObject({
+        code: "E_CAPABILITY_MISSING",
+      });
+    } finally {
+      hub.close();
+    }
+  });
+
+  it("routes agent stream frames and ends streams when the agent disconnects", async () => {
+    const { hub, attach } = fixture();
+    try {
+      const peer = attach(["term"]);
+      const cb = callbacks();
+      const opening = hub.openStream("local", { ...request, params: { cols: 80 } }, cb);
+      const sopen = peer.sent.find((frame) => frame.t === "sopen");
+      expect(sopen).toEqual({ t: "sopen", ch: 2, m: "term.open", p: { cols: 80 }, win: 1024 });
+      peer.receive({ t: "sack", ch: 2, ok: true, win: 64 });
+      const stream = await opening;
+
+      const output = new TextEncoder().encode("$ ");
+      peer.emit(
+        "message",
+        Buffer.from(encodeBinaryFrame({ kind: binaryKind.data, channel: 2, payload: output })),
+        true,
+      );
+      expect(cb.data).toHaveBeenCalledOnce();
+      const [kind, payload] = cb.data.mock.calls[0] as [number, Uint8Array];
+      expect(kind).toBe(binaryKind.data);
+      expect(new TextDecoder().decode(payload)).toBe("$ ");
+
+      expect(stream.write(binaryKind.data, new TextEncoder().encode("ls\r"))).toBe(true);
+      expect(decodeBinaryFrame(peer.binary[0] ?? new Uint8Array())).toMatchObject({
+        kind: binaryKind.data,
+        channel: 2,
+      });
+
+      peer.terminate();
+      expect(cb.close).toHaveBeenCalledWith(expect.objectContaining({ code: "E_NODE_OFFLINE" }));
+    } finally {
+      hub.close();
+    }
+  });
+
+  it("passes an agent refusal on as a HubCallError", async () => {
+    const { hub, attach } = fixture();
+    try {
+      const peer = attach(["term"]);
+      const opening = hub.openStream("local", request, callbacks());
+      peer.receive({
+        t: "sack",
+        ch: 2,
+        ok: false,
+        e: { code: "E_POLICY_DENIED", msg: "Terminals are off on this node." },
+      });
+      await expect(opening).rejects.toMatchObject({
+        code: "E_POLICY_DENIED",
+        message: "Terminals are off on this node.",
+      });
+    } finally {
+      hub.close();
+    }
+  });
+});
 
 describe("hub connection lifecycle", () => {
   it("routes Docker results, rejects invalid replies and settles requests on disconnect", async () => {

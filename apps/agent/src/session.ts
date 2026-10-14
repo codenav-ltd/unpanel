@@ -4,7 +4,7 @@
 import { createHash, type KeyObject } from "node:crypto";
 import net from "node:net";
 import { rootCertificates } from "node:tls";
-import { WebSocket } from "ws";
+import { WebSocket, type RawData } from "ws";
 import { product } from "@unpanel/shared";
 import { ControlUnsupported, controlPanel } from "./control.ts";
 import { sampleHost } from "./cpu.ts";
@@ -12,6 +12,7 @@ import { SwapRefused, configureSwap } from "./swap.ts";
 import { performAgentUpgrade, performUpgrade } from "./upgrade.ts";
 import { createHttp01Responder } from "./cert.ts";
 import { createDocker, DockerError } from "./docker.ts";
+import { createStreamHost, type StreamMethod } from "./stream-host.ts";
 import { dockerMethods, dockerOperations } from "@unpanel/protocol";
 import {
   agentUpgrade,
@@ -68,6 +69,8 @@ export function connectAgent(options: {
   panelPublicKey: KeyObject;
   agentId?: string;
   hostInfo?: () => HostInfo;
+  /** Stream methods this agent serves, keyed by method name. */
+  streams?: ReadonlyMap<string, StreamMethod>;
 }): { stop: () => void } {
   const agentId = options.agentId ?? "local";
   const challenges = createHttp01Responder();
@@ -81,6 +84,7 @@ export function connectAgent(options: {
   let socket: WebSocket | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let nonceA = "";
+  let streams: ReturnType<typeof createStreamHost> | undefined;
 
   const connect = (): void => {
     if (stopped) return;
@@ -95,6 +99,18 @@ export function connectAgent(options: {
           perMessageDeflate: false,
           createConnection: () => net.connect(options.socketPath ?? ""),
         });
+    const current = socket;
+    streams = createStreamHost({
+      methods: options.streams ?? new Map(),
+      send: (frame) => {
+        if (current.readyState === WebSocket.OPEN) current.send(encodeTextFrame(frame));
+      },
+      sendBinary: (bytes) => {
+        if (current.readyState === WebSocket.OPEN) current.send(bytes, { binary: true });
+      },
+      buffered: () => current.bufferedAmount,
+    });
+    const host = streams;
     socket.on("open", () => {
       socket?.send(
         encodeTextFrame({
@@ -108,7 +124,10 @@ export function connectAgent(options: {
       );
     });
     socket.on("message", (data, isBinary) => {
-      if (isBinary) return;
+      if (isBinary) {
+        if (panelVerified) host.handleBinary(toBytes(data));
+        return;
+      }
       let frame: TextFrame;
       try {
         frame = decodeTextFrame(String(data));
@@ -148,10 +167,11 @@ export function connectAgent(options: {
         );
         return;
       }
-      if (frame.t === "req" && !panelVerified) {
+      if ((frame.t === "req" || frame.t === "sopen") && !panelVerified) {
         socket?.close(closeCode.authFailed);
         return;
       }
+      if (panelVerified && host.handleText(frame)) return;
       if (frame.t === "req" && frame.m === systemInfo.name) {
         try {
           const info = systemInfo.result.parse(hostInfo());
@@ -339,6 +359,7 @@ export function connectAgent(options: {
       }
     });
     socket.on("close", (code) => {
+      host.closeAll();
       if (stopped || code === closeCode.replaced || code === closeCode.incompatible) return;
       // A disabled or removed node backs off for an hour instead of reconnecting immediately.
       const delay = code === closeCode.disabled ? 60 * 60 * 1000 : 1000;
@@ -354,8 +375,14 @@ export function connectAgent(options: {
     stop() {
       challenges.close();
       stopped = true;
+      streams?.closeAll();
       if (timer) clearTimeout(timer);
       socket?.close();
     },
   };
+}
+
+function toBytes(data: RawData): Uint8Array {
+  if (Array.isArray(data)) return Buffer.concat(data);
+  return data instanceof ArrayBuffer ? new Uint8Array(data) : data;
 }

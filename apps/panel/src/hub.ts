@@ -2,7 +2,7 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 import type { KeyObject } from "node:crypto";
-import { WebSocket } from "ws";
+import { WebSocket, type RawData } from "ws";
 import {
   agentUpgrade,
   certHttp01Put,
@@ -38,6 +38,7 @@ import { liveSampleMs } from "@unpanel/shared";
 import { dockerMethods, type DockerOperation } from "@unpanel/protocol";
 import type { HistorySample, HistorySeries } from "./metrics/history.ts";
 import type { NodeStatus } from "./nodes/store.ts";
+import { createStreamClient, type PanelStream, type StreamCallbacks } from "./stream-client.ts";
 
 interface HostSample {
   ratio: number | null;
@@ -219,6 +220,9 @@ interface Link {
   sample: HostSample | null;
   pending: Map<number, Pending>;
   readTimeouts: Map<number, ReturnType<typeof setTimeout>>;
+  capabilities: Set<string>;
+  /** Streams on the current socket; replaced on every connection. */
+  streams: ReturnType<typeof createStreamClient> | null;
 }
 
 const HEARTBEAT_MS = 15_000;
@@ -268,6 +272,12 @@ export function createHub(options: {
     nodeId: string,
     release: { version: string; url: string; sha256: string },
   ) => Promise<AgentUpgradeResult>;
+  /** Opens a stream to a node's agent. Rejects with a HubCallError. */
+  openStream: (
+    nodeId: string,
+    request: { method: string; capability: string; params?: unknown; window: number },
+    callbacks: StreamCallbacks,
+  ) => Promise<PanelStream>;
   disconnect: (nodeId: string, code: number) => void;
   close: () => void;
 } {
@@ -316,6 +326,8 @@ export function createHub(options: {
       sample: null,
       pending: new Map(),
       readTimeouts: new Map(),
+      capabilities: new Set(),
+      streams: null,
     };
   }
 
@@ -379,6 +391,11 @@ export function createHub(options: {
   }
 
   function dropPending(link: Link): void {
+    link.streams?.closeAll({
+      code: "E_NODE_OFFLINE",
+      msg: "The node disconnected. Reopen this when it is back online.",
+    });
+    link.streams = null;
     for (const timer of link.readTimeouts.values()) clearTimeout(timer);
     link.readTimeouts.clear();
     link.cpuInflight = false;
@@ -788,7 +805,10 @@ export function createHub(options: {
     socket.on("message", (data, isBinary) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       if (phase === "open" && link?.socket !== socket) return;
-      if (phase === "open" && isBinary) return;
+      if (phase === "open" && isBinary) {
+        link?.streams?.handleBinary(toBytes(data));
+        return;
+      }
       if (isBinary) {
         fail(closeCode.malformed);
         return;
@@ -857,6 +877,15 @@ export function createHub(options: {
         current.cpuAt = 0;
         current.socket = socket;
         current.agentVersion = agentVersion;
+        current.capabilities = new Set(frame.caps.map((capability) => capability.name));
+        current.streams = createStreamClient({
+          send: (out) => {
+            if (socket.readyState === WebSocket.OPEN) socket.send(encodeTextFrame(out));
+          },
+          sendBinary: (bytes) => {
+            if (socket.readyState === WebSocket.OPEN) socket.send(bytes, { binary: true });
+          },
+        });
         current.canUpdateAgent = frame.caps.some(
           (capability) =>
             capability.name === "control" && capability.meta?.["agentUpgrade"] === true,
@@ -888,6 +917,7 @@ export function createHub(options: {
         return;
       }
 
+      if (link?.streams?.handleText(frame)) return;
       if (!link || frame.t !== "res") return;
       const wait = link.pending.get(frame.id);
       link.pending.delete(frame.id);
@@ -1121,6 +1151,25 @@ export function createHub(options: {
     http01,
     upgrade,
     upgradeAgent,
+    openStream(nodeId, request, callbacks) {
+      const link = links.get(nodeId);
+      if (!link?.socket || link.socket.readyState !== WebSocket.OPEN || !link.streams)
+        return Promise.reject(
+          new HubCallError("E_NODE_OFFLINE", "The node is offline. Start its agent and retry."),
+        );
+      if (!link.capabilities.has(request.capability))
+        return Promise.reject(
+          new HubCallError(
+            "E_CAPABILITY_MISSING",
+            "This node's agent does not support this yet. Update the agent and retry.",
+          ),
+        );
+      return link.streams
+        .open(request, callbacks)
+        .catch((error: { code: ErrorCode; msg: string }) => {
+          throw new HubCallError(error.code, error.msg);
+        });
+    },
     disconnect(nodeId, code) {
       const socket = links.get(nodeId)?.socket;
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -1137,4 +1186,9 @@ export function createHub(options: {
       }
     },
   };
+}
+
+function toBytes(data: RawData): Uint8Array {
+  if (Array.isArray(data)) return Buffer.concat(data);
+  return data instanceof ArrayBuffer ? new Uint8Array(data) : data;
 }
