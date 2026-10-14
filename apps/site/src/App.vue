@@ -92,6 +92,7 @@ const trace =
       <nav class="links" aria-label="Site">
         <a href="#install">Install</a>
         <a href="#numbers">Numbers</a>
+        <a href="#free">Pricing</a>
         <a href="#now">This version</a>
         <a :href="product.sourceUrl">Source</a>
       </nav>
@@ -200,6 +201,34 @@ const trace =
           <a :href="`${product.sourceUrl}/blob/main/scripts/bench-footprint.sh`">Run it yourself</a
           >.
         </p>
+      </section>
+
+      <section id="free" class="free">
+        <p class="kicker">One edition</p>
+        <h2>Every server and every feature, free</h2>
+        <p class="lede">
+          Other panels often keep multi-server management for a paid Pro edition. Unpanel has one
+          edition, and we promise it stays whole.
+        </p>
+        <div class="facts promise">
+          <div>
+            <h3>No Pro or Enterprise tier</h3>
+            <p>There will never be a paid edition with features the free one lacks.</p>
+          </div>
+          <div>
+            <h3>No server limit</h3>
+            <p>Add every server you run and everyone on your team. None of it is an upgrade.</p>
+          </div>
+          <div>
+            <h3>Nothing taken back</h3>
+            <p>
+              No feature moves behind payment. Every release is AGPL, so what you have stays yours.
+              <a :href="`${product.sourceUrl}/blob/main/docs/adr/0012-one-edition.md`"
+                >The decision</a
+              >.
+            </p>
+          </div>
+        </div>
       </section>
 
       <section id="now" class="split">

@@ -24,6 +24,7 @@ html {
 
 #install,
 #numbers,
+#free,
 #now {
   scroll-margin-top: 84px;
 }
@@ -111,7 +112,8 @@ a {
 }
 
 h1,
-h2 {
+h2,
+h3 {
   margin: 0;
   font-family: "Familjen Grotesk", "Segoe UI", sans-serif;
   font-weight: 600;
@@ -396,6 +398,20 @@ footer {
   white-space: nowrap;
 }
 
+.free {
+  padding: 72px 0 0;
+}
+
+.promise {
+  margin-top: 32px;
+}
+
+.promise h3 {
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
 .split {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -430,6 +446,8 @@ footer a {
   }
 
   .links {
+    flex-wrap: wrap;
+    gap: 6px 20px;
     width: 100%;
   }
 

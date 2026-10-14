@@ -9,6 +9,7 @@ A **lightweight, good-looking, secure, and practical** multi-server management p
 - Target users: individual developers and small teams running 1–100 VPS or dedicated servers.
 - Core use: one web UI to see load and alerts across all servers; manage Docker, PM2, Nginx, and systemd services; issue and distribute certificates; get Telegram notifications and take simple actions when something goes wrong.
 - How it differs from heavyweight panels: **no "one-click LNMP stacks"** and no reshaping of the system. It observes and manages what already exists, keeps its footprint small, and treats multiple nodes as a first-class concept.
+- One edition, free in full: no Pro or Enterprise tier, no node limit, and no feature ever moved behind payment ([ADR-0012](../adr/0012-one-edition.md)).
 - The UI takes inspiration from the dashboard and overall style of [3x-ui](https://github.com/MHSanaei/3x-ui); see [kb/ui-reference-3x-ui.md](../kb/ui-reference-3x-ui.md).
 
 ## 2. Design principles

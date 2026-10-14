@@ -25,5 +25,6 @@ ADRs record *why*. The code shows what the system is; ADRs explain why it is tha
 | [0009](./0009-multi-user-rbac.md) | Switchable user modes: single-user by default, team mode with node-scoped RBAC | Accepted |
 | [0010](./0010-https-by-default.md) | HTTPS by default (starting with a self-signed certificate) | Accepted |
 | [0011](./0011-agpl-license.md) | AGPL-3.0-or-later | Accepted |
+| [0012](./0012-one-edition.md) | One edition, with every feature free | Accepted |
 
 "Q" numbers refer to [open-questions.md](../open-questions.md).
