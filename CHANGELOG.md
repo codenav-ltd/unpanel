@@ -9,10 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Dashboard cards can be reordered, resized and removed. Customize now edits the dashboard in place: drag a card or use its arrows, pick a quarter, third, half or full width, remove cards and add them back. The layout is saved in this browser and applies to every node.
+- Add node is now two short steps. Name the server (the panel address is shown as one line and only opens as a field when it is missing or local-only), then copy the install command and watch the server connect: the dialog switches to “connected” and offers Open dashboard when the agent reports in. The one-line installer for a new server is now the default, and the command is shown in a monospace block with Copy and its expiry time.
 - Docker and Alerts dashboard cards. Docker shows running, stopped and failing containers with the failing ones listed first; Alerts shows this node's active incidents, or how many rules watch it. The system strip is now three separate cards: uptime, process memory and IP addresses.
 
 ### Changed
 
+- Rename Re-enroll to Reconnect agent and ask before it runs. The dialog explains when it is needed, and for an online node warns that its agent is disconnected until the new command runs. Before, one click from the node menu or Host page replaced the key and disconnected the server immediately.
 - Remove the warning banner that was always shown to owners at the top of Settings → Updates. It repeated the Security update policy section below it, which still shows the active policy. Security warnings at the top of the page now only appear when an advisory affects the installed version.
 
 ### Fixed

@@ -1,0 +1,150 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 CodeNav Ltd and contributors */
+
+.add-node-intro {
+  margin-top: 0;
+}
+
+.add-node-address {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-top: 16px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.add-node-address p {
+  margin: 0;
+}
+
+.add-node-address code,
+.enroll-command code {
+  font-family: var(--font-mono);
+}
+
+.add-node-address code {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.enroll-steps {
+  display: grid;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: enroll;
+}
+
+/* Numbered rail: the number sits in the gutter, the step's content on one left edge. */
+.enroll-steps > li {
+  position: relative;
+  padding-inline-start: 34px;
+  counter-increment: enroll;
+}
+
+.enroll-steps > li::before {
+  content: counter(enroll);
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.enroll-steps > li[data-done="true"]::before {
+  content: "✓";
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.enroll-steps strong {
+  display: block;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.enroll-steps .hint {
+  margin-top: 4px;
+}
+
+.enroll-step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.enroll-step-head .layout-switch {
+  margin: 0;
+}
+
+.enroll-command {
+  position: relative;
+  margin-top: 10px;
+}
+
+.enroll-command pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 12px 84px 12px 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.enroll-command pre:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+button.enroll-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  background: var(--raised);
+  font-size: 12px;
+}
+
+.enroll-waiting,
+.enroll-connected {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+}
+
+.enroll-connected {
+  color: var(--ok);
+}
+
+.enroll-foot {
+  margin: 18px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.5;
+}

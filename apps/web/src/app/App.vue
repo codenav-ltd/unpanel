@@ -35,7 +35,7 @@ import AlertsCard from "../components/AlertsCard.vue";
 import ConnectionsCard from "../components/ConnectionsCard.vue";
 import CoreGrid from "../components/CoreGrid.vue";
 import HistoryDialog from "../components/HistoryDialog.vue";
-import EnrollGuide from "../components/EnrollGuide.vue";
+import ReconnectNodeDialog from "../components/ReconnectNodeDialog.vue";
 import NodeMenu from "../components/NodeMenu.vue";
 import NodePage from "../components/NodePage.vue";
 import OverviewPage from "../components/OverviewPage.vue";
@@ -885,6 +885,17 @@ function chooseNode(id: string): void {
   void refresh();
 }
 
+function openAdded(id: string): void {
+  showAdd.value = false;
+  void refreshList();
+  openNode(id);
+}
+
+function openReconnected(id: string): void {
+  reconnectNode.value = null;
+  openNode(id);
+}
+
 function openNodeHost(id: string): void {
   nodeId.value = id;
   page.value = "host";
@@ -901,7 +912,8 @@ const nodeMenu = ref<{ id: string; x: number; y: number } | null>(null);
 const removeId = ref<string | null>(null);
 const removeBusy = ref(false);
 const removeError = ref("");
-const enrollView = ref<{ installed: string; fresh: string } | null>(null);
+/** The node whose agent is being given a new key and install command. */
+const reconnectNode = ref<{ id: string; name: string; online: boolean } | null>(null);
 const actionError = ref("");
 const actionBusy = ref(false);
 const actionNote = ref("");
@@ -951,6 +963,14 @@ async function onMenuAction(
     removeId.value = node.id;
     return;
   }
+  if (action === "reenroll") {
+    reconnectNode.value = {
+      id: node.id,
+      name: menuLabel(node),
+      online: node.online && node.status === "active",
+    };
+    return;
+  }
   actionBusy.value = true;
   actionError.value = "";
   actionNote.value = "";
@@ -969,29 +989,9 @@ async function onMenuAction(
       actionNote.value = `${menuLabel(node)}: ${en.shell.saved}`;
       return;
     }
-    if (action === "reenroll") {
-      const response = await fetch(
-        `/api/v1/nodes/${encodeURIComponent(node.id)}/enrollment-token`,
-        {
-          method: "POST",
-        },
-      );
-      if (!response.ok) {
-        actionError.value = await failureText(response);
-        return;
-      }
-      const body = (await response.json()) as { data?: { installed?: string; fresh?: string } };
-      if (!body.data?.installed || !body.data.fresh) {
-        actionError.value = en.auth.invalidResponse;
-        return;
-      }
-      enrollView.value = { installed: body.data.installed, fresh: body.data.fresh };
-      await refreshList();
-      return;
-    }
   } catch {
     actionError.value = replyNotReceived(
-      action === "reenroll" ? "create an enrollment command" : "change this node",
+      "change this node",
       "Refresh the node list and check Logs before trying again.",
     );
   } finally {
@@ -1410,6 +1410,13 @@ onUnmounted(() => {
               @saved="onNodeSaved"
               @changed="refreshList"
               @removed="onRemoved"
+              @reconnect="
+                reconnectNode = {
+                  id: nodeId,
+                  name: prefs.name || info?.hostname || nodeId,
+                  online: phase === 'online',
+                }
+              "
             />
             <p
               v-else-if="page === 'host'"
@@ -1624,6 +1631,7 @@ onUnmounted(() => {
         :public-url="publicUrl"
         @created="refreshList"
         @address="publicUrl = $event"
+        @open="openAdded"
       />
     </AppDialog>
     <AppDialog
@@ -1650,14 +1658,15 @@ onUnmounted(() => {
         </button>
       </template>
     </AppDialog>
-    <AppDialog
-      narrow
-      :open="enrollView !== null"
-      :title="en.shell.reenroll"
-      @close="enrollView = null"
-    >
-      <EnrollGuide v-if="enrollView" :installed="enrollView.installed" :fresh="enrollView.fresh" />
-    </AppDialog>
+    <ReconnectNodeDialog
+      :open="reconnectNode !== null"
+      :node-id="reconnectNode?.id ?? ''"
+      :node-name="reconnectNode?.name ?? ''"
+      :online="reconnectNode?.online ?? false"
+      @close="reconnectNode = null"
+      @changed="refreshList"
+      @open="openReconnected"
+    />
     <AppDialog
       narrow
       :open="actionError !== ''"

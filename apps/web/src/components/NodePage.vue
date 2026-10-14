@@ -10,7 +10,6 @@ import { en } from "../i18n/en.ts";
 import { readProblem, replyNotReceived } from "../http-error.ts";
 import { useNodeDraft } from "../node-draft.ts";
 import SelectField from "./SelectField.vue";
-import EnrollGuide from "./EnrollGuide.vue";
 
 const props = defineProps<{
   canOperate: boolean;
@@ -39,6 +38,7 @@ const emit = defineEmits<{
   saved: [prefs: { name: string; tags: string[]; maintenance: boolean }];
   changed: [];
   removed: [];
+  reconnect: [];
 }>();
 
 const local = computed(() => props.nodeId === "local");
@@ -48,12 +48,10 @@ const presence = computed(() => {
   return props.online ? en.shell.statusOnline : en.shell.statusOffline;
 });
 const confirmRemove = ref(false);
-const installed = ref("");
-const fresh = ref("");
 const accessError = ref("");
 const accessNote = ref("");
 
-const pendingAction = ref<"save" | "swap" | "toggle" | "reenroll" | "remove" | "">("");
+const pendingAction = ref<"save" | "swap" | "toggle" | "remove" | "">("");
 const swapGib = ref<1 | 2 | 4 | 8>(1);
 const swapError = ref("");
 const swapNote = ref("");
@@ -66,8 +64,6 @@ const note = ref("");
 watch(
   () => props.nodeId,
   () => {
-    installed.value = "";
-    fresh.value = "";
     confirmRemove.value = false;
     error.value = "";
     accessError.value = "";
@@ -115,7 +111,7 @@ async function save(): Promise<void> {
 async function run(
   path: string,
   method: "POST" | "DELETE",
-  action: "toggle" | "reenroll" | "remove",
+  action: "toggle" | "remove",
 ): Promise<boolean> {
   if (busy.value) return false;
   pendingAction.value = action;
@@ -128,11 +124,6 @@ async function run(
     if (!response.ok) {
       accessError.value = await readProblem(response, "change this node");
       return false;
-    }
-    if (action === "reenroll") {
-      const body = (await response.json()) as { data: { installed: string; fresh: string } };
-      installed.value = body.data.installed;
-      fresh.value = body.data.fresh;
     }
     return true;
   } catch {
@@ -150,12 +141,6 @@ async function toggleEnabled(): Promise<void> {
   const path = props.status === "disabled" ? "/enable" : "/disable";
   if (!(await run(path, "POST", "toggle"))) return;
   accessNote.value = props.status === "disabled" ? en.shell.saved : en.shell.disableHint;
-  emit("changed");
-}
-
-async function reenroll(): Promise<void> {
-  if (!(await run("/enrollment-token", "POST", "reenroll"))) return;
-  confirmRemove.value = false;
   emit("changed");
 }
 
@@ -363,10 +348,8 @@ async function remove(): Promise<void> {
           class="quiet"
           type="button"
           :disabled="busy"
-          :aria-busy="pendingAction === 'reenroll'"
-          @click="reenroll"
+          @click="emit('reconnect')"
         >
-          <span v-if="pendingAction === 'reenroll'" class="spinner" aria-hidden="true" />
           {{ en.shell.reenroll }}
         </button>
         <button
@@ -395,7 +378,6 @@ async function remove(): Promise<void> {
           {{ en.shell.cancel }}
         </button>
       </div>
-      <EnrollGuide v-if="installed" :installed="installed" :fresh="fresh" />
     </section>
   </div>
 </template>

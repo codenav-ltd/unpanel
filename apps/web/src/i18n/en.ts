@@ -69,7 +69,7 @@ export const en = {
     applyHint:
       "The panel checks the hostname and private key, then verifies the certificate on its HTTPS listener before saving the address. If that check fails, it restores the previous listener.",
     migrateHint:
-      "After applying, open the HTTPS address and sign in again. HTTP pages redirect to HTTPS. Re-enroll remote agents with the new panel address; their saved connection URL does not change automatically.",
+      "After applying, open the HTTPS address and sign in again. HTTP pages redirect to HTTPS. Then use Reconnect agent on each remote node so it uses the new panel address; their saved connection URL does not change automatically.",
     stagingWarning:
       "This is a staging certificate. Browsers and agents will not trust it automatically. Use it only to test issuance.",
     cancel: "Cancel",
@@ -183,7 +183,6 @@ export const en = {
     openSockets: "open sockets",
     socketsUnavailable: "Socket counts are not readable on this host.",
     swapUnavailable: "No swap, or swap is not readable here.",
-    systemCard: "System",
     systemStrip: "System",
     panelProcess: "Panel",
     agentProcess: "Agent",
@@ -191,8 +190,6 @@ export const en = {
     showAddresses: "Show IP addresses",
     hideAddresses: "Hide IP addresses",
     customize: "Customize",
-    customizeHint: "Pick the cards the dashboard shows. The choice stays in this browser.",
-    showAll: "Show all",
     allCardsHidden: "Every card is hidden. Open Customize to bring some back.",
     signOut: "Sign out",
     localNode: "local",
@@ -203,38 +200,14 @@ export const en = {
     nodes: "nodes",
     onlineCount: "online",
     addNode: "Add node",
-    addNodeCard: "Enroll another server",
-    addNodeHint:
-      "Name the server you are adding. The address below is this panel, the one open in this browser. The new server connects to it.",
-    addNodeStepName: "Name the new server. Tags are optional.",
-    addNodeStepAddress:
-      "Confirm the address of this panel. It is filled in from Settings. Do not put the new server's IP here.",
-    addNodeStepScript:
-      "Create the node, then paste the script on the new server. A failure stays in that terminal and names the address it tried.",
-    installChoice: "How this server gets the agent",
-    installReady: "Already installed",
-    installFresh: "Not installed",
-    installReadyHint:
-      "Paste the whole block on the new server and press Enter. The address inside it is this panel. It runs under sudo, enrolls, and starts the agent in this terminal. A failure stays inside the script and does not close your login shell. Leave the terminal open.",
-    installFreshHint:
-      "Paste this one line on the new server and press Enter. The address inside it is this panel. It downloads the release from unpanel.codenav.dev, enrolls, and starts the agent as a service. You can close the terminal after it finishes. The server needs curl and Node.js 24.",
-    enrollmentCommand: "Script",
-    tokenOnce:
-      "Shown once. Closing this dialog does not delete the node. Open it and choose Re-enroll if you need the script again.",
-    panelAddressLabel: "Address of this panel",
-    publicUrlForNode:
-      "Use the address of the panel you have open now, including http:// and the port. The new server opens it to enroll. This field does not take the new server's IP.",
-    publicUrlLoopback: "This address only works on the same machine as the panel.",
     publicUrlPlaceholder: "https://panel.example.com:28517",
-    copyCommand: "Copy",
-    copiedCommand: "Copied",
     waitingAgent: "Waiting for the agent",
     statusDisabled: "Disabled",
     allTags: "All tags",
     nodeAccess: "Access",
     disableNode: "Disable",
     enableNode: "Enable",
-    reenroll: "Re-enroll",
+    reenroll: "Reconnect agent…",
     editNode: "Edit",
     nodeMenu: "Node actions",
     nodeActionFailed: "Could not change this node",
@@ -243,9 +216,9 @@ export const en = {
     removeConfirm:
       "Remove this node from the panel? Stop the agent on that server yourself. There is no uninstall command.",
     localNodeHint:
-      "This machine's agent uses the panel key, so it cannot be re-enrolled or removed. Disable stops it from reporting until you enable it again.",
+      "This machine's agent uses the panel key, so it cannot be reconnected or removed. Disable stops it from reporting until you enable it again.",
     remoteNodeHint:
-      "Disable closes the agent; it tries again once an hour. Re-enroll drops the old key and shows a new command once. Remove forgets the node.",
+      "Disable stops the agent from reporting; it tries again once an hour. Reconnect agent gives the server a new key and install command, for a reinstalled server or a lost command. Remove forgets the node.",
     disableHint: "Disabled. The agent tries again once an hour, or sooner if you restart it.",
     setPanelAddress:
       "Enter the panel address in this form. It is the origin the other server opens, including the port.",
@@ -529,7 +502,7 @@ export const en = {
       "node.update": "Node updated",
       "node.disable": "Node disabled",
       "node.enable": "Node enabled",
-      "node.reenroll": "Node re-enrolled",
+      "node.reenroll": "Agent reconnected with a new key",
       "node.remove": "Node removed",
       "settings.update": "Settings updated",
       "security.ip.unban": "IP address unblocked",

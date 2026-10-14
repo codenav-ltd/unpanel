@@ -1873,6 +1873,34 @@ button.strip-eye svg {
   line-height: 1.45;
 }
 
+.field .field-warn {
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.field .optional {
+  margin-inline-start: 4px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* An inline text action, for "Change" or "Show all" next to a value. */
+button.link-button {
+  min-height: 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-weight: 500;
+}
+
+button.link-button:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
+}
+
 input,
 .field textarea,
 textarea.command {
