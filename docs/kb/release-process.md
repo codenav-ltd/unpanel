@@ -78,12 +78,13 @@ The website must serve ordinary static files without rewriting their contents. K
 
 | Artifact | Architectures | Build environment |
 |---|---|---|
-| `unpanel-<ver>-linux-<arch>.tar.gz` | x64, arm64 | `ubuntu-latest` x64 runner; arm64 uses the same JS bundle and matching native Argon2 dependency |
+| `pty.node` (build artifact) | x64, arm64 | `.github/workflows/native-pty.yml`: `debian:11` container on the native `ubuntu-24.04` and `ubuntu-24.04-arm` runners |
+| `unpanel-<ver>-linux-<arch>.tar.gz` | x64, arm64 | `ubuntu-latest` x64 runner; arm64 uses the same JS bundle with the matching native Argon2 dependency and arm64 `pty.node` |
 | `SHA256SUMS`, `channels.json` | Shared | Produced from the exact packages |
 
-Both panel and agent are in each package. Node.js 24 must already be installed; it is not bundled. `.github/workflows/ci.yml` runs lint (including SPDX/license/format checks), typechecks, tests and website-deployment script checks. `.github/workflows/release.yml` separately installs with the frozen lockfile, builds the web UI, bundles, packs and publishes. Only tag the exact commit after its CI succeeds: the release workflow does not rerun the full CI job.
+Both panel and agent are in each package. Node.js 24 must already be installed; it is not bundled. `.github/workflows/ci.yml` runs lint (including SPDX/license/format checks), typechecks, tests and website-deployment script checks. Both workflows call `native-pty.yml`, which compiles node-pty on each architecture, rejects a binary that needs glibc newer than 2.31 and opens a real terminal with it (`scripts/check-pty.mjs`). `.github/workflows/release.yml` then installs with the frozen lockfile, builds the web UI, bundles with the downloaded `pty.node` binaries, packs, opens a terminal from the extracted x64 package and publishes. Only tag the exact commit after its CI succeeds: the release workflow does not rerun the full CI job.
 
-Packages contain the built panel/agent/management scripts, frontend, native password-hashing dependency, installers/update helpers, `LICENSE`, `VERSION` and `SOURCE` naming the exact tag. Packaging verifies the native dependency and architecture metadata. The CI license check rejects disallowed licenses. A bundled-runtime license inventory, native arm64 execution tests and the complete Linux VM installation/upgrade matrix remain release-readiness work.
+Packages contain the built panel/agent/management scripts, frontend, native password-hashing and pseudoterminal dependencies, installers/update helpers, `LICENSE`, `VERSION` and `SOURCE` naming the exact tag. Packaging verifies that each package holds exactly the expected native binaries, that `pty.node` is an ELF binary for the package's architecture, and the architecture metadata. The CI license check rejects disallowed licenses. A bundled-runtime license inventory, execution tests of the final arm64 package and the complete Linux VM installation/upgrade matrix remain release-readiness work.
 
 ## 4. Signing (planned)
 

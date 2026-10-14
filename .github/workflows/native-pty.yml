@@ -1,0 +1,41 @@
+name: Native pty
+
+# node-pty publishes no Linux binaries. Compile pty.node on Debian 11, the
+# glibc 2.31 baseline in docs/design/09-deployment.md, natively on each
+# architecture, check that a real terminal works, and hand it to packaging.
+
+on:
+  workflow_call:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: debian:11
+    steps:
+      # Bullseye LTS ended in August 2026; its security updates now live only on
+      # archive.debian.org.
+      - run: |
+          sed -i "s|deb.debian.org/debian-security|archive.debian.org/debian-security|" /etc/apt/sources.list
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git python3 make g++ binutils
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/native-pty.mjs
+      - run: node scripts/check-pty.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-pty-linux-${{ matrix.arch }}
+          path: build/native/
+          if-no-files-found: error

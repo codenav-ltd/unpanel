@@ -9,7 +9,11 @@ permissions:
   contents: write
 
 jobs:
+  native-pty:
+    uses: ./.github/workflows/native-pty.yml
+
   package:
+    needs: native-pty
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,9 +23,19 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-pty-linux-*
+          path: build/native
+          merge-multiple: true
       - run: pnpm --filter @unpanel/web build
       - run: node scripts/bundle.mjs
       - run: node scripts/pack.mjs
+      - name: Open a terminal from the x64 package
+        run: |
+          mkdir -p build/verify
+          tar -xzf build/release/unpanel-*-linux-x64.tar.gz -C build/verify
+          node scripts/check-pty.mjs build/verify
       - uses: softprops/action-gh-release@v2
         with:
           prerelease: true

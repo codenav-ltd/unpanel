@@ -26,7 +26,7 @@ The documentation is the source of truth. Any change to behavior, protocol, data
 
 ## Development setup (planned)
 
-Requirements: Node.js 24 LTS, pnpm 10, Linux or macOS (Windows via WSL2). An agent needs a Linux host with systemd; a local VM (Incus, Multipass, Vagrant) is recommended.
+Requirements: Node.js 24 LTS, pnpm 10, Linux or macOS (Windows via WSL2). On Linux, `pnpm install` compiles node-pty and needs `python3`, `make` and a C++ compiler. An agent needs a Linux host with systemd; a local VM (Incus, Multipass, Vagrant) is recommended.
 
 ```bash
 pnpm install

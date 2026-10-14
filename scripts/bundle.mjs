@@ -50,7 +50,7 @@ await build({
   outdir: out,
   entryNames: "[name]",
   outExtension: { ".js": ".cjs" },
-  external: ["@node-rs/argon2"],
+  external: ["@node-rs/argon2", "node-pty"],
   logLevel: "warning",
   logOverride: { "empty-import-meta": "silent" },
 });
@@ -58,6 +58,7 @@ await build({
 cpSync(join(root, "apps", "web", "dist"), join(out, "web"), { recursive: true });
 copyPackage("@node-rs/argon2");
 assertNative(join(out, "node_modules", "@node-rs"));
+copyPty();
 mkdirSync(join(out, "scripts"), { recursive: true });
 for (const name of [
   "install.sh",
@@ -78,6 +79,12 @@ mkdirSync(join(out, "licenses"), { recursive: true });
 cpSync(
   join(dirname(agentRequire.resolve("yaml/package.json")), "LICENSE"),
   join(out, "licenses", "yaml.txt"),
+);
+// node-addon-api's headers are compiled into pty.node.
+const ptyRequire = createRequire(agentRequire.resolve("node-pty/package.json"));
+cpSync(
+  join(dirname(ptyRequire.resolve("node-addon-api/package.json")), "LICENSE.md"),
+  join(out, "licenses", "node-addon-api.txt"),
 );
 const version = readFileSync(join(root, "packages", "shared", "src", "product.ts"), "utf8").match(
   /version: "([^"]+)"/,
@@ -103,6 +110,31 @@ function copyPackage(name) {
   // contains the native binary, not a path on the build machine.
   const scope = dirname(dirname(pkgJson));
   copyFollow(scope, join(out, "node_modules", "@node-rs"));
+}
+
+// node-pty publishes no Linux binaries. Ship its JavaScript with the x64
+// pty.node built on the glibc baseline by scripts/native-pty.mjs; pack.mjs
+// swaps in the arm64 one.
+function copyPty() {
+  const native = join(root, "build", "native", "linux-x64", "pty.node");
+  try {
+    statSync(native);
+  } catch {
+    process.stderr.write(
+      `${native} is missing. Download the native-pty artifacts or run scripts/native-pty.mjs on linux-x64.\n`,
+    );
+    process.exit(1);
+  }
+  const agentRequire = createRequire(join(root, "apps", "agent", "package.json"));
+  const src = realpathSync(dirname(agentRequire.resolve("node-pty/package.json")));
+  const dest = join(out, "node_modules", "node-pty");
+  for (const name of ["package.json", "LICENSE"]) cpSync(join(src, name), join(dest, name));
+  cpSync(join(src, "lib"), join(dest, "lib"), {
+    recursive: true,
+    filter: (path) => !path.endsWith(".map") && !path.endsWith(".test.js"),
+  });
+  mkdirSync(join(dest, "build", "Release"), { recursive: true });
+  cpSync(native, join(dest, "build", "Release", "pty.node"));
 }
 
 function copyFollow(src, dest) {

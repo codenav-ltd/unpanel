@@ -6,6 +6,9 @@ on:
   pull_request:
 
 jobs:
+  native-pty:
+    uses: ./.github/workflows/native-pty.yml
+
   check:
     runs-on: ubuntu-latest
     steps:

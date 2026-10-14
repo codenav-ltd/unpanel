@@ -33,7 +33,8 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "esbuild",
+      "node-pty"
     ],
     "patchedDependencies": {
       "acme-client@5.4.0": "patches/acme-client@5.4.0.patch"

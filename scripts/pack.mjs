@@ -23,7 +23,8 @@ import { compareVersions } from "../packages/shared/src/version.ts";
 import { validateReleasePolicy } from "./release-policy.mjs";
 
 // The bundle is built on linux-x64. The arm64 package is the same bundle with
-// the glibc arm64 argon2 binary from the lockfile swapped in.
+// the glibc arm64 argon2 binary from the lockfile and the arm64 pty.node from
+// scripts/native-pty.mjs swapped in.
 if (process.platform !== "linux" || process.arch !== "x64") {
   process.stderr.write(
     "Release packages are built on linux-x64. The arm64 package is made from that build.\n",
@@ -49,9 +50,12 @@ const stage = join(root, "build", "package");
 const releaseDir = join(root, "build", "release");
 mkdirSync(releaseDir, { recursive: true });
 
+const ptyPath = join("node_modules", "node-pty", "build", "Release", "pty.node");
+const elfMachine = { x64: 62, arm64: 183 };
 const x64Asset = `unpanel-${version}-linux-x64.tar.gz`;
 const armAsset = `unpanel-${version}-linux-arm64.tar.gz`;
-assertNative(stage, "linux-x64-gnu.node");
+assertNative(stage, ["linux-x64-gnu.node", "pty.node"]);
+assertElfMachine(join(stage, ptyPath), elfMachine.x64);
 const x64Archive = join(releaseDir, x64Asset);
 writeFileSync(join(stage, "ARCH"), "linux-x64\n");
 tarInto(stage, x64Archive);
@@ -71,7 +75,9 @@ try {
   });
   if (extracted.status !== 0) process.exit(extracted.status ?? 1);
   rmSync(tgz);
-  assertNative(armStage, "linux-arm64-gnu.node");
+  cpSync(join(root, "build", "native", "linux-arm64", "pty.node"), join(armStage, ptyPath));
+  assertNative(armStage, ["linux-arm64-gnu.node", "pty.node"]);
+  assertElfMachine(join(armStage, ptyPath), elfMachine.arm64);
   writeFileSync(join(armStage, "ARCH"), "linux-arm64\n");
   tarInto(armStage, join(releaseDir, armAsset));
 } finally {
@@ -175,7 +181,7 @@ function lockIntegrity(name, nativeVersion) {
   return found[1];
 }
 
-function assertNative(dir, namePart) {
+function assertNative(dir, nameParts) {
   const nodes = [];
   const walk = (current) => {
     for (const name of readdirSync(current)) {
@@ -189,8 +195,21 @@ function assertNative(dir, namePart) {
     }
   };
   walk(dir);
-  if (nodes.length !== 1 || !nodes[0].includes(namePart)) {
-    process.stderr.write(`Expected one ${namePart}, found ${nodes.join(", ") || "none"}.\n`);
+  const matched = nameParts.every(
+    (part) => nodes.filter((name) => name.includes(part)).length === 1,
+  );
+  if (nodes.length !== nameParts.length || !matched) {
+    process.stderr.write(
+      `Expected ${nameParts.join(" and ")}, found ${nodes.join(", ") || "none"}.\n`,
+    );
+    process.exit(1);
+  }
+}
+
+function assertElfMachine(path, machine) {
+  const header = readFileSync(path).subarray(0, 20);
+  if (header.readUInt32BE(0) !== 0x7f454c46 || header.readUInt16LE(18) !== machine) {
+    process.stderr.write(`${path} is not a Linux binary for ELF machine ${machine}.\n`);
     process.exit(1);
   }
 }

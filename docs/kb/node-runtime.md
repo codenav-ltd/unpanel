@@ -25,10 +25,12 @@ Policy: ship the current Active LTS; move to the next LTS within 3 months of it 
 |---|---|---|
 | `better-sqlite3` | Panel | Compiled per arch in CI; to be dropped if `node:sqlite` passes the ADR-0006 criteria |
 | `@node-rs/argon2` | Panel | N-API prebuilt packages per platform (`@node-rs/argon2-linux-x64-gnu`, …) ✅; ABI-stable across Node versions |
-| `node-pty` | Agent | Upstream `node-pty` 1.1.0 ✅; `@lydell/node-pty` publishes per-platform prebuilt packages ✅. We compile in CI on our glibc baseline either way, to control compatibility |
+| `node-pty` | Agent | Upstream `node-pty` 1.1.0, N-API. Its npm package ships prebuilds for macOS and Windows only, none for Linux (checked 2026-10-14 from the published 1.1.0 tarball), so CI compiles `pty.node` on Debian 11 for each architecture. On Linux it calls `forkpty` directly; `spawn-helper` is only built and used on macOS |
 
 - N-API modules are ABI-stable across Node majors; NAN/V8-API modules (like older node-pty) must be rebuilt per Node major.
 - pnpm 10 does not run dependency build scripts unless approved: list them in `pnpm.onlyBuiltDependencies` (or via `pnpm approve-builds`) ✅.
+- Debian 11 LTS ended in August 2026. Since then its security suite is served only from `archive.debian.org` (a `bullseye-security` package returned 404 from `deb.debian.org` and 200 from `archive.debian.org` on 2026-10-14), so the build container rewrites that source before `apt-get`. Main `bullseye` packages were still on `deb.debian.org` that day; expect them to move as well.
+- The macOS prebuilt `spawn-helper` in node-pty 1.1.0 is installed without its execute bit, so `spawn` fails with `posix_spawnp failed` until it is made executable. This only affects running a terminal on a macOS development machine.
 
 ## 4. Memory tuning
 
