@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.42] - 2026-10-14
+
 ### Added
 
 - Docker container alerts. A Container down rule watches every container on its nodes and opens one incident per container that crashes, keeps restarting or fails its health check, and resolves it when the container runs again. Containers that exited cleanly, containers stopped or paused from Unpanel's Docker page, and containers that failed days before the panel saw them run are not reported. It uses the container list agents already provide, so it works with older agents too.
