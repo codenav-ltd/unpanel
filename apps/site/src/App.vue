@@ -43,11 +43,16 @@ function copyWithSelection(text: string): boolean {
   }
 }
 
-// One run each on 2026-10-14; see scripts/bench-footprint.sh and scripts/bench-update.sh.
+// Measured on 2026-10-14; see scripts/bench-footprint.sh and scripts/bench-update.sh.
 const panels = ["Unpanel", "1Panel", "aaPanel", "BaoTa"];
 const measured: { label: string; note?: string; values: string[] }[] = [
+  {
+    label: "Update to the next release",
+    note: "Start to the new version answering",
+    values: ["1.4 s", "4.5 s", "—", "—"],
+  },
   { label: "Update download", values: ["1.5 MB", "61 MB", "—", "—"] },
-  { label: "Panel offline during an update", values: ["0.3 s", "none seen", "—", "—"] },
+  { label: "Panel offline during an update", values: ["0.7 s", "none seen", "—", "—"] },
   {
     label: "Install",
     note: "Depends on the network",
@@ -145,15 +150,15 @@ const trace =
 
       <section id="numbers" class="numbers">
         <p class="kicker">Measured on a fresh Ubuntu 22.04</p>
-        <h2>A 1.5 MB update, not a stack on your server</h2>
+        <h2>Updates in seconds, not a stack on your server</h2>
         <dl class="stats">
+          <div>
+            <dt>Update to the next release</dt>
+            <dd>1.4 s</dd>
+          </div>
           <div>
             <dt>Update download</dt>
             <dd>1.5 MB</dd>
-          </div>
-          <div>
-            <dt>Panel offline during an update</dt>
-            <dd>0.3 s</dd>
           </div>
           <div>
             <dt>System packages installed</dt>
@@ -187,10 +192,11 @@ const trace =
         <p class="fine method">
           Default install from each project's own instructions, one disposable systemd container per
           panel on the same arm64 host, measured once on 14 October 2026: Unpanel 0.1.0-alpha.41,
-          1Panel v2.3.2 without Docker, aaPanel 8.0.7 and BaoTa 13.1.0. Updates went from Unpanel
-          alpha.40 and 1Panel v2.3.1; aaPanel and BaoTa only install their latest release, so their
-          update was not measured. Update time is left out because it is the download on this host's
-          network. Memory and CPU were read after five idle minutes.
+          1Panel v2.3.2 without Docker, aaPanel 8.0.7 and BaoTa 13.1.0. Memory and CPU were read
+          after five idle minutes. Updates ran on a 4-core arm64 cloud server, from Unpanel alpha.40
+          and alpha.41 to alpha.42 (three runs, 1.4–1.5 s) and from 1Panel v2.3.1 to v2.3.2 (one
+          run); the panel was probed every 0.2 s. aaPanel and BaoTa only install their latest
+          release, so their update was not measured.
           <a :href="`${product.sourceUrl}/blob/main/scripts/bench-footprint.sh`">Run it yourself</a
           >.
         </p>
