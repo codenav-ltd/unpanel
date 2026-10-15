@@ -3045,11 +3045,13 @@ button.tag-chip[aria-pressed="true"] {
   border-bottom: 1px solid var(--line);
 }
 
-/* The Unpanel mark: a panel without its top wall, with the pulse inside. */
-.brand-mark {
+/* The Unpanel mark: a panel without its top wall, with the pulse inside.
+   Scoped under .sider to win over the icon rule above. */
+.sider .brand-mark {
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
+  margin-right: -2px;
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -3073,8 +3075,9 @@ button.tag-chip[aria-pressed="true"] {
 
 .sider-version {
   color: var(--text-3);
+  white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .sider-nav {
@@ -3126,9 +3129,6 @@ button.nav-group-toggle:focus-visible {
 }
 
 .nav-group-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -3173,9 +3173,6 @@ button.node-row {
 }
 
 .node-row-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
