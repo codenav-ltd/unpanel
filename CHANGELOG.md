@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.45] - 2026-10-15
+
 ### Changed
 
 - Files shows that a folder is loading: a progress line runs above the listing, the previous folder fades if the next one is slow, and the folder spins in the tree.
