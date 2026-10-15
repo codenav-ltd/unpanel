@@ -37,7 +37,13 @@ import {
   type TextFrame,
 } from "@unpanel/protocol";
 import { liveSampleMs } from "@unpanel/shared";
-import { dockerMethods, type DockerOperation } from "@unpanel/protocol";
+import {
+  dockerMethods,
+  fsCapabilityMeta,
+  fsMethods,
+  type DockerOperation,
+  type MethodDef,
+} from "@unpanel/protocol";
 import type { HistorySample, HistorySeries } from "./metrics/history.ts";
 import type { NodeStatus } from "./nodes/store.ts";
 import { createStreamClient, type PanelStream, type StreamCallbacks } from "./stream-client.ts";
@@ -112,6 +118,11 @@ export interface NodeLive {
   canUpdateAgent: boolean;
   /** Accounts a terminal may run as, or null when the agent offers no terminal. */
   terminalUsers: string[] | null;
+  /**
+   * Null when the agent offers no file manager; otherwise the folders it is limited to,
+   * empty when it allows the whole filesystem.
+   */
+  fileRoots: string[] | null;
 }
 
 export function blankNodeLive(id: string): NodeLive {
@@ -146,6 +157,7 @@ export function blankNodeLive(id: string): NodeLive {
     agentVersion: null,
     canUpdateAgent: false,
     terminalUsers: null,
+    fileRoots: null,
   };
 }
 
@@ -173,6 +185,12 @@ function agentRefusal(error: { code: ErrorCode; msg: string } | undefined): HubC
 }
 
 type Pending =
+  | {
+      kind: "call";
+      parse: (result: unknown) => unknown;
+      resolve: (value: unknown) => void;
+      reject: (error: HubCallError) => void;
+    }
   | {
       kind: "docker";
       operation: DockerOperation;
@@ -227,6 +245,7 @@ interface Link {
   readTimeouts: Map<number, ReturnType<typeof setTimeout>>;
   capabilities: Set<string>;
   terminalUsers: string[] | null;
+  fileRoots: string[] | null;
   /** Streams on the current socket; replaced on every connection. */
   streams: ReturnType<typeof createStreamClient> | null;
 }
@@ -261,6 +280,11 @@ export function createHub(options: {
     operation: DockerOperation,
     params: Record<string, unknown>,
   ) => Promise<unknown>;
+  call: <Params, Result>(
+    nodeId: string,
+    method: MethodDef<Params, Result>,
+    params: Params,
+  ) => Promise<Result>;
   http01: (
     params: { domain: string; token: string; keyAuthorization: string } | { token: string },
   ) => Promise<void>;
@@ -334,6 +358,7 @@ export function createHub(options: {
       readTimeouts: new Map(),
       capabilities: new Set(),
       terminalUsers: null,
+      fileRoots: null,
       streams: null,
     };
   }
@@ -407,7 +432,14 @@ export function createHub(options: {
     link.readTimeouts.clear();
     link.cpuInflight = false;
     for (const wait of link.pending.values()) {
-      if (wait.kind === "docker") {
+      if (wait.kind === "call") {
+        wait.reject(
+          new HubCallError(
+            "E_NODE_OFFLINE",
+            "The agent disconnected. Refresh before retrying; a requested change may already have occurred.",
+          ),
+        );
+      } else if (wait.kind === "docker") {
         wait.reject(
           new HubCallError(
             "E_NODE_OFFLINE",
@@ -604,6 +636,64 @@ export function createHub(options: {
             "E_NODE_OFFLINE",
             "The node is offline, so the request was not sent and no swap file was created.",
           ),
+        );
+      }
+    });
+  }
+
+  /** Calls a method on a node's agent and validates the reply against its schema. */
+  function call<Params, Result>(
+    nodeId: string,
+    method: MethodDef<Params, Result>,
+    params: Params,
+  ): Promise<Result> {
+    const link = links.get(nodeId);
+    if (!link?.socket || link.socket.readyState !== WebSocket.OPEN)
+      return Promise.reject(
+        new HubCallError("E_NODE_OFFLINE", "The node is offline. Start its agent and retry."),
+      );
+    if (!link.capabilities.has(method.capability))
+      return Promise.reject(
+        new HubCallError(
+          "E_CAPABILITY_MISSING",
+          "This node's agent does not support this yet. Update the agent and retry.",
+        ),
+      );
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (id !== null) link.pending.delete(id);
+        reject(
+          new HubCallError(
+            "E_TIMEOUT",
+            "The agent did not answer in time. Refresh before retrying; a requested change may already have occurred.",
+          ),
+        );
+      }, method.timeoutMs);
+      const id = request(
+        link,
+        method.name,
+        method.timeoutMs,
+        {
+          kind: "call",
+          parse: (result) => {
+            const parsed = method.result.safeParse(result);
+            return parsed.success ? parsed.data : undefined;
+          },
+          resolve: (value) => {
+            clearTimeout(timer);
+            resolve(value as Result);
+          },
+          reject: (error) => {
+            clearTimeout(timer);
+            reject(error);
+          },
+        },
+        params as Record<string, unknown>,
+      );
+      if (id === null) {
+        clearTimeout(timer);
+        reject(
+          new HubCallError("E_NODE_OFFLINE", "The node disconnected before the request was sent."),
         );
       }
     });
@@ -889,6 +979,14 @@ export function createHub(options: {
           frame.caps.find((capability) => capability.name === termOpen.capability)?.meta,
         );
         current.terminalUsers = terminal.success ? terminal.data.users : null;
+        const files = fsCapabilityMeta.safeParse(
+          frame.caps.find((capability) => capability.name === fsMethods.list.capability)?.meta ??
+            {},
+        );
+        current.fileRoots =
+          current.capabilities.has(fsMethods.list.capability) && files.success
+            ? (files.data.allow ?? [])
+            : null;
         current.streams = createStreamClient({
           send: (out) => {
             if (socket.readyState === WebSocket.OPEN) socket.send(encodeTextFrame(out));
@@ -943,6 +1041,7 @@ export function createHub(options: {
             ? error.message
             : "The panel failed while reading the agent's reply.";
         if (
+          wait.kind === "call" ||
           wait.kind === "docker" ||
           wait.kind === "control" ||
           wait.kind === "upgrade" ||
@@ -961,6 +1060,21 @@ export function createHub(options: {
       current: Link,
       id: string,
     ): void {
+      if (wait.kind === "call") {
+        if (!frame.ok) wait.reject(agentRefusal(frame.e));
+        else {
+          const parsed = wait.parse(frame.r);
+          if (parsed === undefined)
+            wait.reject(
+              new HubCallError(
+                "E_EXTERNAL",
+                "The agent's reply did not match this panel version. Update the agent and retry.",
+              ),
+            );
+          else wait.resolve(parsed);
+        }
+        return;
+      }
       if (wait.kind === "docker") {
         if (!frame.ok) wait.reject(agentRefusal(frame.e));
         else {
@@ -1154,11 +1268,13 @@ export function createHub(options: {
           agentVersion: info?.unpanel ?? link.agentVersion,
           canUpdateAgent: link.canUpdateAgent,
           terminalUsers: link.terminalUsers,
+          fileRoots: link.fileRoots,
         };
       });
     },
     control,
     docker,
+    call,
     configureSwap,
     http01,
     upgrade,

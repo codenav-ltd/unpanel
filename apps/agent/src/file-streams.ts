@@ -185,12 +185,31 @@ export function downloadMethod(
       }
 
       if (stats.isFile()) {
-        const source = createReadStream(real, { highWaterMark: 64 * 1024 });
+        // Exactly the announced size, so a file that grows meanwhile still matches the
+        // Content-Length the panel sends; one that shrinks ends the download early.
+        const source = createReadStream(real, {
+          highWaterMark: 64 * 1024,
+          start: 0,
+          end: Math.max(0, stats.size - 1),
+        });
         context.ctrl({ kind: "file", size: stats.size, mtime: stats.mtimeMs });
+        if (stats.size === 0) {
+          source.destroy();
+          context.close();
+          return { close: () => undefined };
+        }
+        let sent = 0;
         source.on("data", (chunk) => {
+          sent += chunk.length;
           if (!context.write(chunk as Buffer)) source.pause();
         });
-        source.on("end", () => context.close());
+        source.on("end", () =>
+          context.close(
+            sent === stats.size
+              ? undefined
+              : { code: "E_CONFLICT", msg: `${path} got shorter during the download. Try again.` },
+          ),
+        );
         source.on("error", (error) => context.close(asFailure(error, path)));
         return {
           drain: () => source.resume(),

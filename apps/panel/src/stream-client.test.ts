@@ -172,7 +172,9 @@ describe("panel and agent streams together", () => {
             open(ctx) {
               context = ctx;
               return {
-                data: (payload) => ctx.write(payload),
+                data: (payload) => {
+                  ctx.write(payload);
+                },
                 close: agentClosed,
               };
             },

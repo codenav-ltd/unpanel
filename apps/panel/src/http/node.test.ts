@@ -156,6 +156,70 @@ describe("HTTP request body boundaries", () => {
     }
   });
 
+  it("streams file uploads and allows 2 MiB of file text in JSON", async () => {
+    const app = new Hono();
+    app.post("/api/v1/nodes/:id/fs/upload", async (c) => {
+      let bytes = 0;
+      for await (const chunk of c.req.raw.body ?? []) bytes += (chunk as Uint8Array).byteLength;
+      return c.json({ bytes });
+    });
+    app.post("/api/v1/nodes/:id/fs/write", async (c) =>
+      c.json({ length: ((await c.req.json()) as { content: string }).content.length }),
+    );
+    const server = createServer(handleHttp(app));
+    const port = await listen(server);
+    try {
+      const big = Buffer.alloc(3 * 1024 * 1024, 1);
+      const uploaded = await fetch(`http://127.0.0.1:${port}/api/v1/nodes/n1/fs/upload`, {
+        method: "POST",
+        body: big,
+      });
+      expect(await uploaded.json()).toEqual({ bytes: big.byteLength });
+      const saved = await fetch(`http://127.0.0.1:${port}/api/v1/nodes/n1/fs/write`, {
+        method: "POST",
+        body: JSON.stringify({ content: "x".repeat(2 * 1024 * 1024) }),
+      });
+      expect(await saved.json()).toEqual({ length: 2 * 1024 * 1024 });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("streams response bodies and cancels them when the client leaves", async () => {
+    const app = new Hono();
+    let pulls = 0;
+    let cancelled: () => void = () => undefined;
+    const gone = new Promise<void>((resolve) => (cancelled = resolve));
+    app.get("/stream", () => {
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(new Uint8Array(64 * 1024));
+        },
+        cancel() {
+          cancelled();
+        },
+      });
+      return new Response(body);
+    });
+    const server = createServer(handleHttp(app));
+    const port = await listen(server);
+    try {
+      const controller = new AbortController();
+      const response = await fetch(`http://127.0.0.1:${port}/stream`, {
+        signal: controller.signal,
+      });
+      const reader = response.body?.getReader();
+      await reader?.read();
+      controller.abort();
+      await gone;
+      // An endless body is only produced as fast as the client reads it.
+      expect(pulls).toBeLessThan(200);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("uses only the secure host cookie when HTTPS is enabled", () => {
     const plain = sessionCookie("plain-fixture", false);
     const secure = sessionCookie("secure-fixture", true);

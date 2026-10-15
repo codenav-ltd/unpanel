@@ -314,6 +314,8 @@ export function createAccess(db: DatabaseSync) {
           if (dockerManageOperations.includes(operation)) return managesPanel(access);
           return read || (!access.locked && access.role === "operator") || managesPanel(access);
         }
+        // The file manager is for owners and admins; its routes check step-up themselves.
+        if (/^\/fs\/[a-z]+$/.test(node[2] ?? "")) return managesPanel(access);
         if (read) return node[2] === "" || node[2] === "/history";
         if (managesPanel(access)) return true;
         return (

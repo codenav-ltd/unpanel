@@ -201,6 +201,24 @@ describe("multi-user permission boundaries", () => {
       f.auth.close();
     }
   });
+  it("keeps the file manager to owners and admins who can see the node", async () => {
+    const f = await fixture();
+    try {
+      const viewer = await f.create("files-viewer", "viewer", ["local"]);
+      const operator = await f.create("files-operator", "operator", ["local"]);
+      const admin = await f.create("files-admin", "admin", null);
+      for (const [method, path] of [
+        ["GET", "/api/v1/nodes/local/fs/list"],
+        ["POST", "/api/v1/nodes/local/fs/upload"],
+      ] as const) {
+        expect(f.access.permits(viewer.id, method, path)).toBe(false);
+        expect(f.access.permits(operator.id, method, path)).toBe(false);
+        expect(f.access.permits(admin.id, method, path)).toBe(true);
+      }
+    } finally {
+      f.auth.close();
+    }
+  });
   it("scopes Docker reads and lifecycle actions while rejecting viewer writes and operator deletion", async () => {
     const f = await fixture();
     try {

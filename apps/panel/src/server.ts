@@ -218,6 +218,10 @@ export async function startPanel(options: {
         containers.changed(nodeId);
       return result;
     },
+    files: {
+      call: (nodeId, method, params) => hub.call(nodeId, method, params),
+      openStream: (nodeId, request, callbacks) => hub.openStream(nodeId, request, callbacks),
+    },
     disconnect: (nodeId, code) => hub.disconnect(nodeId, code),
     exportDb: (dest) => exportPanelDb(data.db, dest),
     stageRestore: (bytes) => stageRestore(options.dataDir, bytes),

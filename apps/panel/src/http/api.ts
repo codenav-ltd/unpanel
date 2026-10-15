@@ -36,6 +36,7 @@ import type { EmailMethods } from "../email/store.ts";
 import { registerAccountApi } from "../auth/account-api.ts";
 import type { Access } from "../auth/access.ts";
 import { registerUsersApi } from "../auth/users-api.ts";
+import { registerFilesApi } from "./files.ts";
 import type { UpdateSecurity } from "../updates/security.ts";
 import type { UpdateOperation } from "../updates/history.ts";
 import { digest } from "../auth/factors.ts";
@@ -58,6 +59,8 @@ export function createApi(options: {
     operation: DockerOperation,
     params: Record<string, unknown>,
   ) => Promise<unknown>;
+  /** Agent calls and streams for the file manager. */
+  files?: Pick<Parameters<typeof registerFilesApi>[1], "call" | "openStream">;
   exportDb: (dest: string) => Promise<void>;
   stageRestore: (bytes: Uint8Array) => void;
   settings: Settings;
@@ -1151,6 +1154,18 @@ export function createApi(options: {
       throw error;
     }
   }
+
+  if (options.files)
+    registerFilesApi(app, {
+      ...options.files,
+      user: (c) => options.auth.sessionUser(sessionToken(c)),
+      access: (userId) =>
+        options.access?.get(userId) ?? { role: "owner", nodeIds: null, locked: false },
+      elevated: (c, userId) =>
+        options.factors?.view(userId, digest(sessionToken(c) ?? "")).elevated ?? false,
+      audit: options.audit,
+      ip: clientIp,
+    });
 
   app.notFound((c) => c.json({ error: { code: "E_NOT_FOUND", message: "Not found." } }, 404));
 
