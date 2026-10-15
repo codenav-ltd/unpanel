@@ -19,10 +19,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container: debian:11
     steps:
-      # Bullseye LTS ended in August 2026; its security updates now live only on
-      # archive.debian.org.
+      # Bullseye LTS ended in August 2026 and archive.debian.org misses some of its
+      # security packages. The image's own snapshot.debian.org lines pin the archive to
+      # the date the image was built, so apt sees exactly the versions installed in it.
       - run: |
-          sed -i "s|deb.debian.org/debian-security|archive.debian.org/debian-security|" /etc/apt/sources.list
+          sed -i -e "/^deb /d" -e "s/^# deb /deb [check-valid-until=no] /" /etc/apt/sources.list
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git python3 make g++ binutils
       - uses: actions/checkout@v4
