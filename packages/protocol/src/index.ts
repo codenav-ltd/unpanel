@@ -76,3 +76,18 @@ export {
   termOpen,
   type TermOpenParams,
 } from "./methods/term.ts";
+export {
+  FS_LIST_LIMIT,
+  FS_READ_LIMIT,
+  FS_UPLOAD_LIMIT,
+  fsCapabilityMeta,
+  fsDownload,
+  fsEntry,
+  fsMethods,
+  fsOperations,
+  fsPath,
+  fsUpload,
+  type FsEntry,
+  type FsOperation,
+  type FsWriteParams,
+} from "./methods/fs.ts";

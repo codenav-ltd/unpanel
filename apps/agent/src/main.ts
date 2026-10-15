@@ -8,6 +8,7 @@ import { privateKeyFromPem, PROTOCOL_VERSION, publicKeyFromPem, termOpen } from 
 import { enrollAgent } from "./enroll.ts";
 import { collectHostInfo } from "./host-info.ts";
 import { connectAgent } from "./session.ts";
+import { createFiles, filesPolicy } from "./files.ts";
 import { createTerminal } from "./term.ts";
 
 if (process.argv[2] === "enroll") {
@@ -31,6 +32,8 @@ if (process.argv[2] === "enroll") {
   const agentKey = privateKeyFromPem(readFileSync(agentKeyFile, "utf8"));
   const panelPublicKey = publicKeyFromPem(readFileSync(panelPubFile, "utf8"));
   const tlsCa = process.env["UNPANEL_TLS_CA"];
+  const policy = filesPolicy();
+  const files = policy.enabled ? createFiles({ policy }) : null;
   const connect = (terminal: Awaited<ReturnType<typeof createTerminal>>): void => {
     connectAgent({
       ...(socketPath ? { socketPath } : {}),
@@ -41,9 +44,11 @@ if (process.argv[2] === "enroll") {
       ...(process.env["UNPANEL_AGENT_ID"] ? { agentId: process.env["UNPANEL_AGENT_ID"] } : {}),
       hostInfo: collectHostInfo,
       streams: new Map(terminal ? [[termOpen.name, terminal.method]] : []),
-      capabilities: terminal
-        ? [{ name: termOpen.capability, meta: { users: terminal.users } }]
-        : [],
+      files,
+      capabilities: [
+        ...(terminal ? [{ name: termOpen.capability, meta: { users: terminal.users } }] : []),
+        ...(files ? [{ name: "fs", meta: policy.allow ? { allow: policy.allow } : {} }] : []),
+      ],
     });
     process.stdout.write(
       `${product.name} agent connecting${terminal ? "" : " (terminal unavailable on this machine)"}\n`,

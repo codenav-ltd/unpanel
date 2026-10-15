@@ -13,7 +13,8 @@ import { performAgentUpgrade, performUpgrade } from "./upgrade.ts";
 import { createHttp01Responder } from "./cert.ts";
 import { createDocker, DockerError } from "./docker.ts";
 import { createStreamHost, type StreamMethod } from "./stream-host.ts";
-import { dockerMethods, dockerOperations } from "@unpanel/protocol";
+import { FilesError, type createFiles } from "./files.ts";
+import { dockerMethods, dockerOperations, fsMethods, fsOperations } from "@unpanel/protocol";
 import {
   agentUpgrade,
   certHttp01Put,
@@ -71,6 +72,8 @@ export function connectAgent(options: {
   hostInfo?: () => HostInfo;
   /** Stream methods this agent serves, keyed by method name. */
   streams?: ReadonlyMap<string, StreamMethod>;
+  /** File methods, when this node allows files. */
+  files?: ReturnType<typeof createFiles> | null;
   /** Capabilities reported in addition to the built-in ones, e.g. `term` when it loaded. */
   capabilities?: { name: string; meta?: Record<string, unknown> }[];
 }): { stop: () => void } {
@@ -277,6 +280,31 @@ export function connectAgent(options: {
               );
             });
         }
+      }
+      const fileOperation =
+        frame.t === "req" && options.files
+          ? fsOperations.find((value) => fsMethods[value].name === frame.m)
+          : undefined;
+      if (frame.t === "req" && fileOperation && options.files) {
+        const replySocket = socket;
+        const reply = (result: Extract<TextFrame, { t: "res" }>): void => {
+          if (replySocket?.readyState === WebSocket.OPEN) replySocket.send(encodeTextFrame(result));
+        };
+        void options.files
+          .run(fileOperation, frame.p)
+          .then((r) => reply({ t: "res", id: frame.id, ok: true, r }))
+          .catch((error: unknown) =>
+            reply({
+              t: "res",
+              id: frame.id,
+              ok: false,
+              e: {
+                code: error instanceof FilesError ? error.code : "E_INTERNAL",
+                msg: error instanceof Error ? error.message : "The file operation failed.",
+              },
+            }),
+          );
+        return;
       }
       if (frame.t === "req" && !agentMethods.has(frame.m)) {
         socket?.send(
