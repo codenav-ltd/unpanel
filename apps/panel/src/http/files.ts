@@ -307,6 +307,16 @@ export function registerFilesApi(
     if (!params.success)
       return reply(c, new FilesHttpError("E_INVALID_PARAMS", "Choose what to download.", 400));
     const path = params.data.path;
+    // `check=1` lets the browser confirm access (and step-up) before it starts a download it
+    // cannot read errors from.
+    if (c.req.query("check") === "1") {
+      try {
+        const found = await options.call(c.req.param("id"), fsMethods.stat, { path });
+        return c.json({ data: { type: found.entry.type } });
+      } catch (error) {
+        return reply(c, fromHub(error));
+      }
+    }
     try {
       const response = await relayDownload(c, path);
       record(c, user, "fs.download", path);

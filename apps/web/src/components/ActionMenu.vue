@@ -15,7 +15,9 @@ const emit = defineEmits<{ action: [id: string] }>();
 const trigger = ref<HTMLButtonElement | null>(null),
   menu = ref<HTMLElement | null>(null),
   open = ref(false),
-  position = ref({ left: "0px", top: "0px" });
+  position = ref({ left: "0px", top: "0px" }),
+  /** Set when the menu was opened at the pointer (a right-click) instead of the trigger. */
+  point = ref<{ x: number; y: number } | null>(null);
 const id = useId();
 function close(restoreFocus = false): void {
   open.value = false;
@@ -32,13 +34,22 @@ function outside(event: Event): void {
 }
 function scrolled(event: Event): void {
   if (event.target instanceof Node && menu.value?.contains(event.target)) return;
-  place();
+  // A menu opened at the pointer has nothing to follow when the page scrolls.
+  if (point.value) close();
+  else place();
 }
 function place(): void {
   if (!open.value || !trigger.value || !menu.value) return;
   // Enter transforms must not shrink the dimensions used to keep the menu on screen.
   const bounds = trigger.value.getBoundingClientRect(),
     size = { width: menu.value.offsetWidth, height: menu.value.offsetHeight };
+  if (point.value) {
+    position.value = {
+      left: `${Math.max(8, Math.min(point.value.x, window.innerWidth - size.width - 8))}px`,
+      top: `${Math.max(8, Math.min(point.value.y, window.innerHeight - size.height - 8))}px`,
+    };
+    return;
+  }
   if (bounds.bottom < 0 || bounds.top > window.innerHeight) {
     close();
     return;
@@ -48,12 +59,13 @@ function place(): void {
     top: `${Math.max(8, Math.min(bounds.bottom + 4, window.innerHeight - size.height - 8))}px`,
   };
 }
-async function show(last = false): Promise<void> {
+async function show(last = false, at: { x: number; y: number } | null = null): Promise<void> {
   if (props.disabled) return;
   if (open.value) {
     close(true);
-    return;
+    if (!at) return;
   }
+  point.value = at;
   open.value = true;
   await nextTick();
   if (!open.value || !trigger.value || !menu.value) return;
@@ -98,11 +110,15 @@ watch(
   },
 );
 onBeforeUnmount(() => close());
+defineExpose({
+  /** Opens the menu at the pointer, for a right-click on the row. */
+  openAt: (x: number, y: number) => show(false, { x, y }),
+});
 </script>
 <template>
   <button
     ref="trigger"
-    class="quiet docker-more"
+    class="quiet action-more"
     type="button"
     :disabled="disabled"
     :aria-label="`More actions for ${name}`"
@@ -122,7 +138,7 @@ onBeforeUnmount(() => close());
         v-if="open"
         :id="id"
         ref="menu"
-        class="docker-action-menu"
+        class="action-menu"
         role="menu"
         :aria-label="`Actions for ${name}`"
         :style="position"
@@ -144,12 +160,12 @@ onBeforeUnmount(() => close());
   </Teleport>
 </template>
 <style scoped>
-.docker-more {
+.action-more {
   width: 32px;
   min-height: 32px;
   padding: 6px;
 }
-.docker-action-menu {
+.action-menu {
   position: fixed;
   z-index: 100;
   width: min(224px, calc(100vw - 16px));
@@ -161,13 +177,13 @@ onBeforeUnmount(() => close());
   border-radius: var(--radius);
   box-shadow: var(--shadow-popover);
 }
-.docker-action-menu p {
+.action-menu p {
   margin: 4px 8px 8px;
   color: var(--text-3);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.docker-action-menu button {
+.action-menu button {
   width: 100%;
   min-height: 34px;
   justify-content: flex-start;
@@ -176,14 +192,14 @@ onBeforeUnmount(() => close());
   font-size: 13px;
   font-weight: 500;
 }
-.docker-action-menu button:hover:not(:disabled) {
+.action-menu button:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text);
 }
-.docker-action-menu button.menu-danger {
+.action-menu button.menu-danger {
   color: var(--danger);
 }
-.docker-action-menu button.menu-danger:hover:not(:disabled) {
+.action-menu button.menu-danger:hover:not(:disabled) {
   background: var(--danger-tint);
 }
 </style>

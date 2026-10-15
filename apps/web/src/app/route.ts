@@ -13,7 +13,7 @@ export interface ShellLocation {
   unknown: string | null;
 }
 
-const nodePages = ["dashboard", "host", "docker", "terminal"] as const;
+const nodePages = ["dashboard", "host", "docker", "files", "terminal"] as const;
 
 /** Pages that show one node and keep showing it when another node is chosen. */
 export function isNodePage(page: ShellPage): boolean {

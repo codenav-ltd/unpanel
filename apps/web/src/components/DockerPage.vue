@@ -21,7 +21,7 @@ import { dockerClient, DockerRequestError, type DockerAvailability } from "../do
 import DockerSetupGuide from "./DockerSetupGuide.vue";
 import DockerCreateDialog from "./DockerCreateDialog.vue";
 import DockerTaskDialog from "./DockerTaskDialog.vue";
-import DockerActionMenu from "./DockerActionMenu.vue";
+import ActionMenu from "./ActionMenu.vue";
 const DockerResources = defineAsyncComponent(() => import("./DockerResources.vue"));
 const DockerContainerTools = defineAsyncComponent(() => import("./DockerContainerTools.vue"));
 
@@ -655,7 +655,7 @@ onBeforeUnmount(() => {
                     >
                       <FileTextOutlined aria-hidden="true" />
                     </button>
-                    <DockerActionMenu
+                    <ActionMenu
                       :name="name(row)"
                       :disabled="!!busy || loading"
                       :actions="rowActions(row)"

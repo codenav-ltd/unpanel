@@ -36,6 +36,7 @@ export type ShellPage =
   | "dashboard"
   | "host"
   | "docker"
+  | "files"
   | "terminal"
   | "settings"
   | "certificates"
@@ -143,7 +144,7 @@ const items: Item[] = [
     enabled: false,
     icon: UnorderedListOutlined,
   },
-  { id: "files", label: en.nav.files, group: "node", enabled: false, icon: FolderOpenOutlined },
+  { id: "files", label: en.nav.files, group: "node", enabled: true, icon: FolderOpenOutlined },
   {
     id: "terminal",
     label: en.nav.terminal,

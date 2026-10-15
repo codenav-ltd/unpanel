@@ -223,6 +223,15 @@ describe("files API", () => {
     expect(audit).toMatchObject([{ action: "fs.download", result: "ok" }]);
   });
 
+  it("checks a download before the browser starts it", async () => {
+    writeFileSync(join(root, "a.txt"), "a");
+    const ok = await app.request(url("download", { path: join(root, "a.txt"), check: "1" }));
+    expect(await ok.json()).toEqual({ data: { type: "file" } });
+    const denied = await app.request(url("download", { path: join(root, "secret"), check: "1" }));
+    expect(denied.status).toBe(403);
+    expect(audit).toEqual([]);
+  });
+
   it("answers a refused download as JSON", async () => {
     const response = await app.request(url("download", { path: join(root, "secret") }));
     expect(response.status).toBe(403);

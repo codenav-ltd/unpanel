@@ -56,6 +56,7 @@ import { defaultLoginSecurity, type LoginSecuritySettings } from "../security.ts
 const AlertsPage = defineAsyncComponent(() => import("../components/AlertsPage.vue"));
 const DockerPage = defineAsyncComponent(() => import("../components/DockerPage.vue"));
 const TerminalPage = defineAsyncComponent(() => import("../components/TerminalPage.vue"));
+const FilesPage = defineAsyncComponent(() => import("../components/FilesPage.vue"));
 const SecurityUpdateNotice = defineAsyncComponent(
   () => import("../components/SecurityUpdateNotice.vue"),
 );
@@ -152,6 +153,8 @@ interface NodeCard {
   canUpdateAgent: boolean;
   /** Absent from panels before terminals; null when the node's agent offers none. */
   terminalUsers?: string[] | null;
+  /** Absent from panels before files; null without a file manager, [] for no limit. */
+  fileRoots?: string[] | null;
   error: string | null;
 }
 
@@ -631,7 +634,7 @@ async function refreshList(): Promise<void> {
 
 function openNode(id: string): void {
   nodeId.value = id;
-  if (page.value !== "docker" && page.value !== "terminal") page.value = "dashboard";
+  if (!["docker", "files", "terminal"].includes(page.value)) page.value = "dashboard";
   void refresh();
 }
 
@@ -1045,9 +1048,11 @@ const pageTitle = computed(() => {
       ? en.nav.docker
       : page.value === "terminal"
         ? en.nav.terminal
-        : page.value === "host"
-          ? en.nav.host
-          : en.nav.dashboard;
+        : page.value === "files"
+          ? en.nav.files
+          : page.value === "host"
+            ? en.nav.host
+            : en.nav.dashboard;
   return `${section} · ${nodeLabel.value}`;
 });
 
@@ -1441,6 +1446,15 @@ onUnmounted(() => {
               :node-id="nodeId"
               :can-operate="canOperate"
               :can-manage="canManage"
+            />
+            <FilesPage
+              v-else-if="page === 'files'"
+              :key="nodeId"
+              :node-id="nodeId"
+              :online="selectedNode?.online ?? false"
+              :roots="selectedNode?.fileRoots ?? null"
+              :can-manage="canManage"
+              :theme="theme"
             />
             <TerminalPage
               v-else-if="page === 'terminal'"
