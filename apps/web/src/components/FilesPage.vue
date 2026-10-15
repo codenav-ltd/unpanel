@@ -699,7 +699,14 @@ defineExpose({ reload: load });
           </li>
         </ul>
         <h3>{{ en.files.folders }}</h3>
-        <FileTree ref="tree" :client="client" :current="path" :roots="treeRoots" @navigate="go" />
+        <FileTree
+          ref="tree"
+          :client="client"
+          :current="path"
+          :pending="loading ? path : ''"
+          :roots="treeRoots"
+          @navigate="go"
+        />
       </aside>
 
       <div
@@ -790,7 +797,12 @@ defineExpose({ reload: load });
           </p>
 
           <div class="files-table-wrap" :aria-busy="loading">
-            <table v-if="listing && entries.length" class="files-table">
+            <span v-if="loading" class="files-progress" aria-hidden="true" />
+            <table
+              v-if="listing && entries.length"
+              class="files-table"
+              :data-stale="loading && listing.path !== path"
+            >
               <thead>
                 <tr>
                   <th :aria-sort="sortState('name')">
@@ -1249,6 +1261,47 @@ button.files-dismiss {
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+.files-progress {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: block;
+  height: 2px;
+  margin-bottom: -2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.files-progress::after {
+  content: "";
+  display: block;
+  width: 35%;
+  height: 100%;
+  background: var(--primary);
+  animation: files-progress 1s var(--ease-out) infinite;
+}
+@keyframes files-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .files-progress::after {
+    width: 100%;
+    animation: none;
+  }
+}
+.files-table {
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+/* The previous folder fades only if the next one is slow, so quick loads do not flicker. */
+.files-table[data-stale="true"] {
+  opacity: 0.45;
+  pointer-events: none;
+  transition-delay: 150ms;
 }
 .files-table {
   width: 100%;

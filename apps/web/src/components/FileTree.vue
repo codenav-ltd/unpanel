@@ -21,6 +21,8 @@ const props = defineProps<{
   current: string;
   /** Where the tree starts: `/`, or the folders this node is limited to. */
   roots: string[];
+  /** The folder the listing is loading; its children arrive with the listing. */
+  pending: string;
 }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
 
@@ -131,13 +133,18 @@ defineExpose({ show });
           :data-empty="branches.get(row.path)?.children?.length === 0"
           @click="toggle(row.path)"
         >
-          <span v-if="branches.get(row.path)?.loading" class="spinner" aria-hidden="true" />
+          <span
+            v-if="branches.get(row.path)?.loading || row.path === pending"
+            class="spinner"
+            aria-hidden="true"
+          />
           <CaretRightOutlined v-else aria-hidden="true" />
         </button>
         <button
           type="button"
           class="file-tree-name"
           :aria-current="row.path === current ? 'location' : undefined"
+          :aria-busy="row.path === pending || undefined"
           :title="row.path"
           @click="emit('navigate', row.path)"
         >
