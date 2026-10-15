@@ -29,7 +29,7 @@ Policy: ship the current Active LTS; move to the next LTS within 3 months of it 
 
 - N-API modules are ABI-stable across Node majors; NAN/V8-API modules (like older node-pty) must be rebuilt per Node major.
 - pnpm 10 does not run dependency build scripts unless approved: list them in `pnpm.onlyBuiltDependencies` (or via `pnpm approve-builds`) ✅.
-- Debian 11 LTS ended in August 2026. Since then its security suite is served only from `archive.debian.org` (a `bullseye-security` package returned 404 from `deb.debian.org` and 200 from `archive.debian.org` on 2026-10-14), so the build container rewrites that source before `apt-get`. Main `bullseye` packages were still on `deb.debian.org` that day; expect them to move as well.
+- Debian 11 LTS ended in August 2026. Its security suite moved to `archive.debian.org`, and on 2026-10-15 that archive listed a `bullseye-security` package (`libnghttp2-14 1.43.0-1+deb11u3`) whose file returned 404, which broke CI. Dropping the security suite does not work either: the `debian:11` image already contains those security versions, so apt reports held broken packages. CI therefore uses the `snapshot.debian.org` lines the image ships commented out in `/etc/apt/sources.list` (pinned to the image's build date, 2026-08-24) with `check-valid-until=no`, so apt sees exactly the versions installed in the image.
 - The macOS prebuilt `spawn-helper` in node-pty 1.1.0 is installed without its execute bit, so `spawn` fails with `posix_spawnp failed` until it is made executable. This only affects running a terminal on a macOS development machine.
 
 ## 4. Memory tuning
