@@ -3,7 +3,15 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import {
   ArrowUpOutlined,
   CloseOutlined,
@@ -52,7 +60,7 @@ const props = defineProps<{
   canManage: boolean;
   theme: ThemeName;
 }>();
-const emit = defineEmits<{ open: [entry: FileEntry, path: string] }>();
+const FileEditor = defineAsyncComponent(() => import("./FileEditor.vue"));
 
 const client = filesClient(props.nodeId);
 const { open: verifying, intercept, verified, cancel: cancelVerify } = useStepUp();
@@ -99,7 +107,17 @@ function pathFromUrl(): string | null {
   return value ? normalizePath(value) : null;
 }
 
+/** The file open in the editor, which takes the listing's place. */
+const editing = ref<{ path: string; size: number } | null>(null);
+const editor = ref<{ dirty: boolean; requestClose: () => void } | null>(null);
+
 async function go(next: string, push = true): Promise<void> {
+  // Unsaved edits are confirmed before the editor gives way to a listing.
+  if (editing.value && editor.value?.dirty) {
+    editor.value.requestClose();
+    return;
+  }
+  editing.value = null;
   editingPath.value = false;
   pathError.value = "";
   if (push && next !== path.value) {
@@ -192,7 +210,8 @@ function linkTitle(entry: FileEntry): string | undefined {
 function openEntry(entry: FileEntry): void {
   if (isFolder(entry)) void go(fullPath(entry));
   else if (entry.type === "file" || entry.targetType === "file")
-    emit("open", entry, fullPath(entry));
+    // A link's own size is its target's name; the editor checks the real file.
+    editing.value = { path: fullPath(entry), size: entry.type === "file" ? entry.size : 0 };
 }
 
 function rowActions(entry: FileEntry) {
@@ -266,7 +285,10 @@ async function guarded<T>(
 }
 
 async function download(entry: FileEntry): Promise<void> {
-  const target = fullPath(entry);
+  await downloadPath(fullPath(entry));
+}
+
+async function downloadPath(target: string): Promise<void> {
   const ok = await guarded(
     () => client.downloadCheck(target),
     (message) => (failure.value = message),
@@ -688,172 +710,194 @@ defineExpose({ reload: load });
         @dragleave="onDragLeave"
         @drop.prevent="onDrop"
       >
-        <div class="files-bar">
-          <button
-            type="button"
-            class="quiet files-icon"
-            :aria-label="en.files.up"
-            :title="en.files.up"
-            :disabled="path === '/' || treeRoots.includes(path)"
-            @click="go(parentOf(path))"
-          >
-            <ArrowUpOutlined aria-hidden="true" />
-          </button>
-          <form v-if="editingPath" class="files-path-form" @submit.prevent="submitPath">
-            <input
-              ref="pathField"
-              v-model="pathInput"
+        <template v-if="!editing">
+          <div class="files-bar">
+            <button
+              type="button"
+              class="quiet files-icon"
+              :aria-label="en.files.up"
+              :title="en.files.up"
+              :disabled="path === '/' || treeRoots.includes(path)"
+              @click="go(parentOf(path))"
+            >
+              <ArrowUpOutlined aria-hidden="true" />
+            </button>
+            <form v-if="editingPath" class="files-path-form" @submit.prevent="submitPath">
+              <input
+                ref="pathField"
+                v-model="pathInput"
+                :aria-label="en.files.path"
+                spellcheck="false"
+                autocomplete="off"
+                :aria-invalid="pathError ? 'true' : undefined"
+                @keydown.esc="editingPath = false"
+                @blur="editingPath = false"
+              />
+            </form>
+            <nav
+              v-else
+              ref="crumbBar"
+              class="files-crumbs"
               :aria-label="en.files.path"
-              spellcheck="false"
-              autocomplete="off"
-              :aria-invalid="pathError ? 'true' : undefined"
-              @keydown.esc="editingPath = false"
-              @blur="editingPath = false"
-            />
-          </form>
-          <nav
-            v-else
-            ref="crumbBar"
-            class="files-crumbs"
-            :aria-label="en.files.path"
-            @dblclick="startPathEdit"
-          >
-            <template v-for="(crumb, index) in trail" :key="crumb.path">
-              <span v-if="index > 1" class="files-sep" aria-hidden="true">/</span>
-              <button
-                type="button"
-                :aria-current="index === trail.length - 1 ? 'location' : undefined"
-                @click="go(crumb.path)"
-              >
-                {{ crumb.name }}
-              </button>
-            </template>
-          </nav>
-          <button
-            v-if="!editingPath"
-            type="button"
-            class="quiet files-icon"
-            :aria-label="en.files.editPath"
-            :title="en.files.editPath"
-            @click="startPathEdit"
-          >
-            <EditOutlined aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            class="quiet files-icon"
-            :aria-label="en.files.refresh"
-            :title="en.files.refresh"
-            :disabled="loading"
-            @click="load"
-          >
-            <ReloadOutlined :spin="loading" aria-hidden="true" />
-          </button>
-        </div>
-        <p v-if="pathError" class="form-error" role="alert">{{ pathError }}</p>
-        <p v-if="failure" class="form-error files-failure" role="alert">
-          {{ failure }}
-          <button
-            type="button"
-            class="files-dismiss"
-            :aria-label="en.files.dismiss"
-            @click="failure = ''"
-          >
-            <CloseOutlined aria-hidden="true" />
-          </button>
-        </p>
-        <p v-if="listing?.truncated" class="form-warn">
-          {{ en.files.truncated.replace("{count}", listing.entries.length.toLocaleString()) }}
-        </p>
-
-        <div class="files-table-wrap" :aria-busy="loading">
-          <table v-if="listing && entries.length" class="files-table">
-            <thead>
-              <tr>
-                <th :aria-sort="sortState('name')">
-                  <button type="button" class="files-sort" @click="sortBy('name')">
-                    {{ en.files.name }}
-                  </button>
-                </th>
-                <th class="files-num" :aria-sort="sortState('size')">
-                  <button type="button" class="files-sort" @click="sortBy('size')">
-                    {{ en.files.size }}
-                  </button>
-                </th>
-                <th class="files-wide" :aria-sort="sortState('mtime')">
-                  <button type="button" class="files-sort" @click="sortBy('mtime')">
-                    {{ en.files.modified }}
-                  </button>
-                </th>
-                <th class="files-wide">{{ en.files.permissions }}</th>
-                <th class="files-wide">{{ en.files.owner }}</th>
-                <th>
-                  <span class="sr-only">{{ en.files.actions }}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="entry in entries"
-                :key="entry.name"
-                :data-type="entry.type"
-                @contextmenu.prevent="menus.get(entry.name)?.openAt($event.clientX, $event.clientY)"
-              >
-                <td class="files-name-cell">
-                  <button
-                    type="button"
-                    class="files-name"
-                    :title="linkTitle(entry) ?? entry.name"
-                    :disabled="
-                      entry.type === 'other' || (entry.type === 'link' && !entry.targetType)
-                    "
-                    @click="openEntry(entry)"
-                  >
-                    <FolderFilled v-if="isFolder(entry)" class="files-folder" aria-hidden="true" />
-                    <FileOutlined v-else aria-hidden="true" />
-                    <span>{{ entry.name }}</span>
-                    <LinkOutlined
-                      v-if="entry.type === 'link'"
-                      class="files-link"
-                      :aria-label="linkTitle(entry)"
-                    />
-                  </button>
-                  <small class="files-narrow">{{ modified(entry) }}</small>
-                </td>
-                <td class="files-num">{{ isFolder(entry) ? "—" : formatBytes(entry.size) }}</td>
-                <td class="files-wide files-muted" :title="new Date(entry.mtime).toISOString()">
-                  {{ modified(entry) }}
-                </td>
-                <td class="files-wide files-mono" :title="octal(entry.mode)">
-                  {{ modeString(entry.mode, entry.type) }}
-                </td>
-                <td class="files-wide files-muted">
-                  {{ entry.owner === entry.group ? entry.owner : `${entry.owner}:${entry.group}` }}
-                </td>
-                <td class="files-row-actions">
-                  <ActionMenu
-                    :ref="(menu) => setMenu(entry.name, menu)"
-                    :name="entry.name"
-                    :disabled="false"
-                    :actions="rowActions(entry)"
-                    @action="rowAction(entry, $event)"
-                  />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-else-if="listing && !loading" class="files-none">
-            <FolderOpenOutlined aria-hidden="true" />
-            <p>{{ en.files.empty }}</p>
-            <p class="hint">{{ en.files.emptyHint }}</p>
+              @dblclick="startPathEdit"
+            >
+              <template v-for="(crumb, index) in trail" :key="crumb.path">
+                <span v-if="index > 1" class="files-sep" aria-hidden="true">/</span>
+                <button
+                  type="button"
+                  :aria-current="index === trail.length - 1 ? 'location' : undefined"
+                  @click="go(crumb.path)"
+                >
+                  {{ crumb.name }}
+                </button>
+              </template>
+            </nav>
+            <button
+              v-if="!editingPath"
+              type="button"
+              class="quiet files-icon"
+              :aria-label="en.files.editPath"
+              :title="en.files.editPath"
+              @click="startPathEdit"
+            >
+              <EditOutlined aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              class="quiet files-icon"
+              :aria-label="en.files.refresh"
+              :title="en.files.refresh"
+              :disabled="loading"
+              @click="load"
+            >
+              <ReloadOutlined :spin="loading" aria-hidden="true" />
+            </button>
           </div>
-          <p v-else-if="loading && !listing" class="files-none hint">
-            <span class="spinner" /> {{ en.files.loading }}
+          <p v-if="pathError" class="form-error" role="alert">{{ pathError }}</p>
+          <p v-if="failure" class="form-error files-failure" role="alert">
+            {{ failure }}
+            <button
+              type="button"
+              class="files-dismiss"
+              :aria-label="en.files.dismiss"
+              @click="failure = ''"
+            >
+              <CloseOutlined aria-hidden="true" />
+            </button>
           </p>
-          <p v-if="dragging" class="files-drop" aria-hidden="true">
-            {{ en.files.dropHere.replace("{path}", path) }}
+          <p v-if="listing?.truncated" class="form-warn">
+            {{ en.files.truncated.replace("{count}", listing.entries.length.toLocaleString()) }}
           </p>
-        </div>
+
+          <div class="files-table-wrap" :aria-busy="loading">
+            <table v-if="listing && entries.length" class="files-table">
+              <thead>
+                <tr>
+                  <th :aria-sort="sortState('name')">
+                    <button type="button" class="files-sort" @click="sortBy('name')">
+                      {{ en.files.name }}
+                    </button>
+                  </th>
+                  <th class="files-num" :aria-sort="sortState('size')">
+                    <button type="button" class="files-sort" @click="sortBy('size')">
+                      {{ en.files.size }}
+                    </button>
+                  </th>
+                  <th class="files-wide" :aria-sort="sortState('mtime')">
+                    <button type="button" class="files-sort" @click="sortBy('mtime')">
+                      {{ en.files.modified }}
+                    </button>
+                  </th>
+                  <th class="files-wide">{{ en.files.permissions }}</th>
+                  <th class="files-wide">{{ en.files.owner }}</th>
+                  <th>
+                    <span class="sr-only">{{ en.files.actions }}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="entry in entries"
+                  :key="entry.name"
+                  :data-type="entry.type"
+                  @contextmenu.prevent="
+                    menus.get(entry.name)?.openAt($event.clientX, $event.clientY)
+                  "
+                >
+                  <td class="files-name-cell">
+                    <button
+                      type="button"
+                      class="files-name"
+                      :title="linkTitle(entry) ?? entry.name"
+                      :disabled="
+                        entry.type === 'other' || (entry.type === 'link' && !entry.targetType)
+                      "
+                      @click="openEntry(entry)"
+                    >
+                      <FolderFilled
+                        v-if="isFolder(entry)"
+                        class="files-folder"
+                        aria-hidden="true"
+                      />
+                      <FileOutlined v-else aria-hidden="true" />
+                      <span>{{ entry.name }}</span>
+                      <LinkOutlined
+                        v-if="entry.type === 'link'"
+                        class="files-link"
+                        :aria-label="linkTitle(entry)"
+                      />
+                    </button>
+                    <small class="files-narrow">{{ modified(entry) }}</small>
+                  </td>
+                  <td class="files-num">{{ isFolder(entry) ? "—" : formatBytes(entry.size) }}</td>
+                  <td class="files-wide files-muted" :title="new Date(entry.mtime).toISOString()">
+                    {{ modified(entry) }}
+                  </td>
+                  <td class="files-wide files-mono" :title="octal(entry.mode)">
+                    {{ modeString(entry.mode, entry.type) }}
+                  </td>
+                  <td class="files-wide files-muted">
+                    {{
+                      entry.owner === entry.group ? entry.owner : `${entry.owner}:${entry.group}`
+                    }}
+                  </td>
+                  <td class="files-row-actions">
+                    <ActionMenu
+                      :ref="(menu) => setMenu(entry.name, menu)"
+                      :name="entry.name"
+                      :disabled="false"
+                      :actions="rowActions(entry)"
+                      @action="rowAction(entry, $event)"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else-if="listing && !loading" class="files-none">
+              <FolderOpenOutlined aria-hidden="true" />
+              <p>{{ en.files.empty }}</p>
+              <p class="hint">{{ en.files.emptyHint }}</p>
+            </div>
+            <p v-else-if="loading && !listing" class="files-none hint">
+              <span class="spinner" /> {{ en.files.loading }}
+            </p>
+            <p v-if="dragging" class="files-drop" aria-hidden="true">
+              {{ en.files.dropHere.replace("{path}", path) }}
+            </p>
+          </div>
+        </template>
+        <FileEditor
+          v-else
+          ref="editor"
+          :key="editing.path"
+          :client="client"
+          :path="editing.path"
+          :size="editing.size"
+          :guard="withStepUp"
+          @close="editing = null"
+          @saved="load"
+          @download="editing && downloadPath(editing.path)"
+        />
 
         <section v-if="activeUploads.length" class="files-uploads" :aria-label="en.files.uploads">
           <div

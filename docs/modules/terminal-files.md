@@ -118,8 +118,8 @@ Routes under `/api/v1/nodes/:id/fs/` (implementation `apps/panel/src/http/files.
 |---|---|
 | `GET list?path=`, `GET stat?path=`, `GET read?path=` | `fs.list`, `fs.stat`, `fs.read` |
 | `POST write`, `mkdir`, `rename`, `delete`, `chmod`, `chown` (JSON) | Same names |
-| `POST upload?path=&overwrite=1` | Body `application/octet-stream` with `Content-Length`, piped into `fs.upload` without touching the panel's disk. Limit 2 GiB per file |
-| `GET download?path=` | Streamed with `Content-Disposition: attachment`; a directory arrives as `<name>.tar.gz` |
+| `POST upload?path=&overwrite=1` | Body `application/octet-stream` with `Content-Length`, piped into `fs.upload` without touching the panel's disk. Limit 2 GiB per file. With `check=1` and no body it only confirms access and answers `{exists, type?}` |
+| `GET download?path=` | Streamed with `Content-Disposition: attachment`; a directory arrives as `<name>.tar.gz`. With `check=1` it only confirms access and answers `{type}` |
 
 ### 2.6 Frontend
 
@@ -129,4 +129,4 @@ Routes under `/api/v1/nodes/:id/fs/` (implementation `apps/panel/src/http/files.
 - Opening a text file shows it in `CodeEditor` (CodeMirror 6, its own chunk). On a save conflict, a diff of the node's version against yours is shown and the user chooses to overwrite or reload;
 - Each row has an actions menu (also on right-click): open, download, rename, copy path, permissions, delete. New folder and New file are on the toolbar.
 
-Current implementation: `apps/web/src/components/FilesPage.vue`.
+Current implementation: `apps/web/src/components/FilesPage.vue`, `FileTree.vue`, `FileEditor.vue`, `apps/web/src/files-client.ts`. The current folder is in the URL (`?path=`), so Back works and a folder can be linked. A name opens its folder or file; right-click or the row menu gives the other actions. Before an upload or download the browser asks the panel with `check=1` (no body), so identity confirmation and "replace?" happen before any bytes move. The editor (CodeMirror 6, its own chunk) picks a syntax mode from the file name and location, keeps the file's line endings, saves with Ctrl/⌘+S and asks before closing with unsaved changes. On a conflict it shows the server's version inline against the user's (`@codemirror/merge`), with Keep mine / Use server's per change, then Save over the server's version or Discard mine and reload. Not yet implemented: folder uploads, copy, archives, search.

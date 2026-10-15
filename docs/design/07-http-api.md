@@ -219,7 +219,7 @@ Subscribing immediately delivers a snapshot, followed by incremental updates.
 
 ## 5. File upload and download
 
-- Upload: `POST /nodes/:id/fs/upload?path=...` with `Content-Type: application/octet-stream`. The body is piped through the panel into the agent's `fs.upload` stream, never written to the panel's disk or buffered whole in memory. Default single-file limit 2 GiB (configurable). Resumable uploads are P2.
+- Upload: `POST /nodes/:id/fs/upload?path=...` with `Content-Type: application/octet-stream`. The body is piped through the panel into the agent's `fs.upload` stream, never written to the panel's disk or buffered whole in memory. The limit is 2 GiB per file. The HTTP adapter passes this one route's body through as a stream (other JSON bodies stay capped at 64 KiB, file saves at 6 MiB) and streams every response body at the client's pace. Resumable uploads are P2. Both routes accept `check=1` to confirm access before any bytes move ([modules/terminal-files.md](../modules/terminal-files.md) §2.5).
 - Download: `GET /nodes/:id/fs/download?path=...`, streamed with `Content-Disposition: attachment`; directories are packed into `tar.gz` on the fly by the agent.
 
 ## 6. Versioning

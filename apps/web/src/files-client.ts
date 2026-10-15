@@ -3,6 +3,9 @@
 
 import { readProblem, replyNotReceived } from "./http-error.ts";
 
+/** The largest file the editor opens (modules/terminal-files.md §2.2). */
+export const FS_READ_LIMIT = 2 * 1024 * 1024;
+
 /** One directory entry as the agent describes it (modules/terminal-files.md §2.2). */
 export interface FileEntry {
   name: string;
