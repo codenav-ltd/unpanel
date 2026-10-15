@@ -64,36 +64,69 @@ Current implementation (`apps/web/src/components/TerminalPage.vue`, `TerminalPan
 
 ## 2. File manager
 
-### 2.1 Methods
+### 2.1 Permission chain
+
+Using the file manager requires: an owner or admin who can see the node + the node allowing files + the path passing the node's path policy. Operators, viewers and demo accounts have no file access: the agent runs as root, so reading `/root/.ssh` or writing `/etc/cron.d` is root access.
+
+Listing a directory and reading metadata (`fs.list`, `fs.stat`) need nothing more. Reading file contents (`fs.read`, `fs.download`) and every change need an active sudo session (identity confirmed in the last five minutes; `E_SUDO_REQUIRED` otherwise), because a stolen session cookie alone should not be able to read keys or plant a file. Reads of contents and every change are audited with the node and path (`fs.read`, `fs.download`, `fs.write`, `fs.upload`, `fs.mkdir`, `fs.rename`, `fs.delete`, `fs.chmod`, `fs.chown`); listings are not.
+
+The node-local policy lives in the agent's `agent.env` and takes effect when the agent restarts:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `UNPANEL_FILES` | on | `off` (or `0`, `false`, `no`) turns the file manager off on this node |
+| `UNPANEL_FILES_DENY` | empty | Comma-separated absolute paths added to the built-in deny list |
+| `UNPANEL_FILES_ALLOW` | empty | When set, only these paths and what is below them are reachable |
+
+The built-in deny list protects the trust anchors of Unpanel itself and the password hashes: `/etc/unpanel-agent`, `/var/lib/unpanel-agent`, `/etc/unpanel`, `/var/lib/unpanel`, `/etc/shadow`, `/etc/gshadow`. The agent reports the `fs` capability when files are on (`meta.allow` lists the allowed roots when `UNPANEL_FILES_ALLOW` is set). These rules are guard rails against mistakes and a stolen panel session, not a sandbox: an admin who opens a terminal is root.
+
+### 2.2 Methods
+
+All paths are absolute, at most 4,096 bytes, without NUL bytes. Times are epoch milliseconds. Implementation: `apps/agent/src/files.ts`, `apps/agent/src/file-streams.ts`; protocol: `packages/protocol/src/methods/fs.ts`.
 
 | Method | Risk | Notes |
 |---|---|---|
-| `fs.list` | read | Name, type, size, mode, owner, mtime, symlink target; at most 5,000 entries per directory, with a truncation flag beyond that |
-| `fs.stat` | read | |
-| `fs.read` | read | ≤ 2 MiB; binary detection (NUL byte in the first 8 KiB); returns content, encoding, `mtime`, `size` |
-| `fs.write` | write | Atomic write. Requires `expectedMtime` and `expectedSize`; a mismatch returns `E_CONFLICT` (the file changed while you were editing). Preserves mode and owner |
-| `fs.mkdir` | write | |
-| `fs.rename` | write | Also used for moves |
+| `fs.list` | read | Name, type (`file`, `dir`, `link`, `other`), size, mode, owner, group, mtime; a link also carries its target and the type it points to. At most 5,000 entries, with `truncated` beyond that (entries come in directory order, so the UI says the listing is incomplete) |
+| `fs.stat` | read | One entry, the same shape |
+| `fs.read` | read | Regular files ≤ 2 MiB. A NUL byte in the first 8 KiB or invalid UTF-8 returns `binary: true` without content. Returns `content`, `mtime`, `size` |
+| `fs.write` | write | UTF-8 content ≤ 2 MiB, atomic (temp file in the same directory → fsync → rename). An existing file requires `expectedMtime` and `expectedSize`; a mismatch returns `E_CONFLICT` (it changed while you were editing). Preserves mode and owner. `create: true` makes a new file and fails with `E_CONFLICT` if the name exists |
+| `fs.mkdir` | write | One directory; the parent must exist |
+| `fs.rename` | write | Also moves. Never replaces an existing name (`E_CONFLICT`); a move to another filesystem returns `E_UNSUPPORTED` |
+| `fs.delete` | danger | `recursive` is required for a non-empty directory. Refuses `/` and top-level system directories (`/bin`, `/boot`, `/dev`, `/etc`, `/home`, `/lib*`, `/proc`, `/root`, `/run`, `/sbin`, `/sys`, `/usr`, `/var`); rename refuses to move them too |
+| `fs.chmod` / `fs.chown` | danger | Optional recursion, which never follows symbolic links. Owner and group are names |
+| `fs.upload` | write (stream) | Writes to a temp file `<target>.unpanel-upload-<id>`, checks the byte count and the sha256 the panel sends at the end, then renames. Replacing an existing file needs `overwrite` and keeps its mode and owner. Cancelling removes the temp file |
+| `fs.download` | read (stream) | A file is streamed as is, after CTRL `{"kind":"file","size","mtime"}`; a directory is packed into tar.gz on the fly by the system `tar`, after CTRL `{"kind":"dir"}` |
 | `fs.copy` | write | P1 |
-| `fs.delete` | danger | Optional recursion. Refuses `/` and top-level system directories (`/bin`, `/boot`, `/dev`, `/etc`, `/lib*`, `/proc`, `/root`, `/run`, `/sbin`, `/sys`, `/usr`, `/var`) |
-| `fs.chmod` / `fs.chown` | danger | Optional recursion |
-| `fs.upload` | write (stream) | Writes to a temp file `<target>.unpanel-upload-<id>`, verifies sha256 on completion, then renames |
-| `fs.download` | read (stream) | Files streamed directly; directories packed into tar.gz on the fly |
 | `fs.archive` / `fs.extract` | write | P1: tar.gz and zip. Extraction prevents path traversal (rejects absolute paths and entries containing `..`) |
 | `fs.search` | read | P2: search by file name with depth and result limits |
 
-### 2.2 Path safety
+Errors: a missing path is `E_NOT_FOUND`; a path outside the policy, or a refused system directory, is `E_POLICY_DENIED`; a file that is too large, not a regular file, or a non-empty directory without `recursive` is `E_PRECONDITION`.
 
-See [design/05](../design/05-security.md) §4.3: `resolve`, then `realpath`, then check `deny_paths` and `allow_paths`. For targets that do not exist yet, check the parent directory.
+### 2.3 Path safety
 
-### 2.3 Ownership of new files
+See [design/05](../design/05-security.md) §4.3: `resolve`, then `realpath`, then check the deny and allow lists. Reading, writing, listing and downloading follow symbolic links and check where they lead. Renaming and deleting act on the link itself, so they check the real path of the parent directory plus the name. A target that does not exist yet is checked through its parent directory. A recursive delete, chmod or chown also refuses a directory that contains a denied path (deleting `/var/lib` would remove the agent's identity).
 
-The agent runs as root, so without care every new file would belong to root and the user's application (running as `deploy` or similar) could not read or write it. Rule: new files and directories **inherit the owner and group of the parent directory**; modes default to `0644` / `0755` (changeable in the upload dialog).
+### 2.4 Ownership of new files
 
-### 2.4 Frontend
+The agent runs as root, so without care every new file would belong to root and the user's application (running as `deploy` or similar) could not read or write it. Rule: new files and directories **inherit the owner and group of the parent directory**; modes are `0644` / `0755`, changed afterwards with Permissions. A replaced file (save, upload with overwrite) keeps its own mode and owner.
 
-- Two panes: a lazy-loaded directory tree on the left, a listing on the right; breadcrumbs and a path input on top;
-- Drag-and-drop upload (multiple files, folders) with progress and cancel;
-- Double-click opens text files in `CodeEditor`. On a save conflict, a diff is shown and the user chooses to overwrite or discard;
-- Context menu: rename, copy path, download, permissions, delete, compress/extract;
-- Quick locations: `/etc/nginx`, `/var/log`, `/srv`, `/opt`, `/home`, the Docker volumes directory, the managed stacks directory.
+### 2.5 HTTP
+
+Routes under `/api/v1/nodes/:id/fs/` (implementation `apps/panel/src/http/files.ts`):
+
+| Route | Method |
+|---|---|
+| `GET list?path=`, `GET stat?path=`, `GET read?path=` | `fs.list`, `fs.stat`, `fs.read` |
+| `POST write`, `mkdir`, `rename`, `delete`, `chmod`, `chown` (JSON) | Same names |
+| `POST upload?path=&overwrite=1` | Body `application/octet-stream` with `Content-Length`, piped into `fs.upload` without touching the panel's disk. Limit 2 GiB per file |
+| `GET download?path=` | Streamed with `Content-Disposition: attachment`; a directory arrives as `<name>.tar.gz` |
+
+### 2.6 Frontend
+
+- `/nodes/:id/files`. Two panes: a lazy-loaded directory tree on the left (hidden below 768 px), a listing on the right; breadcrumbs that turn into a path input on click;
+- Quick locations: `/`, `/etc/nginx`, `/var/log`, `/srv`, `/opt`, `/home`, `/var/lib/docker/volumes`, shown when they exist;
+- Upload with the button or by dropping files onto the listing (multiple files; folders P1), one at a time with progress and cancel; an existing name asks whether to replace it;
+- Opening a text file shows it in `CodeEditor` (CodeMirror 6, its own chunk). On a save conflict, a diff of the node's version against yours is shown and the user chooses to overwrite or reload;
+- Each row has an actions menu (also on right-click): open, download, rename, copy path, permissions, delete. New folder and New file are on the toolbar.
+
+Current implementation: `apps/web/src/components/FilesPage.vue`.

@@ -12,6 +12,7 @@
 | Q9 | App store / one-click templates? | Not in v1; Compose stack management covers it | docker module | — |
 | Q10 | Depend on restic for backups? | No; built-in tar + gzip + encryption, optional restic when detected | backup module | [modules/backup.md](./modules/backup.md) |
 | Q12 | SQLite driver | better-sqlite3; evaluate `node:sqlite` during M0 | Panel, packaging | [ADR-0006](./adr/0006-sqlite-drizzle.md) |
+| Q13 | Who may use the file manager, and when must they confirm their identity? | Owners and admins only. Listing needs no confirmation; reading contents, downloading and every change need a sudo session (identity confirmed in the last five minutes) | Files, RBAC | [modules/terminal-files.md](./modules/terminal-files.md) §2.1 |
 
 ## Decided
 

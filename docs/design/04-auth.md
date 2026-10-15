@@ -213,7 +213,7 @@ Role = set of permission strings
 |---|---|
 | `owner` | Everything, including users, security settings, and deleting non-owner users. At least one must exist; the last owner cannot be deleted |
 | `admin` | Everything except users and security settings |
-| `operator` | Read plus day-to-day operations (restart containers/services, read logs, deploy certificates); no terminals, no firewall changes, no deletions |
+| `operator` | Read plus day-to-day operations (restart containers/services, read logs, deploy certificates); no terminals or file manager, no firewall changes, no deletions |
 | `viewer` | Read-only |
 
 Custom roles are P1.
