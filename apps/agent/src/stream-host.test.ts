@@ -26,7 +26,7 @@ function fixture(window = 64 * KiB) {
   let buffered = 0;
   let context: StreamContext | undefined;
   const handler = {
-    data: vi.fn<(payload: Uint8Array) => void>(),
+    data: vi.fn<(payload: Uint8Array) => void | Promise<void>>(),
     ctrl: vi.fn<(message: unknown) => void>(),
     drain: vi.fn<() => void>(),
     close: vi.fn<() => void>(),
@@ -162,6 +162,27 @@ describe("stream host", () => {
     expect(f.handler.data).toHaveBeenCalledOnce();
     expect(f.text.filter((frame) => frame.t === "scredit")).toEqual([]);
     f.data(2, 16 * KiB);
+    expect(f.text.filter((frame) => frame.t === "scredit")).toEqual([
+      { t: "scredit", ch: 2, n: 32 * KiB },
+    ]);
+  });
+
+  it("holds back credit until an asynchronous consumer finishes", async () => {
+    const f = fixture(64 * KiB);
+    let finish = (): void => undefined;
+    f.handler.data.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    f.open();
+    f.data(2, 32 * KiB);
+    await Promise.resolve();
+    expect(f.text.filter((frame) => frame.t === "scredit")).toEqual([]);
+    finish();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(f.text.filter((frame) => frame.t === "scredit")).toEqual([
       { t: "scredit", ch: 2, n: 32 * KiB },
     ]);

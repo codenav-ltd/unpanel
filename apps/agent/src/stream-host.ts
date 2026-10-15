@@ -42,7 +42,11 @@ export interface StreamContext {
 }
 
 export interface StreamHandler {
-  data?(payload: Uint8Array): void;
+  /**
+   * Panel input. Returning a promise holds back the credit for `payload` until it settles,
+   * so a slow consumer (a file write) slows the sender instead of buffering here.
+   */
+  data?(payload: Uint8Array): void | Promise<void>;
   ctrl?(message: unknown): void;
   drain?(): void;
   /** Runs once when the stream ends for any reason; release everything here. */
@@ -285,11 +289,16 @@ export function createStreamHost(options: {
         });
         return;
       }
-      channel.handler.data?.(frame.payload);
-      // Handlers consume input synchronously (e.g. a pty write), so credit returns at once.
-      const credit = channel.receive.release(frame.payload.byteLength);
-      if (credit > 0 && !channel.ended)
-        options.send({ t: "scredit", ch: frame.channel, n: credit });
+      const bytes = frame.payload.byteLength;
+      const ch = frame.channel;
+      const release = (): void => {
+        const credit = channel.receive.release(bytes);
+        if (credit > 0 && !channel.ended) options.send({ t: "scredit", ch, n: credit });
+      };
+      const consumed = channel.handler.data?.(frame.payload);
+      // A pty write is synchronous, so its credit returns at once.
+      if (consumed) consumed.then(release, () => undefined);
+      else release();
     },
     closeAll() {
       if (retry) clearTimeout(retry);

@@ -8,6 +8,7 @@ import { privateKeyFromPem, PROTOCOL_VERSION, publicKeyFromPem, termOpen } from 
 import { enrollAgent } from "./enroll.ts";
 import { collectHostInfo } from "./host-info.ts";
 import { connectAgent } from "./session.ts";
+import { fileStreams } from "./file-streams.ts";
 import { createFiles, filesPolicy } from "./files.ts";
 import { createTerminal } from "./term.ts";
 
@@ -43,7 +44,10 @@ if (process.argv[2] === "enroll") {
       panelPublicKey,
       ...(process.env["UNPANEL_AGENT_ID"] ? { agentId: process.env["UNPANEL_AGENT_ID"] } : {}),
       hostInfo: collectHostInfo,
-      streams: new Map(terminal ? [[termOpen.name, terminal.method]] : []),
+      streams: new Map([
+        ...(terminal ? ([[termOpen.name, terminal.method]] as const) : []),
+        ...(files ? fileStreams(files.guard) : []),
+      ]),
       files,
       capabilities: [
         ...(terminal ? [{ name: termOpen.capability, meta: { users: terminal.users } }] : []),
