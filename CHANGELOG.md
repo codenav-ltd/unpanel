@@ -6,11 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Files shows that a folder is loading: a progress line runs above the listing, the previous folder fades if the next one is slow, and the folder spins in the tree.
+- Update details list the web terminal (0.1.0-alpha.43) and the file manager (0.1.0-alpha.44). Panels before this release hid those entries because they were long: Node → Terminal opens a login shell on a server, and Node → Files browses, uploads, downloads and edits its files. Both need the agent updated too.
+
+### Fixed
+
+- Update details no longer leave out entries longer than 500 characters; they are shortened instead.
+- GitHub release notes keep names such as `UNPANEL_FILES_ALLOW` intact instead of removing their underscores.
+
 ## [0.1.0-alpha.44] - 2026-10-15
 
 ### Added
 
-- File manager. Node → Files browses the server's filesystem with a folder tree, quick places, breadcrumbs and a path field. Upload files with the button or by dropping them on the listing (up to 2 GiB each, with progress and cancel; an existing name asks before it is replaced), download files or whole folders as `.tar.gz`, create, rename, move and delete files and folders, and change mode and owner, optionally for everything inside. Text files up to 2 MiB open in an editor with syntax colours for Nginx, shell, YAML, JSON, env files and more; if the file changed on the server while you edited, the editor shows both versions and you choose per change. New files and folders take the owner of their folder, and saved or replaced files keep their mode and owner. Only owners and admins can use files; reading contents, downloading and every change need an identity confirmation within the last five minutes and are recorded in Audit. The agent always refuses Unpanel's own key folders and `/etc/shadow`, never deletes or recursively changes system folders such as `/etc` or `/usr`, and can be limited with `UNPANEL_FILES_ALLOW`, extended with `UNPANEL_FILES_DENY`, or turned off with `UNPANEL_FILES=off` in its `agent.env`. Files need this release on both the panel and the server's agent.
+- File manager: Node → Files browses the server with a folder tree, quick places, breadcrumbs and a path field. Create, rename, move and delete files and folders, change mode and owner (optionally for everything inside), and copy paths.
+- File uploads: use Upload or drop files on the listing, up to 2 GiB each, with progress and cancel. An existing name asks before it is replaced. Files and whole folders (as `.tar.gz`) can be downloaded.
+- File editor: text files up to 2 MiB open with syntax colours for Nginx, shell, YAML, JSON, env files and more. If the file changed on the server while you edited, both versions are shown and you choose per change before saving.
+- File ownership: new files and folders take the owner of their folder; saved or replaced files keep their mode and owner.
+- File access: only owners and admins can use files. Reading contents, downloading and every change need an identity confirmation within the last five minutes and are recorded in Audit.
+- File safety: the agent always refuses Unpanel's own key folders and `/etc/shadow`, and never deletes or recursively changes system folders such as `/etc` or `/usr`. In its `agent.env`, `UNPANEL_FILES_ALLOW` limits it to some folders, `UNPANEL_FILES_DENY` adds refused paths and `UNPANEL_FILES=off` turns files off. Files need this release on both the panel and the agent.
 
 ### Fixed
 

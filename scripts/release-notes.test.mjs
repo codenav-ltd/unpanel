@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { product } from "../packages/shared/src/product.ts";
-import { releaseMetadata } from "./release-notes.mjs";
+import { MAX_CHANGE_LENGTH, plainText, releaseMetadata } from "./release-notes.mjs";
 
 describe("releaseMetadata", () => {
   it("can package the current product version's actual changelog", () => {
@@ -72,5 +72,25 @@ describe("releaseMetadata", () => {
   it("refuses to package a release without categorized notes", () => {
     expect(() => releaseMetadata("## [1.0.0]\n", "1.0.0")).toThrow(/no categorized changes/);
     expect(() => releaseMetadata("## [1.0.0]\n", "1.0.1")).toThrow(/no 1.0.1 release section/);
+  });
+});
+
+describe("plainText", () => {
+  it("drops markup but keeps names with underscores and stars", () => {
+    expect(plainText("Set `UNPANEL_FILES_ALLOW` in **agent.env**, see _docs_.")).toBe(
+      "Set UNPANEL_FILES_ALLOW in agent.env, see docs.",
+    );
+    expect(plainText("Globs like /srv/*.conf and snake_case stay.")).toBe(
+      "Globs like /srv/*.conf and snake_case stay.",
+    );
+  });
+});
+
+describe("entry length", () => {
+  it("refuses entries that older panels would hide", () => {
+    const long = "x".repeat(MAX_CHANGE_LENGTH + 1);
+    expect(() =>
+      releaseMetadata(`## [1.0.0] - 2026-10-02\n\n### Added\n\n- ${long}\n`, "1.0.0"),
+    ).toThrow(/split it/);
   });
 });

@@ -31,6 +31,9 @@ const KIND_HEADINGS = {
   breaking: "Breaking changes",
 };
 
+/** Panels before alpha.45 drop longer entries from update details instead of showing them. */
+export const MAX_CHANGE_LENGTH = 500;
+
 const KIND_ORDER = [
   "critical",
   "breaking",
@@ -69,6 +72,10 @@ export function releaseMetadata(changelog, version) {
     const bullet = line.match(/^[-*]\s+(.+?)\s*$/);
     if (!bullet || !kind) continue;
     const title = plainText(bullet[1]);
+    if (title.length > MAX_CHANGE_LENGTH)
+      throw new Error(
+        `A ${version} changelog entry has ${title.length} characters; split it into entries of at most ${MAX_CHANGE_LENGTH}: "${title.slice(0, 60)}…"`,
+      );
     if (title) changes.push({ kind, title });
   }
 
@@ -95,10 +102,13 @@ export function markdownReleaseNotes(version, changes) {
   return `${sections.join("\n\n")}\n`;
 }
 
-function plainText(value) {
+/** Drops Markdown markup but keeps literal text such as `UNPANEL_FILES_ALLOW` intact. */
+export function plainText(value) {
   return value
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[`*_~]/g, "")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/(\*\*|__|~~)(\S(?:.*?\S)?)\1/g, "$2")
+    .replace(/(^|[^\w*])[*_](\S(?:.*?\S)?)[*_](?![\w*])/g, "$1$2")
     .replace(/\s+/g, " ")
     .trim();
 }

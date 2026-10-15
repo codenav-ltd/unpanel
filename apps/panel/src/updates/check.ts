@@ -479,8 +479,10 @@ function parseChangelog(value: unknown): ReleaseChange[] {
   for (const item of value.slice(0, 100)) {
     if (!item || typeof item !== "object") continue;
     const row = item as Record<string, unknown>;
-    const title = typeof row["title"] === "string" ? row["title"].trim() : "";
-    if (!title || title.length > 500) continue;
+    const text = typeof row["title"] === "string" ? row["title"].trim() : "";
+    if (!text) continue;
+    // A long entry is shortened rather than dropped, so a release never looks emptier than it is.
+    const title = text.length > 500 ? `${text.slice(0, 499).trimEnd()}…` : text;
     changes.push({ kind: releaseChangeKind(row["kind"]), title });
   }
   return changes;

@@ -96,7 +96,7 @@ Packages contain the built panel/agent/management scripts, frontend, native pass
 ## 5. Steps
 
 1. Finish the requested changes and appropriate automated/browser validation. Review the diff, excluding credentials, local data and internal handover logs. Record platform or external-service checks that were not run.
-2. Update `CHANGELOG.md` under the version/date. Packaging maps `Added`, `Changed`, `Fixed`, `Security`, `Critical`, `Deprecated`, and `Removed` to release rows. `Removed` marks manual review and blocks unattended installation. Use a real advisory registry entry separately for a vulnerability.
+2. Update `CHANGELOG.md` under the version/date. Packaging maps `Added`, `Changed`, `Fixed`, `Security`, `Critical`, `Deprecated`, and `Removed` to release rows. `Removed` marks manual review and blocks unattended installation. Keep each bullet to at most 500 characters of plain text: panels before 0.1.0-alpha.45 drop longer entries from update details, so packaging refuses them. Split a large feature into several bullets. Use a real advisory registry entry separately for a vulnerability.
 3. Bump `packages/shared/src/product.ts`, both installer pins, the protocol test-vector version, API version assertion, README status and deployment-document status. Update relevant feature/runbook docs.
 4. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, the web production build and `node scripts/bundle.mjs`. Registry schema tests run with the suite. Packaging runs on Linux x64 in CI.
 5. Commit and push `main`. Wait for **CI on that exact SHA** to pass. Then create and push `v<version>` pointing to that SHA. Tag creation publishes a prerelease automatically; it is not a draft or a deployment to users' panels.
