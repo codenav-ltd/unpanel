@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.44] - 2026-10-15
+
 ### Added
 
 - File manager. Node → Files browses the server's filesystem with a folder tree, quick places, breadcrumbs and a path field. Upload files with the button or by dropping them on the listing (up to 2 GiB each, with progress and cancel; an existing name asks before it is replaced), download files or whole folders as `.tar.gz`, create, rename, move and delete files and folders, and change mode and owner, optionally for everything inside. Text files up to 2 MiB open in an editor with syntax colours for Nginx, shell, YAML, JSON, env files and more; if the file changed on the server while you edited, the editor shows both versions and you choose per change. New files and folders take the owner of their folder, and saved or replaced files keep their mode and owner. Only owners and admins can use files; reading contents, downloading and every change need an identity confirmation within the last five minutes and are recorded in Audit. The agent always refuses Unpanel's own key folders and `/etc/shadow`, never deletes or recursively changes system folders such as `/etc` or `/usr`, and can be limited with `UNPANEL_FILES_ALLOW`, extended with `UNPANEL_FILES_DENY`, or turned off with `UNPANEL_FILES=off` in its `agent.env`. Files need this release on both the panel and the server's agent.

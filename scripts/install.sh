@@ -6,7 +6,7 @@
 #   curl -fsSL https://unpanel.codenav.dev/install.sh | sudo bash
 set -eu
 
-VERSION="0.1.0-alpha.43"
+VERSION="0.1.0-alpha.44"
 REF="v${VERSION}"
 RELEASE="https://github.com/codenav-ltd/unpanel/releases/download/${REF}"
 # The site mirror is tried first; GitHub serves the same files if it is missing or slow.
