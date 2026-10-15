@@ -83,15 +83,9 @@ const trace =
   <div class="page">
     <header class="nav">
       <a class="mark" href="#top">
-        <svg viewBox="0 0 28 16" aria-hidden="true">
-          <path
-            d="M1 10 H6 L8.5 3.5 L12 14 L15.2 6.5 L17.2 10 H27"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.7"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <path class="mark-u" d="M6 7v12a7 7 0 0 0 7 7h6a7 7 0 0 0 7-7V7" />
+          <path class="mark-pulse" d="M10.5 17.5h3l1.8-5 2.6 8 1.8-4.5h2" />
         </svg>
         Unpanel
       </a>

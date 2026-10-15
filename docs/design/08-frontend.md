@@ -102,6 +102,18 @@ Hand-written colors, radii, shadows, or durations in components are **not allowe
 
 Component-level overrides that tokens cannot express go into `theme/antd-overrides.css` and nowhere else. Signature visuals (`VitalTile`, `PulseRail`, chart cards) are our own components, and pages never pass antdv-specific props through them, so that replacing the component library later only touches generic components ([ADR-0007](../adr/0007-ant-design-vue.md)).
 
+### The mark
+
+A panel without its top wall (a U) with the pulse inside it: the product is a panel that does not close over your server. Drawn on a 32-unit grid: the U at stroke 3 in `text`, the pulse at 2.4 in `primary`, round caps and joins.
+
+| Where | File |
+|---|---|
+| Sidebar brand, before the product name | `apps/web/src/components/AppSidebar.vue` (`.brand-mark` in `theme/global.css`) |
+| Panel favicon | `apps/web/public/favicon.svg` (dark tile `#0D1520`, fixed colours: a favicon cannot read the theme) |
+| Site nav and favicon | `apps/site/src/App.vue`, `apps/site/public/favicon.svg` |
+
+The same mark is used by codenav.dev and the Day One film. Chosen 2026-10-16 over a corners-only variant.
+
 ## 3. Motion and feedback
 
 Lightweight describes the install and the idle process, not the screen. A feature is not done while an action can finish with no visible change, a view can appear or disappear in a jump cut, or a failure is only in the console. Design the feedback with the feature.

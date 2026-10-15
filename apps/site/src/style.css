@@ -78,9 +78,21 @@ a {
 }
 
 .mark svg {
-  width: 28px;
-  height: 16px;
-  color: var(--tide);
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mark-u {
+  stroke: currentColor;
+  stroke-width: 3;
+}
+
+.mark-pulse {
+  stroke: var(--tide);
+  stroke-width: 2.4;
 }
 
 .links {

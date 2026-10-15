@@ -3045,6 +3045,26 @@ button.tag-chip[aria-pressed="true"] {
   border-bottom: 1px solid var(--line);
 }
 
+/* The Unpanel mark: a panel without its top wall, with the pulse inside. */
+.brand-mark {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.brand-mark-u {
+  stroke: var(--text);
+  stroke-width: 3;
+}
+
+.brand-mark-pulse {
+  stroke: var(--primary);
+  stroke-width: 2.4;
+}
+
 .brand-text {
   color: var(--text);
   font-size: 16px;

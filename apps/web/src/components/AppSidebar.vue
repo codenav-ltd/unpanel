@@ -342,6 +342,10 @@ function onItem(item: Item): void {
     :aria-label="mobile && drawer ? en.nav.openMenu : undefined"
   >
     <div class="sider-brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path class="brand-mark-u" d="M6 7v12a7 7 0 0 0 7 7h6a7 7 0 0 0 7-7V7" />
+        <path class="brand-mark-pulse" d="M10.5 17.5h3l1.8-5 2.6 8 1.8-4.5h2" />
+      </svg>
       <span class="brand-text">{{ product.name }}</span>
       <span class="sider-version">{{ product.version }}</span>
     </div>
