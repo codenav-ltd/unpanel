@@ -12,6 +12,12 @@ on:
         description: Published release tag to deploy (for example v0.1.0-alpha.19)
         required: true
         type: string
+      source:
+        description: Build the site from the tag, or from main for site-only changes
+        required: false
+        type: choice
+        options: [tag, main]
+        default: tag
 
 permissions:
   contents: read
@@ -39,7 +45,8 @@ jobs:
         run: '[[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$ ]]'
       - uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          # Site-only changes can ship from main; the release metadata and installer pins still come from the tag.
+          ref: ${{ inputs.source == 'main' && 'refs/heads/main' || format('refs/tags/{0}', inputs.tag) }}
           path: source
           persist-credentials: false
       - uses: pnpm/action-setup@v4
