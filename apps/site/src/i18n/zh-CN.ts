@@ -1,0 +1,315 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 CodeNav Ltd and contributors
+
+import type { Messages } from "./en";
+
+export const zhCN: Messages = {
+  meta: {
+    title: "Unpanel · 所有服务器，一个页面",
+    description:
+      "免费开源的 Linux 服务器面板。每台服务器只装一个小 agent，主动连回你的面板：监控、告警、终端、文件和 Docker 都在一处，此外什么都不装。",
+    ogAlt: "Unpanel 总览页，显示六台服务器和各自的 CPU 曲线",
+  },
+  nav: {
+    label: "站点",
+    product: "产品",
+    footprint: "占用",
+    security: "安全",
+    pricing: "价格",
+    faq: "常见问题",
+    source: "源码",
+    menu: "菜单",
+    close: "关闭菜单",
+    language: "English",
+    languageLabel: "Read in English",
+  },
+  hero: {
+    status: "Pre-alpha · 免费开源",
+    title: "你的每一台服务器，都在一个页面里。除此之外，什么都不装。",
+    lede: "每台服务器装一个小 agent，主动连回你的面板。所有机器的负载和告警一眼看完，任意一台都能直接开终端、管文件、管 Docker。多少台都免费。",
+    requirements: "需要 systemd 的 Linux · x86_64 与 arm64 · Node.js 24",
+    whatItDoes: "安装脚本做了什么",
+    sourceLink: "在 GitHub 上看源码",
+  },
+  copy: {
+    copy: "复制",
+    copied: "已复制",
+    label: "复制安装命令",
+  },
+  fleet: {
+    label: "模拟的 Unpanel 总览。选择一台服务器查看资源。",
+    title: "Overview",
+    online: "{online} / {total} 台在线",
+    attention: "{count} 台需要关注",
+    rail: "CPU，最近 10 分钟",
+    cpu: "CPU",
+    memory: "内存",
+    swap: "Swap",
+    storage: "存储",
+    disk: "磁盘",
+    offline: "已离线 4 分钟，Telegram 告警已发出。",
+    noSwap: "未启用 Swap",
+    simulated: "以上是模拟数据。你的面板会用你自己的服务器画出同样的画面。",
+    servers: {
+      tokyo: "Ubuntu 24.04 · 4 vCPU",
+      fra: "Debian 12 · 8 vCPU",
+      nas: "家里，在 NAT 后面 · arm64",
+      sgp: "Ubuntu 22.04 · 2 vCPU",
+      ci: "Debian 12 · 16 vCPU",
+      lon: "离线",
+    },
+  },
+  tour: {
+    title: "一件事，一个页面",
+    lede: "以下截图来自一个真实面板，它管理着一个小商店：Docker 里跑着 Web 服务、API、Postgres 和 Redis。",
+    steps: [
+      {
+        id: "dashboard",
+        name: "Dashboard",
+        title: "一眼看清服务器在干什么",
+        body: "CPU、内存、Swap、存储的当前值、平均和峰值，加上网速、连接数、Docker 和告警，都在一屏里。卡片可以拖动、调整大小或移除。",
+        alt: "节点仪表盘：CPU、内存、Swap、存储四个资源格，网络吞吐和 Docker 卡片",
+      },
+      {
+        id: "docker",
+        name: "Docker",
+        title: "直接管理你已经在跑的容器",
+        body: "容器、镜像、网络、数据卷和 Compose 项目。每个容器都能看日志、开 shell、看实时资源，挂了会告警。",
+        alt: "Docker 页面，列出商店项目的各个容器",
+      },
+      {
+        id: "terminal",
+        name: "Terminal",
+        title: "在浏览器里打开任意一台的 shell",
+        body: "多个会话以标签页打开，链接点击即开，手机上有 Ctrl、Esc、方向键等按键条。每个会话都会记入审计：账号、来源地址和时长。",
+        alt: "网页终端，正在服务器上运行 docker compose ps",
+      },
+      {
+        id: "files",
+        name: "Files",
+        title: "文件在哪，就在哪改",
+        body: "浏览、上传（单个最大 2 GiB）、拖动移动、压缩和解压。如果你编辑期间文件在服务器上被改过，保存前会把两个版本都摆出来让你选。",
+        alt: "文件管理器，打开了商店目录里的 compose 文件",
+      },
+      {
+        id: "alerts",
+        name: "Alerts",
+        title: "比用户先知道出事了",
+        body: "磁盘快满、容器崩溃、证书快到期、服务器离线。先发警告，再升级为严重，通过 Telegram 或邮件送达。",
+        alt: "告警页面，有一条正在进行的容器故障",
+      },
+    ],
+  },
+  footprint: {
+    title: "除此之外，什么都不装",
+    lede: "在全新的 Ubuntu 22.04 上按各家默认方式安装后，系统里多了什么。每个面板用同一个脚本测量。",
+    metrics: {
+      etcFiles: {
+        tab: "/etc 下的文件",
+        unit: "个文件",
+        note: "每个方块代表安装后 `/etc` 下新增的一个文件。",
+      },
+      packages: {
+        tab: "系统软件包",
+        unit: "个包",
+        note: "每个方块代表安装脚本装进系统的一个软件包。",
+      },
+      diskMb: {
+        tab: "磁盘占用",
+        unit: "MB",
+        note: "每个方块代表 10 MB。在运行时打包进发布之前，Unpanel 还需要 Node.js 24，另占 207 MB。",
+      },
+    },
+    none: "没有",
+    facts: [
+      { value: "1 / 2", label: "个进程以 root 运行" },
+      { value: "0", label: "个端口需要在被管服务器上开放" },
+      { value: "免费", label: "管理多台服务器" },
+    ],
+    details: "全部测量数据和测量方法",
+    row: {
+      multiServer: "管理多台服务器",
+      update: "更新到下一个版本",
+      updateDownload: "更新下载量",
+      updateOffline: "更新期间面板不可用",
+      install: "安装",
+      packages: "新增系统软件包",
+      etc: "/etc 下新增文件",
+      disk: "磁盘占用",
+      root: "以 root 运行的进程",
+      memory: "空闲内存（PSS）",
+    },
+    rowNote: {
+      multiServer: "来自各家官网，2026 年 10 月",
+      install: "取决于网络",
+      disk: "Unpanel 另需 Node.js 24，207 MB",
+    },
+    values: { free: "免费", paid: "付费", none: "未观察到" },
+    measurement: "测量项",
+    method:
+      "每个面板都按官方文档默认安装，各用一个一次性的 systemd 容器，在同一台 arm64 主机上于 2026 年 10 月 14 日测量：{versions}。内存和 CPU 在空闲五分钟后读取。更新测试在一台 4 核 arm64 云服务器上进行，每 0.2 秒探测一次面板。aaPanel 和宝塔只能安装最新版，所以没有测更新。",
+    runIt: "自己跑一遍测量脚本",
+  },
+  connect: {
+    title: "服务器主动连回面板",
+    lede: "在 Add node 里复制一行命令。它装好的 agent 会主动连接你的面板并保持连接，所以被管的服务器不用开任何端口，放在 NAT 或家用路由器后面的机器也能接入。",
+    panel: "你的面板",
+    panelNote: "tokyo-web-1 · 本身也是一个节点",
+    nat: "在 NAT 后面",
+    facts: [
+      {
+        title: "不开入站端口",
+        body: "被管服务器上没有任何监听。agent 通过 TLS 上的 WebSocket 向外连接，并校验面板的密钥。",
+      },
+      {
+        title: "面板搬家，agent 跟着走",
+        body: "面板换了地址，每台在线的 agent 都会先验证、再保存新地址，旧地址留作备用。",
+      },
+      {
+        title: "每台服务器都一样",
+        body: "面板所在的机器就是第一个节点。之后加进来的每台服务器，都有同样的仪表盘、终端、文件和 Docker。",
+      },
+    ],
+  },
+  security: {
+    title: "root 权限关在门后",
+    lede: "网页进程以独立的无特权用户运行。需要特权的操作只能以具名、经过校验的请求交给 agent，不存在一个“执行任意命令”的接口。",
+    replayLabel: "打开终端时会发生什么",
+    replay: [
+      {
+        title: "在 fra-db-2 上打开 Terminal",
+        body: "只有 owner 和 admin 能用，其他角色根本看不到入口。",
+      },
+      {
+        title: "确认是你本人",
+        body: "用 Passkey 或验证器动态码。有效五分钟，过后下一个高风险操作会再次要求验证。",
+      },
+      {
+        title: "记入审计日志",
+        body: "谁、从哪里、在哪台服务器上、用了多久。",
+      },
+    ],
+    dialog: {
+      title: "Confirm it's you",
+      body: "Opening a terminal needs a recent sign-in.",
+      passkey: "Use passkey",
+      code: "Enter a code instead",
+    },
+    audit: {
+      title: "Audit",
+      action: "terminal.open",
+      duration: "12 min",
+    },
+    next: "下一步",
+    restart: "再看一遍",
+    facts: [
+      "首次设置就支持 Passkey 和两步验证，并提供恢复码",
+      "团队角色可以限定到每个人能操作的服务器",
+      "在任意服务器上用 `UNPANEL_TERMINAL=off` 关闭终端",
+      "文件管理始终拒绝访问 `/etc/shadow` 和 Unpanel 自己的密钥",
+    ],
+  },
+  updates: {
+    title: "两秒内完成更新，失败自动回滚",
+    lede: "一次更新只下载 1.5 MB，校验 SHA-256 后切换。如果新版本没有通过健康检查，会重新启动旧版本，数据库原样保留。",
+    race: "从开始更新到新版本可以访问的时间",
+    seconds: "{value} 秒",
+    download: "下载 {value} MB",
+    releasesTitle: "自 {date} 以来发布了 {count} 个版本",
+    releasesLede: "每个版本都写明了改动。把鼠标移到刻度上（或用键盘聚焦）即可查看，内容为英文。",
+    changelog: "查看完整更新日志",
+  },
+  pricing: {
+    title: "免费。所有服务器，所有功能。",
+    lede: "1Panel、aaPanel 和宝塔管理多台服务器都要付费。Unpanel 只有一个版本，而且它永远是完整的。",
+    price: "¥0",
+    per: "不限服务器数量，不限团队人数",
+    promises: [
+      {
+        title: "没有专业版或企业版",
+        body: "永远不会出现一个比免费版功能更多的付费版本。",
+      },
+      {
+        title: "不限服务器数量",
+        body: "把你所有的服务器和整个团队都加进来，哪一项都不算升级。",
+      },
+      {
+        title: "不会收回任何功能",
+        body: "已有的功能不会被挪到付费墙后面。每个版本都以 AGPL 发布，你拿到的就一直是你的。",
+      },
+    ],
+    decision: "查看这项决定",
+  },
+  roadmap: {
+    title: "现在能做什么，接下来做什么",
+    nowTitle: "{version} 已有",
+    nextTitle: "接下来",
+    now: [
+      "每台服务器的 CPU、内存、磁盘和网络，实时和历史数据",
+      "Docker 容器、镜像、网络、数据卷和 Compose 项目",
+      "网页终端和文件管理器",
+      "Telegram 和邮件告警，包括磁盘写满预测和容器崩溃",
+      "Let's Encrypt 证书，已有 Web 服务器占用 80 端口时也能签发",
+      "Passkey、两步验证、团队角色和审计日志",
+      "一键更新面板和所有 agent",
+    ],
+    next: [
+      "systemd 服务和日志",
+      "Nginx 站点，带配置检测和回滚",
+      "PM2 进程",
+      "计划任务",
+      "防火墙：未确认的改动会自动撤回",
+      "备份到 S3 或 WebDAV",
+      "发布包自带 Node.js",
+    ],
+  },
+  faq: {
+    title: "常见问题",
+    items: [
+      {
+        q: "还是 pre-alpha，能用吗？",
+        a: "能接受一些粗糙之处的服务器上可以用。几天就发一个版本，每个版本都有更新日志；更新失败会恢复到旧版本，数据保留。还有一些模块没做完，上面的列表写得很清楚。",
+      },
+      {
+        q: "它会改动我服务器上的什么？",
+        a: "程序装在 `/opt/unpanel`，数据在 `/var/lib/unpanel`，配置在 `/etc/unpanel`，另外添加两个 systemd 服务和一个 `unpanel` 用户。不安装任何系统软件包，也不碰你现有的 Nginx、Docker 或 cron 配置。",
+      },
+      {
+        q: "为什么需要 Node.js 24？",
+        a: "面板和 agent 都运行在 Node.js 上。请先安装 Node.js 24，可以用 NodeSource 的软件源或官方压缩包。之后的版本会把它打包进发布包，这一步就不需要了。",
+      },
+      {
+        q: "怎么卸载？",
+        a: "停止并禁用 `unpanel` 和 `unpanel-agent` 两个服务，然后删除 `/opt/unpanel`、`/etc/unpanel`、`/var/lib/unpanel` 和这两个服务的 unit 文件。`unpanel uninstall` 命令已在计划中。",
+      },
+      {
+        q: "会往外发送数据吗？",
+        a: "没有任何统计或遥测。面板只会向 unpanel.codenav.dev 和 GitHub 查询新版本；只有在你配置之后，才会连接 Telegram 或你的邮件服务商。其他一切都留在面板所在的机器上。",
+      },
+      {
+        q: "免费的话，能长久吗？",
+        a: "Unpanel 由 CodeNav Ltd 开发，“只有一个版本”的承诺作为一项正式决定记录在代码仓库里。代码以 AGPL-3.0 发布，每个已发布的版本你都可以永久运行、修改和分享。",
+      },
+      {
+        q: "支持哪些系统？",
+        a: "使用 systemd 的 x86_64 或 arm64 Linux：Debian 11 到 13，Ubuntu 22.04 和 24.04。AlmaLinux 和 Rocky Linux 9 尽量支持。",
+      },
+    ],
+  },
+  install: {
+    title: "大约半分钟装好",
+    lede: "在要运行面板的服务器上，以 root 执行：",
+    steps: [
+      "下载适合你 CPU 的发布包并校验 SHA-256。",
+      "以两个 systemd 服务启动面板和本机 agent。",
+      "打印面板地址和证书指纹。打开它，创建账号并开启两步验证。",
+    ],
+    then: "之后每台新服务器，都在 Add node 里复制一行命令即可。",
+  },
+  footer: {
+    by: "出品：",
+    changelog: "更新日志",
+    security: "安全政策",
+    license: "AGPL-3.0",
+  },
+};
