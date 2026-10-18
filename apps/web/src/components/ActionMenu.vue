@@ -9,6 +9,8 @@ import { nextTick, onBeforeUnmount, ref, useId, watch } from "vue";
 const props = defineProps<{
   name: string;
   disabled: boolean;
+  /** No visible ⋮ button: the menu only opens at the pointer through `openAt`. */
+  bare?: boolean;
   actions: {
     id: string;
     label: string;
@@ -127,6 +129,8 @@ defineExpose({
   <button
     ref="trigger"
     class="quiet action-more"
+    :class="{ 'sr-only': bare }"
+    :tabindex="bare ? -1 : undefined"
     type="button"
     :disabled="disabled"
     :aria-label="`More actions for ${name}`"
