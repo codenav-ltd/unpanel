@@ -20,10 +20,11 @@ const root = ref<HTMLElement | null>(null);
 
 const online = computed(() => fleet.filter((server) => server.online).length);
 const attention = computed(() => fleet.filter(needsAttention).length);
-const current = computed(() => fleet[selected.value]!);
+const current = computed(() => fleet[selected.value] ?? fleet[0]);
 
 const tiles = computed(() => {
   const server = current.value;
+  if (!server) return [];
   return [
     { label: t.fleet.cpu, value: currentCpu(server) },
     { label: t.fleet.memory, value: server.memory },
@@ -106,10 +107,10 @@ onBeforeUnmount(() => {
     </ul>
 
     <div class="detail" aria-live="polite">
-      <p v-if="!current.online" class="offline">
+      <p v-if="current && !current.online" class="offline">
         <strong>{{ current.name }}</strong> · {{ t.fleet.offline }}
       </p>
-      <dl v-else class="tiles">
+      <dl v-else-if="current" class="tiles">
         <div v-for="tile in tiles" :key="tile.label" class="tile">
           <dt>{{ tile.label }}</dt>
           <dd v-if="tile.value === null" class="none">{{ t.fleet.noSwap }}</dd>

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
+/* global document, Image -- page.evaluate callbacks run in the browser. */
+
 // Captures the website's product screenshots from the demo fleet started by run.sh.
 //
 //   apps/site/shots/run.sh && pnpm --filter @unpanel/site shots
@@ -127,7 +129,12 @@ async function webp(page, png) {
 
 async function confirmIdentity(page) {
   const field = page.locator('dialog[open] input[type="password"]');
-  if (await field.isVisible({ timeout: 4000 }).catch(() => false)) {
+  // isVisible() does not wait, and the dialog opens only once the page asks for root access.
+  const shown = await field.waitFor({ state: "visible", timeout: 4000 }).then(
+    () => true,
+    () => false,
+  );
+  if (shown) {
     await field.fill(password);
     await field.press("Enter");
     await page.waitForTimeout(1500);
@@ -155,7 +162,11 @@ const shots = [
     async act(page) {
       await confirmIdentity(page);
       await page.getByText("compose.yaml", { exact: true }).first().dblclick();
-      await page.waitForTimeout(2500);
+      await confirmIdentity(page);
+      await page.waitForTimeout(2000);
+      // The double click also selects text; put the caret in the editor instead.
+      await page.locator(".cm-content").click({ position: { x: 200, y: 8 } });
+      await page.waitForTimeout(500);
     },
   },
   { id: "alerts", path: "/alerts", settle: 3000 },

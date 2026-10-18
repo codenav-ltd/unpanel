@@ -6,9 +6,10 @@ import { product } from "@unpanel/shared";
 import { useLocale } from "../i18n";
 
 const { t } = useLocale();
-const download = `curl -fsSL ${product.siteUrl}/install.sh`;
+const [scheme, host] = product.siteUrl.split("//");
+const path = "/install.sh";
 const run = "| sudo bash";
-const command = `${download} ${run}`;
+const command = `curl -fsSL ${product.siteUrl}${path} ${run}`;
 const copied = ref(false);
 let timer = 0;
 
@@ -54,7 +55,9 @@ onBeforeUnmount(() => window.clearTimeout(timer));
   <div class="command">
     <span class="prompt" aria-hidden="true">$</span>
     <code
-      ><span>{{ download }}</span> <span>{{ run }}</span></code
+      ><span>curl -fsSL</span> <span>{{ scheme }}//</span><wbr /><span>{{ host }}</span
+      ><wbr /><span>{{ path }}</span
+      >{{ " " }}<span>{{ run }}</span></code
     >
     <button type="button" class="btn" :aria-label="t.copy.label" @click="copy">
       <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -97,6 +100,7 @@ code {
   line-height: 1.5;
 }
 
+/* Wrap between words, or at the address's slashes on a phone, never inside the address. */
 code span {
   white-space: nowrap;
 }
@@ -124,11 +128,6 @@ svg {
 
   code {
     flex-basis: calc(100% - 24px);
-  }
-
-  code span:first-child {
-    white-space: normal;
-    overflow-wrap: anywhere;
   }
 
   .btn {

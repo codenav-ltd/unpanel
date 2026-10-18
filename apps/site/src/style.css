@@ -160,6 +160,9 @@ h3 {
 /* Chinese headings fall back to the system CJK face, which needs looser leading. */
 :lang(zh) h1,
 :lang(zh) h2 {
+  /* Break only at punctuation, so a word such as 服务器 stays on one line. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
   font-weight: 700;
   letter-spacing: 0.01em;
   line-height: 1.18;

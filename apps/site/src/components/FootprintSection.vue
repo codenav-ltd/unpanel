@@ -44,10 +44,11 @@ function select(next: FootprintMetric, event?: KeyboardEvent): void {
 }
 
 function onKey(event: KeyboardEvent): void {
+  const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+  if (step === 0) return;
   const index = metrics.indexOf(metric.value);
-  if (event.key === "ArrowRight") select(metrics[(index + 1) % metrics.length]!, event);
-  else if (event.key === "ArrowLeft")
-    select(metrics[(index + metrics.length - 1) % metrics.length]!, event);
+  const next = metrics[(index + step + metrics.length) % metrics.length];
+  if (next) select(next, event);
 }
 </script>
 

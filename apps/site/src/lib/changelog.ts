@@ -15,10 +15,10 @@ export function parseReleases(markdown: string): ReleaseSummary[] {
   const releases: ReleaseSummary[] = [];
   const sections = markdown.split(/^## /m).slice(1);
   for (const section of sections) {
-    const heading = /^\[([^\]]+)\] - (\d{4}-\d{2}-\d{2})/.exec(section);
-    if (!heading) continue;
+    const [, version, date] = /^\[([^\]]+)\] - (\d{4}-\d{2}-\d{2})/.exec(section) ?? [];
+    if (!version || !date) continue;
     const entry = /^- (.+)$/m.exec(section)?.[1] ?? "";
-    releases.push({ version: heading[1]!, date: heading[2]!, summary: firstSentence(entry) });
+    releases.push({ version, date, summary: firstSentence(entry) });
   }
   return releases;
 }

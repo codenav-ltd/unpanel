@@ -3,7 +3,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { product } from "@unpanel/shared";
-import releases from "virtual:releases";
+import { releases } from "virtual:releases";
 import { update } from "../content/measurements";
 import { format, formatDate, useLocale } from "../i18n";
 
@@ -21,7 +21,7 @@ const strip = [...releases].reverse();
 const first = strip[0];
 const latest = strip[strip.length - 1];
 const focused = ref<number | null>(null);
-const shown = computed(() => strip[focused.value ?? strip.length - 1]!);
+const shown = computed(() => strip[focused.value ?? strip.length - 1] ?? latest);
 
 const race = ref<HTMLElement | null>(null);
 const running = ref(false);

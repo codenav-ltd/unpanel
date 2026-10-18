@@ -19,10 +19,10 @@ describe("demo fleet", () => {
 
   it("advances by one sample without changing the rail length", () => {
     const fleet = demoFleet();
-    const before = fleet[0]!.cpu.slice(1);
+    const before = fleet[0]?.cpu.slice(1);
     advance(fleet, random(1));
-    expect(fleet[0]!.cpu).toHaveLength(RAIL_LENGTH);
-    expect(fleet[0]!.cpu.slice(0, -1)).toEqual(before);
+    expect(fleet[0]?.cpu).toHaveLength(RAIL_LENGTH);
+    expect(fleet[0]?.cpu.slice(0, -1)).toEqual(before);
   });
 
   it("flags offline servers and full disks for attention", () => {

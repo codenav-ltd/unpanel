@@ -90,6 +90,7 @@ h1 {
 
 :lang(zh) h1 {
   font-size: clamp(2rem, 3.6vw, 2.9rem);
+  line-height: 1.2;
 }
 
 .lede {

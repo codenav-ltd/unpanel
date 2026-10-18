@@ -45,7 +45,7 @@ function releases(changelog: URL): Plugin {
       if (source !== resolved) return undefined;
       const path = fileURLToPath(changelog);
       this.addWatchFile(path);
-      return `export default ${JSON.stringify(parseReleases(readFileSync(path, "utf8")))};`;
+      return `export const releases = ${JSON.stringify(parseReleases(readFileSync(path, "utf8")))};`;
     },
   };
 }

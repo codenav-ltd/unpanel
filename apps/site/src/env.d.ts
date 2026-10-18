@@ -7,6 +7,5 @@ declare module "virtual:releases" {
   import type { ReleaseSummary } from "./lib/changelog";
 
   /** Every release in CHANGELOG.md, newest first, read at build time. */
-  const releases: ReleaseSummary[];
-  export default releases;
+  export const releases: ReleaseSummary[];
 }
