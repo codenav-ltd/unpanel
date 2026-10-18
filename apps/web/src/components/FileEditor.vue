@@ -3,7 +3,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 Copyright (C) 2026 CodeNav Ltd and contributors
 -->
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, render, shallowRef } from "vue";
 import { CloseOutlined, DownloadOutlined, SaveOutlined } from "@ant-design/icons-vue";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import {
@@ -27,7 +27,12 @@ import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { xml } from "@codemirror/legacy-modes/mode/xml";
 import { yaml } from "@codemirror/legacy-modes/mode/yaml";
 import { unifiedMergeView } from "@codemirror/merge";
-import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import {
+  highlightSelectionMatches,
+  search,
+  searchKeymap,
+  setSearchQuery,
+} from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import {
   drawSelection,
@@ -36,9 +41,12 @@ import {
   highlightActiveLineGutter,
   keymap,
   lineNumbers,
+  type Panel,
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import AppDialog from "./AppDialog.vue";
+import EditorSearch from "./EditorSearch.vue";
+import { focusRequests, lineTarget, openFindPanel, openReplacePanel } from "../editor-search.ts";
 import {
   languageFor,
   languageLabels,
@@ -123,8 +131,6 @@ const chrome = EditorView.theme({
   ".cm-searchMatch-selected": {
     backgroundColor: "color-mix(in srgb, var(--primary) 40%, transparent)",
   },
-  ".cm-textfield": { width: "auto", padding: "2px 6px" },
-  ".cm-button": { minHeight: "0", padding: "2px 8px", backgroundImage: "none" },
   ".cm-changedLine": { backgroundColor: "color-mix(in srgb, var(--ok) 10%, transparent)" },
   ".cm-changedText": { backgroundColor: "color-mix(in srgb, var(--ok) 26%, transparent)" },
   ".cm-deletedChunk": {
@@ -150,9 +156,46 @@ const chrome = EditorView.theme({
   "& .cm-chunkButtons button[name=reject]": { color: "var(--danger) !important" },
 });
 
+/** The find and replace bar, drawn by Vue inside CodeMirror's panel. */
+function searchPanel(editor: EditorView): Panel {
+  const dom = document.createElement("div");
+  let revision = 0;
+  const draw = (): void => render(h(EditorSearch, { view: editor, revision: revision++ }), dom);
+  draw();
+  return {
+    dom,
+    top: true,
+    update(update) {
+      if (
+        update.docChanged ||
+        update.selectionSet ||
+        focusRequests.has(editor) ||
+        update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setSearchQuery)))
+      )
+        draw();
+    },
+    destroy: () => render(null, dom),
+  };
+}
+
+const WRAP_KEY = "unpanel.editor.wrap";
+function savedWrap(): boolean {
+  try {
+    return localStorage.getItem(WRAP_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 const host = ref<HTMLElement | null>(null);
 const view = shallowRef<EditorView | null>(null);
 const merge = new Compartment();
+const wrapping = new Compartment();
+const wrap = ref(savedWrap());
+const lineEnding = ref<"LF" | "CRLF">("LF");
+/** The status bar's "Ln, Col" turns into this field for Go to line. */
+const goTo = ref<{ value: string; invalid: boolean } | null>(null);
+const goToField = ref<HTMLInputElement | null>(null);
 
 type Phase = "loading" | "ready" | "binary" | "large" | "failed";
 const phase = ref<Phase>("loading");
@@ -183,13 +226,19 @@ function extensions(separator: string): Extension[] {
     indentOnInput(),
     bracketMatching(),
     highlightSelectionMatches(),
-    search({ top: false }),
+    search({ top: true, createPanel: searchPanel }),
+    wrapping.of(wrap.value ? EditorView.lineWrapping : []),
     syntaxHighlighting(highlight),
     chrome,
     EditorState.lineSeparator.of(separator),
     EditorView.contentAttributes.of({ "aria-label": `${en.files.editing} ${props.path}` }),
     keymap.of([
       { key: "Mod-s", preventDefault: true, run: () => (void save(), true) },
+      { key: "Mod-f", preventDefault: true, run: openFindPanel },
+      { key: "Ctrl-h", mac: "Mod-Alt-f", preventDefault: true, run: openReplacePanel },
+      { key: "Ctrl-g", preventDefault: true, run: () => (openGoTo(), true) },
+      { key: "Mod-Alt-g", preventDefault: true, run: () => (openGoTo(), true) },
+      { key: "Alt-z", preventDefault: true, run: () => (toggleWrap(), true) },
       indentWithTab,
       ...defaultKeymap,
       ...historyKeymap,
@@ -237,6 +286,43 @@ async function load(): Promise<void> {
   }
 }
 
+function toggleWrap(): void {
+  wrap.value = !wrap.value;
+  try {
+    localStorage.setItem(WRAP_KEY, wrap.value ? "1" : "0");
+  } catch {
+    // The choice still applies to this file.
+  }
+  view.value?.dispatch({
+    effects: wrapping.reconfigure(wrap.value ? EditorView.lineWrapping : []),
+  });
+}
+
+function openGoTo(): void {
+  goTo.value = { value: "", invalid: false };
+  void nextTick(() => goToField.value?.focus());
+}
+
+function closeGoTo(focusEditor: boolean): void {
+  goTo.value = null;
+  if (focusEditor) view.value?.focus();
+}
+
+function submitGoTo(): void {
+  const editor = view.value;
+  if (!editor || !goTo.value) return;
+  const target = lineTarget(goTo.value.value, editor.state.doc);
+  if (target === null) {
+    goTo.value.invalid = true;
+    return;
+  }
+  editor.dispatch({
+    selection: { anchor: target },
+    effects: EditorView.scrollIntoView(target, { y: "center" }),
+  });
+  closeGoTo(true);
+}
+
 function mount(text: string): void {
   view.value?.destroy();
   if (!host.value) return;
@@ -244,6 +330,8 @@ function mount(text: string): void {
     parent: host.value,
     state: EditorState.create({ doc: text, extensions: extensions(lineSeparator(text)) }),
   });
+  const separator = lineSeparator(text);
+  lineEnding.value = separator === "\r\n" ? "CRLF" : "LF";
   dirty.value = false;
   view.value.focus();
 }
@@ -418,12 +506,48 @@ defineExpose({ dirty, requestClose });
     </div>
 
     <footer v-if="phase === 'ready'" class="file-editor-foot">
+      <form v-if="goTo" class="file-editor-goto" @submit.prevent="submitGoTo">
+        <label :for="`goto-${name}`">{{ en.files.goToLine }}</label>
+        <input
+          :id="`goto-${name}`"
+          ref="goToField"
+          v-model="goTo.value"
+          type="text"
+          inputmode="numeric"
+          autocomplete="off"
+          :placeholder="
+            en.files.goToPlaceholder.replace('{lines}', String(view?.state.doc.lines ?? 1))
+          "
+          :aria-invalid="goTo.invalid || undefined"
+          @input="goTo.invalid = false"
+          @keydown.esc.prevent="closeGoTo(true)"
+          @blur="closeGoTo(false)"
+        />
+      </form>
+      <button
+        v-else
+        type="button"
+        class="file-editor-foot-action"
+        :title="en.files.goToHint"
+        @click="openGoTo"
+      >
+        {{
+          en.files.position
+            .replace("{line}", String(cursor.line))
+            .replace("{column}", String(cursor.column))
+        }}
+      </button>
+      <button
+        type="button"
+        class="file-editor-foot-action"
+        :aria-pressed="wrap"
+        :title="en.files.wrapHint"
+        @click="toggleWrap"
+      >
+        {{ en.files.wrap }}
+      </button>
+      <span :title="en.files.lineEndingHint">{{ lineEnding }}</span>
       <span>{{ languageLabel }}</span>
-      <span>{{
-        en.files.position
-          .replace("{line}", String(cursor.line))
-          .replace("{column}", String(cursor.column))
-      }}</span>
     </footer>
 
     <AppDialog :open="leaving" narrow :title="en.files.discardTitle" @close="leaving = false">
@@ -537,12 +661,55 @@ button.file-editor-close {
 }
 .file-editor-foot {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  gap: 16px;
-  padding: 4px 14px;
+  gap: 4px 14px;
+  min-height: 28px;
+  padding: 2px 10px;
   border-top: 1px solid var(--line);
   color: var(--text-3);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+.file-editor-foot button.file-editor-foot-action {
+  min-height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 400;
+}
+.file-editor-foot button.file-editor-foot-action:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.file-editor-foot button.file-editor-foot-action[aria-pressed="true"] {
+  color: var(--primary);
+}
+.file-editor-goto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.file-editor-goto input {
+  width: 128px;
+  height: 22px;
+  min-height: 0;
+  padding: 0 6px;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.file-editor-goto input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.file-editor-goto input[aria-invalid="true"] {
+  border-color: var(--danger);
 }
 </style>
