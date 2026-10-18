@@ -3,6 +3,7 @@
 <script setup lang="ts">
 import { provide } from "vue";
 import { localeKey, locales, type Locale } from "./i18n";
+import CompareSection from "./components/CompareSection.vue";
 import ConnectSection from "./components/ConnectSection.vue";
 import FaqSection from "./components/FaqSection.vue";
 import FootprintSection from "./components/FootprintSection.vue";
@@ -31,6 +32,7 @@ provide(localeKey, { locale: props.locale, t: locales[props.locale].messages });
     <ConnectSection />
     <SecuritySection />
     <UpdatesSection />
+    <CompareSection />
     <PulseDivider :seed="23" />
     <RoadmapSection />
     <PricingSection />

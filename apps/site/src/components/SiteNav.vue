@@ -14,7 +14,7 @@ const scrolled = ref(false);
 
 const links = [
   { href: "#product", label: t.nav.product },
-  { href: "#footprint", label: t.nav.footprint },
+  { href: "#compare", label: t.nav.compare },
   { href: "#security", label: t.nav.security },
   { href: "#pricing", label: t.nav.pricing },
   { href: "#faq", label: t.nav.faq },

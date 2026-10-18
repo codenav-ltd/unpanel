@@ -2,13 +2,11 @@
 <!-- Copyright (C) 2026 CodeNav Ltd and contributors -->
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { product } from "@unpanel/shared";
 import {
   footprint,
   MB_PER_SQUARE,
-  measuredRows,
-  measuredVersions,
   panels,
+  RUNTIME_MB,
   type FootprintMetric,
 } from "../content/measurements";
 import { format, useLocale } from "../i18n";
@@ -16,26 +14,22 @@ import RichText from "./RichText.vue";
 
 const { t } = useLocale();
 const metrics = Object.keys(footprint) as FootprintMetric[];
-const metric = ref<FootprintMetric>("etcFiles");
+const metric = ref<FootprintMetric>("diskMb");
 
 const rows = computed(() =>
   panels.map((panel) => {
     const value = footprint[metric.value][panel];
-    const squares =
-      metric.value === "diskMb" ? Math.max(1, Math.round(value / MB_PER_SQUARE)) : value;
-    return { panel, value, squares: value === 0 ? 0 : squares };
+    const disk = metric.value === "diskMb";
+    const squares = disk ? Math.max(1, Math.round(value / MB_PER_SQUARE)) : value;
+    // Unpanel's runtime is drawn as part of its bar, so its own 9 MB never stands alone.
+    const runtime = disk && panel === "Unpanel" ? Math.round(RUNTIME_MB / MB_PER_SQUARE) : 0;
+    return { panel, value, squares: value === 0 ? 0 : squares, runtime };
   }),
 );
 
 function shown(value: number): string {
   if (metric.value !== "diskMb") return String(value);
-  return value >= 1000 ? `${(value / 1024).toFixed(1)} GB` : `${value} MB`;
-}
-
-function cellValue(value: string): string {
-  return value in t.footprint.values
-    ? t.footprint.values[value as keyof typeof t.footprint.values]
-    : value;
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} GB` : `${value} MB`;
 }
 
 function select(next: FootprintMetric, event?: KeyboardEvent): void {
@@ -91,12 +85,21 @@ function onKey(event: KeyboardEvent): void {
                 :key="index"
                 :style="{ animationDelay: `${Math.min(index * 3, 600)}ms` }"
               ></i>
+              <i
+                v-for="index in row.runtime"
+                :key="`runtime-${index}`"
+                class="runtime"
+                :style="{ animationDelay: `${Math.min((row.squares + index) * 3, 600)}ms` }"
+              ></i>
             </span>
             <span class="value mono">
               <template v-if="row.value === 0">{{ t.footprint.none }}</template>
               <template v-else>
                 {{ shown(row.value) }}
                 <small v-if="metric !== 'diskMb'">{{ t.footprint.metrics[metric].unit }}</small>
+                <small v-if="row.runtime > 0" class="runtime-value">{{
+                  format(t.footprint.runtime, { mb: RUNTIME_MB })
+                }}</small>
               </template>
             </span>
           </div>
@@ -111,38 +114,7 @@ function onKey(event: KeyboardEvent): void {
         </div>
       </dl>
 
-      <details class="all">
-        <summary>{{ t.footprint.details }}</summary>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">{{ t.footprint.measurement }}</th>
-                <th v-for="panel in panels" :key="panel" scope="col">{{ panel }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in measuredRows" :key="row.key">
-                <th scope="row">
-                  {{ t.footprint.row[row.key] }}
-                  <span v-if="row.key in t.footprint.rowNote" class="row-note">{{
-                    t.footprint.rowNote[row.key as keyof typeof t.footprint.rowNote]
-                  }}</span>
-                </th>
-                <td v-for="(value, index) in row.values" :key="panels[index]" class="mono">
-                  {{ cellValue(value) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="method">
-          {{ format(t.footprint.method, { versions: measuredVersions }) }}
-          <a class="link" :href="`${product.sourceUrl}/blob/main/scripts/bench-footprint.sh`">{{
-            t.footprint.runIt
-          }}</a>
-        </p>
-      </details>
+      <a class="link more" href="#compare">{{ t.footprint.compare }}</a>
     </div>
   </section>
 </template>
@@ -234,6 +206,11 @@ function onKey(event: KeyboardEvent): void {
   opacity: 1;
 }
 
+.us .squares i.runtime {
+  background: var(--primary);
+  opacity: 0.35;
+}
+
 @keyframes drop {
   from {
     opacity: 0;
@@ -252,6 +229,11 @@ function onKey(event: KeyboardEvent): void {
 .us .value {
   color: var(--primary);
   font-weight: 600;
+}
+
+.value .runtime-value {
+  display: block;
+  font-family: var(--font-mono);
 }
 
 .value small {
@@ -277,6 +259,8 @@ function onKey(event: KeyboardEvent): void {
 .facts > div {
   display: flex;
   flex-direction: column-reverse;
+  /* Reversed, so this packs each figure to the top and the figures line up. */
+  justify-content: flex-end;
   gap: 4px;
   padding: 24px 24px 24px 0;
 }
@@ -297,98 +281,17 @@ function onKey(event: KeyboardEvent): void {
   line-height: 1;
 }
 
-.all {
+.more {
+  display: inline-block;
   margin-top: 28px;
 }
 
-.all summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-2);
-  cursor: pointer;
-  list-style: none;
-}
-
-.all summary::-webkit-details-marker {
-  display: none;
-}
-
-.all summary::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform var(--dur) var(--ease-out);
-}
-
-.all[open] summary::before {
-  transform: rotate(45deg);
-}
-
-.all summary:hover {
-  color: var(--text);
-}
-
-.table-wrap {
-  margin-top: 20px;
-  overflow-x: auto;
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  background: var(--surface);
-}
-
-table {
-  width: 100%;
-  min-width: 620px;
-  border-collapse: collapse;
-  font-size: 0.92rem;
-}
-
-th,
-td {
-  padding: 11px 16px;
-  text-align: left;
-  border-top: 1px solid var(--line-soft);
-}
-
-thead th {
-  border-top: 0;
-  color: var(--text-3);
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-thead th:nth-child(2),
-td:nth-of-type(1) {
-  color: var(--primary);
-}
-
-tbody th {
-  font-weight: 400;
-}
-
-td {
-  color: var(--text-2);
-  white-space: nowrap;
-}
-
-.row-note {
-  display: block;
-  color: var(--text-3);
-  font-size: 0.8rem;
-}
-
-.method {
-  max-width: 60rem;
-  margin: 16px 0 0;
-  color: var(--text-3);
-  font-size: 0.88rem;
-}
-
 @media (max-width: 720px) {
+  .tabs button {
+    padding: 7px 10px;
+    font-size: 0.86rem;
+  }
+
   .row {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px 12px;
