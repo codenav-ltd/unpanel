@@ -126,7 +126,7 @@ export async function startPanel(options: {
   const port = options.port ?? 28517;
   let actualPort = port;
   /** WebSockets accepted on the plain-HTTP listener; closed when HTTPS is activated. */
-  const plainSockets = new Set<WebSocket>();
+  const plainSockets: PlainSockets = { browsers: new Set(), agents: new Set() };
   const certificates = createCertificates({
     db: data.db,
     masterKey: data.masterKey,
@@ -144,10 +144,13 @@ export async function startPanel(options: {
       if (action === "certificate.activate" && result === "ok") {
         // Already-open ws:// sessions must also migrate to verified WSS. The
         // local agent uses the separate IPC server and stays connected.
-        // Browser streams opened over plain HTTP close too, rather than continue unencrypted.
-        for (const client of plainSockets) client.terminate();
-        // Agents keep trusting the panel only if they learn its new certificate now.
-        void endpoints.announceAll();
+        // Browser streams opened over plain HTTP close now, rather than continue unencrypted.
+        for (const client of plainSockets.browsers) client.terminate();
+        // Remote agents first learn the HTTPS address and certificate over the connection
+        // they still have, then reconnect to it.
+        void endpoints.announceAll().finally(() => {
+          for (const client of plainSockets.agents) client.terminate();
+        });
       }
     },
   });
@@ -490,29 +493,36 @@ export async function startPanel(options: {
   };
 }
 
+interface PlainSockets {
+  browsers: Set<WebSocket>;
+  agents: Set<WebSocket>;
+}
+
 /** One upgrade listener per server: ws servers sharing a server with `path` refuse each other's paths. */
 function routeUpgrades(
   server: Server,
   agentSockets: WebSocketServer,
   gateway: ReturnType<typeof createGateway> | null,
-  plain: Set<WebSocket> | null,
+  plain: PlainSockets | null,
 ): void {
-  const accepted = (ws: WebSocket): void => {
-    if (!plain) return;
-    plain.add(ws);
-    ws.once("close", () => plain.delete(ws));
-  };
+  const track =
+    (kind: keyof PlainSockets) =>
+    (ws: WebSocket): void => {
+      if (!plain) return;
+      plain[kind].add(ws);
+      ws.once("close", () => plain[kind].delete(ws));
+    };
   server.on("upgrade", (req, socket, head) => {
     // The TLS listener may already have refused a plain-HTTP upgrade.
     if (socket.destroyed) return;
     if (new URL(req.url ?? "/", "http://panel").pathname === "/_agent/ws") {
       agentSockets.handleUpgrade(req, socket, head, (ws) => {
-        accepted(ws);
+        track("agents")(ws);
         agentSockets.emit("connection", ws, req);
       });
       return;
     }
-    if (gateway?.handleUpgrade(req, socket, head, accepted)) return;
+    if (gateway?.handleUpgrade(req, socket, head, track("browsers"))) return;
     socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\ncontent-length: 0\r\n\r\n");
   });
 }

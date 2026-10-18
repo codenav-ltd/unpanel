@@ -2318,6 +2318,53 @@ button.select-option[aria-selected="true"] {
   font-size: 12px;
 }
 
+/* What each remote node did with a new panel address. */
+.endpoint-list {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.endpoint-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+}
+
+.endpoint-row > div {
+  min-width: 0;
+}
+
+.endpoint-row strong {
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.endpoint-row p {
+  margin: 3px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.endpoint-row .update-state-chip {
+  flex: none;
+}
+
+.address-warning {
+  margin: 8px 0 0;
+  color: var(--warn);
+  font-size: 13px;
+}
+
 .turnstile-wrap {
   min-width: 0;
   min-height: 65px;

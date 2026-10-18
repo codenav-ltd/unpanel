@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Remote servers follow a new panel address. Saving it in Settings sends it to every online agent, which checks that it reaches this panel, saves it and keeps the old one as a fallback. Settings lists each server as reached, saved, offline or needing an update. Switching to HTTPS or a new self-signed certificate sends the certificate too. Needs the agent from this release.
+- Settings warns when the panel address is an IP: if it changes, servers cannot find the panel again. A domain lets them follow DNS.
+
 ## [0.1.0-alpha.47] - 2026-10-18
 
 ### Changed

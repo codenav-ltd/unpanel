@@ -16,6 +16,7 @@ import {
 import { compareVersions, product, managesPanel, type UserAccess } from "@unpanel/shared";
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
+import { addressUsesIp, endpointRows, type EndpointReport } from "../panel-address.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import { downgradeImpact, type ReleaseChange, type ReleaseOption } from "../release-details.ts";
 import type { BanDurationMode, LoginSecuritySettings, RateLimitMode } from "../security.ts";
@@ -143,6 +144,10 @@ const themeNote = ref("");
 const themeError = ref("");
 const urlNote = ref("");
 const urlError = ref("");
+const endpointReport = ref<ReturnType<typeof endpointRows>>([]);
+/** A changed address is sent to every remote agent, which takes a few seconds. */
+const announcing = ref(false);
+const savedUsesIp = computed(() => addressUsesIp(props.publicUrl));
 const updateState = ref<"checking" | "current" | "available" | "error" | "working" | "started">(
   "checking",
 );
@@ -723,6 +728,8 @@ async function savePublicUrl(): Promise<void> {
   busy.value = "url";
   urlError.value = "";
   urlNote.value = "";
+  endpointReport.value = [];
+  announcing.value = publicUrl.value.trim() !== props.publicUrl;
   try {
     const response = await fetch("/api/v1/settings", {
       method: "PATCH",
@@ -733,10 +740,14 @@ async function savePublicUrl(): Promise<void> {
       urlError.value = await readProblem(response, "save the panel address");
       return;
     }
-    const body = (await response.json()) as { data: { publicUrl: string } };
+    const body = (await response.json()) as {
+      data: { publicUrl: string };
+      agents?: EndpointReport[];
+    };
     publicUrl.value = body.data.publicUrl;
     emit("publicUrl", body.data.publicUrl);
     urlNote.value = en.shell.saved;
+    endpointReport.value = endpointRows(body.agents ?? []);
   } catch {
     urlError.value = replyNotReceived(
       "save the panel address",
@@ -744,6 +755,7 @@ async function savePublicUrl(): Promise<void> {
     );
   } finally {
     busy.value = "";
+    announcing.value = false;
   }
 }
 
@@ -1212,9 +1224,22 @@ onUnmounted(() => {
                   placeholder="https://panel.example.com"
                 />
               </label>
+              <p v-if="savedUsesIp" class="address-warning">{{ en.shell.publicUrlIp }}</p>
               <p class="hint"><a href="/certificates">Manage HTTPS and certificates →</a></p>
               <p v-if="urlError" class="form-error" role="alert">{{ urlError }}</p>
+              <p v-else-if="announcing" class="hint" role="status">
+                {{ en.shell.endpoint.checking }}
+              </p>
               <p v-else-if="urlNote" class="certificate-success" role="status">{{ urlNote }}</p>
+              <ul v-if="endpointReport.length" class="endpoint-list">
+                <li v-for="row in endpointReport" :key="row.nodeId" class="endpoint-row">
+                  <div>
+                    <strong>{{ row.name }}</strong>
+                    <p>{{ row.text }}</p>
+                  </div>
+                  <span class="update-state-chip" :data-state="row.tone">{{ row.label }}</span>
+                </li>
+              </ul>
               <div class="actions">
                 <button type="submit" :disabled="Boolean(busy)" :aria-busy="busy === 'url'">
                   <span v-if="busy === 'url'" class="spinner" aria-hidden="true" />

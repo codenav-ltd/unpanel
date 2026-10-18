@@ -89,7 +89,7 @@ export const en = {
     applyHint:
       "The panel checks the hostname and private key, then verifies the certificate on its HTTPS listener before saving the address. If that check fails, it restores the previous listener.",
     migrateHint:
-      "After applying, open the HTTPS address and sign in again. HTTP pages redirect to HTTPS. Then use Reconnect agent on each remote node so it uses the new panel address; their saved connection URL does not change automatically.",
+      "After applying, open the HTTPS address and sign in again. HTTP pages redirect to HTTPS. Online remote agents from 0.1.0-alpha.48 receive the new address and certificate and reconnect to it. Use Reconnect agent for older or offline ones.",
     stagingWarning:
       "This is a staging certificate. Browsers and agents will not trust it automatically. Use it only to test issuance.",
     cancel: "Cancel",
@@ -329,6 +329,22 @@ export const en = {
     publicUrl: "Panel address",
     publicUrlHint:
       "The address of this panel. Other servers use it to enroll and connect. Include the scheme and port. The listen address stays in the config file.",
+    publicUrlIp:
+      "Servers reach this panel by its IP. If the IP changes they cannot find it again. Use a domain name so they follow DNS.",
+    endpoint: {
+      checking: "Sending the new address to each server and checking that it answers…",
+      saved: "Saved",
+      savedText: "Uses it as soon as it answers. Until then it keeps the current address.",
+      reached: "Reached",
+      reachedText: "Reached the panel at the new address.",
+      offline: "Offline",
+      offlineText: "Gets the new address when it next connects through the current one.",
+      outdated: "Update agent",
+      outdatedText:
+        "This agent cannot learn a new address. Update it in Updates, or use Reconnect agent after the move.",
+      failed: "Not saved",
+      failedText: "The agent did not accept the address.",
+    },
   },
   updates: {
     title: "Updates",
