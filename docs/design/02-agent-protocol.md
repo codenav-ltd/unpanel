@@ -288,7 +288,7 @@ Exponential backoff with full jitter: `delay = random(0, min(60 s, 1 s × 2^atte
 - Field rules: new fields must be optional; never change the meaning of an existing field; receivers must ignore unknown fields.
 - Self-signed panel certificate rotation: the panel sends `agent.trust.update {spki:[old,new]}` ahead of time. Agents accept both SPKIs until the old one is removed.
 - Panel identity key rotation: `agent.identity.rotate {newPk, sigOld, sigNew}`. The agent verifies with the old key, then replaces it (see [kb/runbooks.md](../kb/runbooks.md)).
-- Panel address change: `agent.endpoint.update {urls: string[]}` (signed, `danger`). The agent writes the list to `agent.toml` and tries the URLs in order when reconnecting, so a new address can be added before the old one disappears.
+- Panel address change (shipped in 0.1.0-alpha.48): `agent.endpoint.update {urls: string[1..3], tlsCa?: string}` → `{urls, reachable, error?}`, capability `endpoint`, `danger`. Like other requests it relies on the authenticated connection. The agent probes `urls[0]` up to the verified `welcome`, saves the new list (new address first, up to two earlier ones kept) and appends `tlsCa` to its trusted panel certificates, then tries the addresses in order when a connection fails before the panel is verified. Agents report their current list in the capability as `meta.urls`, so the panel re-announces after a missed change. See [design/03](./03-node-lifecycle.md) §11.
 
 ## 10. Rate limits and resource protection (agent side)
 

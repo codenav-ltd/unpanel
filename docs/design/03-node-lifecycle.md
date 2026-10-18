@@ -147,3 +147,18 @@ Shipped now: Host can disable, enable, re-enroll, and remove. Disable and remove
 
 - Signed requests allow ±120 s; the handshake allows ±300 s.
 - Agents include their local time in `pong`; the panel computes the skew. Above 30 s it raises a "clock skew" warning and suggests checking `timedatectl` / chrony (see [kb/troubleshooting.md](../kb/troubleshooting.md)).
+
+## 11. Panel address changes
+
+A remote agent dials the address it was enrolled with ([ADR-0002](../adr/0002-agent-initiated-connection.md)). The panel can only tell it about a new address over a connection that still works, so this covers a **planned** change: moving from an IP to a domain, adding a port or HTTPS, switching certificates, or preparing a move. When the panel's IP changes without warning, agents that dial that IP cannot find it again; agents that dial a domain follow DNS. Settings therefore warns when the panel address is a bare IP.
+
+Shipped from 0.1.0-alpha.48 (agent and panel):
+
+1. **Trigger.** The panel announces its address when the panel address is saved in Settings or in Add node, when a certificate is activated, and whenever an agent connects with a different first address than the panel's current one. That last case reaches nodes that were offline during the change but can still reach the old address.
+2. **Request.** `agent.endpoint.update {urls, tlsCa?}` ([design/02](./02-agent-protocol.md) §9) carries the WebSocket form of the panel address and, while the panel serves a self-signed certificate, that certificate.
+3. **Probe.** The agent opens a second connection to the new address and runs the handshake up to verifying the panel's `welcome` signature, then closes it before `auth`, so the live connection is not replaced. A reply proves the address reaches *this* panel, not just some server.
+4. **Save.** Whatever the probe says, the agent saves the new address first and keeps up to two earlier ones as fallbacks, in `/etc/unpanel-agent/agent.env` (`UNPANEL_AGENT_URL`, `UNPANEL_AGENT_FALLBACK_URLS`). A new certificate is added to `panel-tls.pem` next to the old one. The file is replaced atomically. The live connection stays as it is.
+5. **Reconnect.** After a connection fails before the panel is verified, the agent tries the next address in the list. Once the new address works it stays first; the old one remains a harmless fallback because a different server cannot pass the handshake.
+6. **Report.** The reply says whether the new address answered. Settings lists each remote node as reached, saved but not reachable yet (with the reason), offline, or needing an agent update. Each announcement is audited as `node.endpoint`.
+
+The local agent uses the Unix socket and is skipped. Agents from before alpha.48 do not advertise the `endpoint` capability; they still need Reconnect agent after a change.

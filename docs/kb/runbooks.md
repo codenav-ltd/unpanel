@@ -32,6 +32,19 @@ Current commands are documented in [terminal management](./terminal-management.m
 2. `sudo unpanel logs --lines 100`; for local-agent errors use `sudo unpanel logs agent`.
 3. After correcting the cause, `sudo unpanel restart` or `sudo unpanel restart agent`.
 
+## Change the panel address
+
+From 0.1.0-alpha.48 on both the panel and its agents. Agents learn a new address only over a connection that still works, so do this **before** the old address stops working ([design/03](../design/03-node-lifecycle.md) §11).
+
+1. If agents use a domain and only the server's IP changes, update DNS. Nothing else is needed.
+2. Make the new address reachable alongside the old one (DNS record, port, certificate).
+3. Settings → Panel address → enter the new address → Save. The result lists every remote node: **reached** the new address, **saved** but not reachable yet (with the reason), **offline**, or **needs an agent update**.
+4. Fix anything listed as not reachable, then save again to re-check. Nodes that were offline get the address the next time they connect through the old one.
+5. Retire the old address only after every node reached the new one. Each agent keeps the old address as a fallback; that is harmless.
+6. Nodes on an agent before alpha.48, and nodes that cannot reach the old address any more: Reconnect agent on that node and run its command on the server.
+
+Activating a certificate announces the address and, for a self-signed certificate, the certificate itself, so agents keep trusting the panel.
+
 ## Planned runbooks
 
 **Everything below remains a design target.** The `unpanel` commands, configuration formats and forced-enrollment flows below are not implemented. Do not use them as recovery instructions for current alpha installs; use the commands above and the feature-specific KB.
@@ -68,16 +81,6 @@ Generates a new key with a new `keyId`, re-encrypts every `_enc` column in one t
 2. `sudo unpanel rotate-identity` — creates a new key and sends `agent.identity.rotate {newPk, sigOld, sigNew}` to every agent ([design/02](../design/02-agent-protocol.md) §9). Each agent verifies both signatures and replaces its pinned key.
 3. The command waits for acknowledgements, prints nodes that did not confirm, then switches the panel to the new key.
 4. Re-enroll any node listed as not confirmed (Nodes → node → "Generate install command").
-
-### Change the panel address
-
-Needed when moving to a new IP or domain.
-
-1. If you use a domain and only the IP changes: update DNS; nothing else is needed.
-2. Otherwise, **before** the change: Settings → Panel address → enter the new `public_url`. The panel sends `agent.endpoint.update` to every online agent, which adds the new address as a fallback.
-3. Make the change (DNS, IP, port), update `server.public_url` in `/etc/unpanel/config.toml`, `sudo systemctl restart unpanel`.
-4. Confirm all nodes reconnected; then remove the old address in Settings.
-5. Offline nodes that missed the update: on the node, edit `panel_url` in `/etc/unpanel-agent/agent.toml`, `sudo systemctl restart unpanel-agent`.
 
 ### Migrate the panel to a new server
 
