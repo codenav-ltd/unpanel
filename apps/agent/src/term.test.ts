@@ -266,7 +266,8 @@ describe("terminal over a real pseudoterminal", () => {
         },
       );
       consumer.stream = stream;
-      await vi.waitFor(() => expect(output).toContain("30 100"));
+      // A loaded machine can take over a second to start the shell.
+      await vi.waitFor(() => expect(output).toContain("30 100"), { timeout: 5_000 });
       stream.write(binaryKind.data, new TextEncoder().encode("hello\r"));
       await vi.waitFor(() => expect(closed).toHaveBeenCalled());
       expect(output).toContain("got hello");

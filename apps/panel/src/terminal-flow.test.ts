@@ -127,7 +127,8 @@ describe("terminal from browser to shell", () => {
       await vi.waitFor(() => expect(messages[0]).toMatchObject({ op: "ack", id: 1, ok: true }));
       const ack = messages[0];
       if (ack?.op !== "ack" || !ack.ok) throw new Error("not opened");
-      await vi.waitFor(() => expect(output).toContain("30 100"));
+      // A loaded machine can take over a second to start the shell.
+      await vi.waitFor(() => expect(output).toContain("30 100"), { timeout: 5_000 });
 
       const send = (kind: number, text: string) =>
         socket.send(
