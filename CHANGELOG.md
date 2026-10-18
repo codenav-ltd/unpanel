@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.47] - 2026-10-18
+
 ### Changed
 
 - The dashboard's CPU, Memory, Swap and Storage charts use a fixed 0–100% scale, like System history. They used to stretch to the highest recent reading, so 3% CPU filled the whole card.
