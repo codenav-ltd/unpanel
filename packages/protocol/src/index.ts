@@ -84,6 +84,7 @@ export {
 export {
   FS_LIST_LIMIT,
   FS_READ_LIMIT,
+  FS_TRANSFER_TIMEOUT_MS,
   FS_UPLOAD_LIMIT,
   fsCapabilityMeta,
   fsDownload,

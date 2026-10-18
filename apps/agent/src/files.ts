@@ -2,10 +2,11 @@
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
 import { randomBytes } from "node:crypto";
-import { realpathSync, readFileSync, statSync } from "node:fs";
+import { constants, realpathSync, readFileSync, statSync } from "node:fs";
 import {
   chmod,
   chown,
+  copyFile,
   lchown,
   link,
   lstat,
@@ -18,6 +19,7 @@ import {
   rm,
   rmdir,
   stat,
+  symlink,
   unlink,
 } from "node:fs/promises";
 import type { Stats } from "node:fs";
@@ -168,11 +170,6 @@ export function filesFailure(error: unknown, path: string): FilesError {
       return new FilesError("E_PRECONDITION", `${path} is a folder.`);
     case "ENOTEMPTY":
       return new FilesError("E_PRECONDITION", `${path} is not empty.`);
-    case "EXDEV":
-      return new FilesError(
-        "E_UNSUPPORTED",
-        "Moving to another filesystem is not supported yet. Copy it in a terminal instead.",
-      );
     case "EACCES":
     case "EPERM":
       return new FilesError(
@@ -466,29 +463,94 @@ export function createFiles(
     return { status: "ok" as const };
   }
 
-  async function move(from: string, to: string) {
+  /**
+   * Recreates one entry and everything below it without following links, keeping modes and
+   * owners. Returns how many sockets, pipes and devices were left out.
+   */
+  async function clone(source: string, target: string, stats: Stats): Promise<number> {
+    let skipped = 0;
+    if (stats.isSymbolicLink()) await symlink(await readlink(source), target);
+    else if (stats.isFile())
+      await copyFile(source, target, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+    else if (stats.isDirectory()) {
+      await mkdir(target, 0o700);
+      for await (const dirent of await opendir(source)) {
+        const from = join(source, dirent.name);
+        skipped += await clone(from, join(target, dirent.name), await lstat(from));
+      }
+    } else return 1;
+    // A folder gets its real mode after its contents, so a read-only folder can still be filled.
+    if (!stats.isSymbolicLink()) await chmod(target, stats.mode & 0o7777);
+    if (isRoot()) await lchown(target, stats.uid, stats.gid);
+    return skipped;
+  }
+
+  /**
+   * Copies `source` to `target` through a hidden temp name in the target folder, so a failure
+   * never leaves a partial copy under the final name.
+   */
+  async function transfer(source: string, target: string, stats: Stats, shown: string) {
+    const temp = join(
+      dirname(target),
+      `.${basename(target)}.unpanel-copy-${randomBytes(4).toString("hex")}`,
+    );
+    try {
+      const skipped = await clone(source, temp, stats);
+      if (await exists(target))
+        throw new FilesError("E_CONFLICT", `${shown} already exists. Choose another name.`);
+      await rename(temp, target);
+      await syncDir(dirname(target));
+      return skipped;
+    } catch (error) {
+      await rm(temp, { recursive: true, force: true }).catch(() => undefined);
+      throw filesFailure(error, shown);
+    }
+  }
+
+  /** Checks shared by copy and move: the source, and a target that is free and not inside it. */
+  async function endpoints(from: string, to: string) {
     const source = await guard.entry(from);
-    guard.unprotected(source, from);
     const target = await guard.entry(to);
     const stats = await lstat(source).catch((error: unknown) => {
       throw filesFailure(error, from);
     });
     if (stats.isDirectory()) {
       guard.tree(source, from);
-      if (within(target, source))
-        throw new FilesError("E_INVALID_PARAMS", "A folder cannot be moved into itself.");
+      if (within(target, source) && target !== source)
+        throw new FilesError("E_INVALID_PARAMS", "A folder cannot be put inside itself.");
     }
-    if (source === target) return { status: "ok" as const };
-    if (
-      await lstat(target).then(
-        () => true,
-        () => false,
-      )
-    )
+    return { source, target, stats };
+  }
+
+  async function copy(from: string, to: string) {
+    const { source, target, stats } = await endpoints(from, to);
+    if (source === target || (await exists(target)))
       throw new FilesError("E_CONFLICT", `${to} already exists. Choose another name.`);
-    await rename(source, target).catch((error: unknown) => {
-      throw filesFailure(error, from);
+    await stat(dirname(target)).catch((error: unknown) => {
+      throw filesFailure(error, dirname(to));
     });
+    return { status: "ok" as const, skipped: await transfer(source, target, stats, to) };
+  }
+
+  async function move(from: string, to: string) {
+    const { source, target, stats } = await endpoints(from, to);
+    guard.unprotected(source, from);
+    if (source === target) return { status: "ok" as const };
+    if (await exists(target))
+      throw new FilesError("E_CONFLICT", `${to} already exists. Choose another name.`);
+    try {
+      await rename(source, target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw filesFailure(error, from);
+      // Another filesystem: copy, then remove the original only once the copy is in place.
+      await transfer(source, target, stats, to);
+      await rm(source, { recursive: true }).catch((failure: unknown) => {
+        throw new FilesError(
+          "E_EXTERNAL",
+          `${to} was copied, but ${from} could not be removed: ${filesFailure(failure, from).message}`,
+        );
+      });
+    }
     return { status: "ok" as const };
   }
 
@@ -578,6 +640,8 @@ export function createFiles(
           return makeDir(params.path);
         case "rename":
           return move(String(params["from"]), String(params["to"]));
+        case "copy":
+          return copy(String(params["from"]), String(params["to"]));
         case "delete":
           return remove(params.path, params["recursive"] === true);
         case "chmod": {
@@ -607,6 +671,12 @@ export function createFiles(
     },
   };
 }
+
+const exists = (path: string): Promise<boolean> =>
+  lstat(path).then(
+    () => true,
+    () => false,
+  );
 
 /** Makes a rename durable. Some filesystems cannot sync a directory; that is not an error. */
 async function syncDir(path: string): Promise<void> {

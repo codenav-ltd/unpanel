@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   baseName,
+  copyName,
   crumbs,
   joinPath,
   modeString,
@@ -80,5 +81,16 @@ describe("sortEntries", () => {
     const items = [entry("a", "file", 30, 1), entry("b", "file", 10, 3), entry("c", "file", 20, 2)];
     expect(sortEntries(items, "size", false).map((item) => item.name)).toEqual(["b", "c", "a"]);
     expect(sortEntries(items, "mtime", true).map((item) => item.name)).toEqual(["b", "c", "a"]);
+  });
+});
+
+describe("copyName", () => {
+  it("keeps the extension and finds a free name", () => {
+    expect(copyName("app.conf", false, new Set())).toBe("app-copy.conf");
+    expect(copyName("app.conf", false, new Set(["app-copy.conf"]))).toBe("app-copy-2.conf");
+    expect(copyName("backup.tar.gz", false, new Set())).toBe("backup-copy.tar.gz");
+    expect(copyName(".env", false, new Set())).toBe(".env-copy");
+    expect(copyName("Makefile", false, new Set())).toBe("Makefile-copy");
+    expect(copyName("site.d", true, new Set())).toBe("site.d-copy");
   });
 });

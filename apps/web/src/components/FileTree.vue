@@ -23,6 +23,8 @@ const props = defineProps<{
   roots: string[];
   /** The folder the listing is loading; its children arrive with the listing. */
   pending: string;
+  /** Without a listing beside it (a folder picker), the tree loads the current folder itself. */
+  standalone?: boolean;
 }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
 
@@ -97,7 +99,7 @@ watch(
       if (crumb.path.length < root.length) continue;
       expanded.add(crumb.path);
       // The current folder's children come from the listing through `show`.
-      if (crumb.path !== current) void load(crumb.path);
+      if (crumb.path !== current || props.standalone) void load(crumb.path);
     }
   },
   { immediate: true },

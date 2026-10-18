@@ -27,11 +27,13 @@ import {
 } from "@ant-design/icons-vue";
 import ActionMenu from "./ActionMenu.vue";
 import AppDialog from "./AppDialog.vue";
+import FileTransferDialog from "./FileTransferDialog.vue";
 import FileTree from "./FileTree.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
 import { copyText } from "../copy.ts";
 import {
   baseName,
+  copyName,
   crumbs,
   filesClient,
   FilesRequestError,
@@ -219,10 +221,13 @@ function rowActions(entry: FileEntry) {
   return [
     { id: "open", label: en.files.open },
     { id: "download", label: folder ? en.files.downloadFolder : en.files.download },
-    { id: "rename", label: en.files.rename },
-    { id: "copy", label: en.files.copyPath },
+    { id: "rename", label: en.files.rename, separator: true },
+    { id: "duplicate", label: en.files.duplicate },
+    { id: "copyTo", label: en.files.copyTo },
+    { id: "moveTo", label: en.files.moveTo },
+    { id: "copy", label: en.files.copyPath, separator: true },
     { id: "permissions", label: en.files.permissions },
-    { id: "delete", label: en.files.delete, danger: true },
+    { id: "delete", label: en.files.delete, danger: true, separator: true },
   ].filter((action) => action.id !== "open" || folder || entry.type !== "other");
 }
 
@@ -236,9 +241,59 @@ function rowAction(entry: FileEntry, action: string): void {
   if (action === "open") openEntry(entry);
   else if (action === "download") void download(entry);
   else if (action === "rename") openName("rename", entry);
+  else if (action === "duplicate") void duplicate(entry);
+  else if (action === "copyTo" || action === "moveTo")
+    transfer.value = { mode: action === "copyTo" ? "copy" : "move", sources: [fullPath(entry)] };
   else if (action === "copy") void copyPath(entry);
   else if (action === "permissions") openPermissions(entry);
   else if (action === "delete") openDelete(entry);
+}
+
+/** The row a change just produced, highlighted briefly so the eye finds it. */
+const flashed = ref("");
+let flashTimer: ReturnType<typeof setTimeout> | undefined;
+function flash(name: string): void {
+  flashed.value = name;
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => (flashed.value = ""), 1600);
+  void nextTick(() =>
+    document
+      .querySelector(`.files-table tr[data-flash="true"]`)
+      ?.scrollIntoView({ block: "nearest" }),
+  );
+}
+
+/** Copies an entry next to itself under a free name, then shows it. */
+async function duplicate(entry: FileEntry): Promise<void> {
+  const name = copyName(
+    entry.name,
+    entry.type === "dir",
+    new Set(listing.value?.entries.map((item) => item.name)),
+  );
+  const done = await guarded(
+    () => client.copy(fullPath(entry), joinPath(path.value, name)),
+    (message) => (failure.value = message),
+  );
+  if (!done) return;
+  status.value = en.files.duplicated.replace("{name}", name);
+  await load();
+  flash(name);
+}
+
+/* Copy to… and Move to… */
+const transfer = ref<{ mode: "copy" | "move"; sources: string[] } | null>(null);
+
+async function transferred(destination: string, count: number): Promise<void> {
+  const current = transfer.value;
+  if (!current) return;
+  const subject =
+    count === 1 && current.sources.length === 1
+      ? baseName(current.sources[0] ?? "")
+      : en.files.itemCount.replace("{count}", String(count));
+  status.value = (current.mode === "move" ? en.files.movedTo : en.files.copiedTo)
+    .replace("{name}", subject)
+    .replace("{path}", destination);
+  await load();
 }
 
 async function copyPath(entry: FileEntry): Promise<void> {
@@ -832,6 +887,7 @@ defineExpose({ reload: load });
                   v-for="entry in entries"
                   :key="entry.name"
                   :data-type="entry.type"
+                  :data-flash="flashed === entry.name || undefined"
                   @contextmenu.prevent="
                     menus.get(entry.name)?.openAt($event.clientX, $event.clientY)
                   "
@@ -989,6 +1045,16 @@ defineExpose({ reload: load });
         </button>
       </template>
     </AppDialog>
+
+    <FileTransferDialog
+      :client="client"
+      :mode="transfer?.mode ?? null"
+      :sources="transfer?.sources ?? []"
+      :roots="treeRoots"
+      :guard="withStepUp"
+      @done="transferred"
+      @close="transfer = null"
+    />
 
     <AppDialog
       :open="deleteDialog !== null"
@@ -1298,6 +1364,20 @@ button.files-dismiss {
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 /* The previous folder fades only if the next one is slow, so quick loads do not flicker. */
+.files-table tr[data-flash="true"] td {
+  animation: files-flash 1.6s var(--ease-out);
+}
+@keyframes files-flash {
+  from {
+    background: color-mix(in srgb, var(--primary) 22%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .files-table tr[data-flash="true"] td {
+    animation: none;
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+  }
+}
 .files-table[data-stale="true"] {
   opacity: 0.45;
   pointer-events: none;

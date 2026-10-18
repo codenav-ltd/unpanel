@@ -6,6 +6,8 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   statSync,
@@ -246,6 +248,44 @@ describe("changing the tree", () => {
     ).toBe("E_INVALID_PARAMS");
     await files.run("rename", { from: join(root, "a"), to: join(root, "d", "a") });
     expect(readFileSync(join(root, "d", "a"), "utf8")).toBe("a");
+  });
+
+  it("copies files and folders with their modes, links as links, never replacing", async () => {
+    mkdirSync(join(root, "site", "conf"), { recursive: true });
+    writeFileSync(join(root, "site", "conf", "app.conf"), "server {}");
+    chmodSync(join(root, "site", "conf", "app.conf"), 0o600);
+    chmodSync(join(root, "site", "conf"), 0o500);
+    symlinkSync("conf/app.conf", join(root, "site", "current"));
+    expect(
+      await files.run("copy", { from: join(root, "site"), to: join(root, "site-copy") }),
+    ).toEqual({ status: "ok", skipped: 0 });
+    expect(readFileSync(join(root, "site-copy", "conf", "app.conf"), "utf8")).toBe("server {}");
+    expect(statSync(join(root, "site-copy", "conf", "app.conf")).mode & 0o777).toBe(0o600);
+    expect(statSync(join(root, "site-copy", "conf")).mode & 0o777).toBe(0o500);
+    expect(readlinkSync(join(root, "site-copy", "current"))).toBe("conf/app.conf");
+    chmodSync(join(root, "site", "conf"), 0o755);
+    chmodSync(join(root, "site-copy", "conf"), 0o755);
+    expect(
+      (await failure(files.run("copy", { from: join(root, "site"), to: join(root, "site-copy") })))
+        .code,
+    ).toBe("E_CONFLICT");
+    expect(
+      (await failure(files.run("copy", { from: join(root, "site"), to: join(root, "site", "x") })))
+        .code,
+    ).toBe("E_INVALID_PARAMS");
+    expect(
+      (await failure(files.run("copy", { from: join(root, "secret"), to: join(root, "leak") })))
+        .code,
+    ).toBe("E_POLICY_DENIED");
+    expect(
+      (
+        await failure(
+          files.run("copy", { from: join(root, "site"), to: join(root, "secret", "s") }),
+        )
+      ).code,
+    ).toBe("E_POLICY_DENIED");
+    // No temp copies are left behind, whatever failed.
+    expect(readdirSync(root).sort()).toEqual(["secret", "site", "site-copy"]);
   });
 
   it("moves and deletes a link, not what it points at", async () => {

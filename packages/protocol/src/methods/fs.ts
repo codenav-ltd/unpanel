@@ -47,21 +47,25 @@ export type FsEntry = z.infer<typeof fsEntry>;
 const ok = z.object({ status: z.literal("ok") });
 const recursive = { recursive: z.boolean().default(false) };
 
+/** Copies and moves between filesystems run as long as the data takes, up to this. */
+export const FS_TRANSFER_TIMEOUT_MS = 10 * 60_000;
+
 function fsMethod<Params, Result>(
   name: string,
   risk: "read" | "write" | "danger",
   params: z.ZodType<Params>,
   result: z.ZodType<Result>,
+  options: { timeoutMs?: number; since?: string } = {},
 ) {
   return defineMethod({
     name: `fs.${name}`,
     capability: "fs",
     risk,
     permission: `fs:${risk}`,
-    timeoutMs: 60_000,
+    timeoutMs: options.timeoutMs ?? 60_000,
     params,
     result,
-    since: "0.1.0-alpha.44",
+    since: options.since ?? "0.1.0-alpha.44",
   });
 }
 
@@ -109,7 +113,17 @@ export const fsMethods = {
     z.object({ mtime: z.number(), size: z.number() }),
   ),
   mkdir: fsMethod("mkdir", "write", z.object({ path: fsPath }).strict(), ok),
-  rename: fsMethod("rename", "write", z.object({ from: fsPath, to: fsPath }).strict(), ok),
+  rename: fsMethod("rename", "write", z.object({ from: fsPath, to: fsPath }).strict(), ok, {
+    timeoutMs: FS_TRANSFER_TIMEOUT_MS,
+  }),
+  copy: fsMethod(
+    "copy",
+    "write",
+    z.object({ from: fsPath, to: fsPath }).strict(),
+    /** `skipped` counts sockets, pipes and devices, which are not copied. */
+    z.object({ status: z.literal("ok"), skipped: z.number().int().nonnegative() }),
+    { timeoutMs: FS_TRANSFER_TIMEOUT_MS, since: "0.1.0-alpha.46" },
+  ),
   delete: fsMethod("delete", "danger", z.object({ path: fsPath, ...recursive }).strict(), ok),
   chmod: fsMethod(
     "chmod",

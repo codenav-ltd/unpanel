@@ -67,14 +67,18 @@ export function filesClient(node: string) {
     return ((await response.json()) as { data: T }).data;
   }
 
-  async function post<T>(operation: string, body: Record<string, unknown>): Promise<T> {
+  async function post<T>(
+    operation: string,
+    body: Record<string, unknown>,
+    timeoutMs = 70_000,
+  ): Promise<T> {
     let response: Response;
     try {
       response = await fetch(`${base}/${operation}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(70_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
       throw new FilesRequestError(
@@ -95,7 +99,10 @@ export function filesClient(node: string) {
         | { path: string; content: string; create: true },
     ) => post<{ mtime: number; size: number }>("write", body),
     mkdir: (path: string) => post("mkdir", { path }),
-    rename: (from: string, to: string) => post("rename", { from, to }),
+    // A move to another filesystem copies the data; the agent allows that 10 minutes.
+    rename: (from: string, to: string) => post("rename", { from, to }, TRANSFER_TIMEOUT_MS),
+    copy: (from: string, to: string) =>
+      post<{ skipped: number }>("copy", { from, to }, TRANSFER_TIMEOUT_MS),
     remove: (path: string, recursive: boolean) => post("delete", { path, recursive }),
     chmod: (path: string, mode: number, recursive: boolean) =>
       post("chmod", { path, mode, recursive }),
@@ -169,6 +176,27 @@ export function filesClient(node: string) {
 }
 
 export type FilesClient = ReturnType<typeof filesClient>;
+
+/** Slightly longer than the agent's own limit for copies and moves, so its answer arrives. */
+const TRANSFER_TIMEOUT_MS = 11 * 60_000;
+
+const DOUBLE_EXTENSIONS = /\.tar\.(?:gz|bz2|xz|zst)$/i;
+
+/**
+ * A free name for a duplicate: `app.conf` → `app-copy.conf`, then `app-copy-2.conf`.
+ * Hyphens rather than spaces, since these names end up in shells and config globs.
+ */
+export function copyName(name: string, folder: boolean, taken: ReadonlySet<string>): string {
+  const extension = folder
+    ? ""
+    : (DOUBLE_EXTENSIONS.exec(name)?.[0] ??
+      (name.lastIndexOf(".") > 0 ? name.slice(name.lastIndexOf(".")) : ""));
+  const stem = name.slice(0, name.length - extension.length);
+  for (let index = 1; ; index += 1) {
+    const candidate = `${stem}-copy${index === 1 ? "" : `-${index}`}${extension}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
 
 /** `dir` and `name` joined without a doubled slash. */
 export function joinPath(dir: string, name: string): string {

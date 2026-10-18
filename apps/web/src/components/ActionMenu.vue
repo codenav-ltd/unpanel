@@ -9,7 +9,15 @@ import { nextTick, onBeforeUnmount, ref, useId, watch } from "vue";
 const props = defineProps<{
   name: string;
   disabled: boolean;
-  actions: { id: string; label: string; danger?: boolean }[];
+  actions: {
+    id: string;
+    label: string;
+    danger?: boolean;
+    /** Draws a divider above this action, to group related ones. */
+    separator?: boolean;
+    /** A keyboard shortcut shown at the end of the row. */
+    shortcut?: string;
+  }[];
 }>();
 const emit = defineEmits<{ action: [id: string] }>();
 const trigger = ref<HTMLButtonElement | null>(null),
@@ -145,16 +153,19 @@ defineExpose({
         @keydown="key"
       >
         <p>{{ name }}</p>
-        <button
-          v-for="action in actions"
-          :key="action.id"
-          type="button"
-          role="menuitem"
-          :class="{ 'menu-danger': action.danger }"
-          @click="run(action.id)"
-        >
-          {{ action.label }}
-        </button>
+        <template v-for="action in actions" :key="action.id">
+          <hr v-if="action.separator" role="separator" />
+          <button
+            type="button"
+            role="menuitem"
+            :class="{ 'menu-danger': action.danger }"
+            :aria-keyshortcuts="action.shortcut"
+            @click="run(action.id)"
+          >
+            {{ action.label
+            }}<kbd v-if="action.shortcut" aria-hidden="true">{{ action.shortcut }}</kbd>
+          </button>
+        </template>
       </div>
     </Transition>
   </Teleport>
@@ -191,6 +202,19 @@ defineExpose({
   color: var(--text-2);
   font-size: 13px;
   font-weight: 500;
+}
+.action-menu hr {
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.action-menu kbd {
+  margin-inline-start: auto;
+  padding-inline-start: 12px;
+  color: var(--text-3);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
 }
 .action-menu button:hover:not(:disabled) {
   background: var(--bg-hover);

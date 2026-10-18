@@ -120,6 +120,7 @@ export function registerFilesApi(
     "write",
     "mkdir",
     "rename",
+    "copy",
     "delete",
     "chmod",
     "chown",
@@ -157,7 +158,7 @@ export function registerFilesApi(
         );
       const params = parsed.data;
       const target =
-        operation === "rename"
+        operation === "rename" || operation === "copy"
           ? `${String(params["from"])} → ${String(params["to"])}`
           : String(params["path"]);
       const details =
