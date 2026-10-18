@@ -4,7 +4,9 @@
 import type { KeyObject } from "node:crypto";
 import { WebSocket, type RawData } from "ws";
 import {
+  agentEndpointUpdate,
   agentUpgrade,
+  endpointCapabilityMeta,
   certHttp01Put,
   certHttp01Remove,
   authMessage,
@@ -246,6 +248,8 @@ interface Link {
   capabilities: Set<string>;
   terminalUsers: string[] | null;
   fileRoots: string[] | null;
+  /** Panel addresses the agent dials, newest first; null when it cannot learn new ones. */
+  endpointUrls: string[] | null;
   /** Streams on the current socket; replaced on every connection. */
   streams: ReturnType<typeof createStreamClient> | null;
 }
@@ -310,6 +314,9 @@ export function createHub(options: {
     request: { method: string; capability: string; params?: unknown; window: number },
     callbacks: StreamCallbacks,
   ) => Promise<PanelStream>;
+  online: (nodeId: string) => boolean;
+  /** The addresses a connected agent reports, or null when it cannot take an endpoint update. */
+  endpointUrls: (nodeId: string) => readonly string[] | null;
   disconnect: (nodeId: string, code: number) => void;
   close: () => void;
 } {
@@ -361,6 +368,7 @@ export function createHub(options: {
       capabilities: new Set(),
       terminalUsers: null,
       fileRoots: null,
+      endpointUrls: null,
       streams: null,
     };
   }
@@ -991,6 +999,10 @@ export function createHub(options: {
           current.capabilities.has(fsMethods.list.capability) && files.success
             ? (files.data.allow ?? [])
             : null;
+        const endpoint = endpointCapabilityMeta.safeParse(
+          frame.caps.find((capability) => capability.name === agentEndpointUpdate.capability)?.meta,
+        );
+        current.endpointUrls = endpoint.success ? endpoint.data.urls : null;
         current.streams = createStreamClient({
           send: (out) => {
             if (socket.readyState === WebSocket.OPEN) socket.send(encodeTextFrame(out));
@@ -1301,6 +1313,13 @@ export function createHub(options: {
         .catch((error: { code: ErrorCode; msg: string }) => {
           throw new HubCallError(error.code, error.msg);
         });
+    },
+    online(nodeId) {
+      return links.get(nodeId)?.socket?.readyState === WebSocket.OPEN;
+    },
+    endpointUrls(nodeId) {
+      const link = links.get(nodeId);
+      return link?.socket?.readyState === WebSocket.OPEN ? link.endpointUrls : null;
     },
     disconnect(nodeId, code) {
       const socket = links.get(nodeId)?.socket;

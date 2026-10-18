@@ -40,6 +40,7 @@ import { registerFilesApi } from "./files.ts";
 import type { UpdateSecurity } from "../updates/security.ts";
 import type { UpdateOperation } from "../updates/history.ts";
 import { digest } from "../auth/factors.ts";
+import { agentWsUrl, type EndpointReport } from "../nodes/endpoint.ts";
 import { dockerMethods, dockerOperations, type DockerOperation } from "@unpanel/protocol";
 
 const AUDIT_PAGE = 100;
@@ -78,6 +79,8 @@ export function createApi(options: {
   updateHistory?: () => UpdateOperation[];
   applyUpdate: (expectedVersion?: string) => Promise<{ accepted: true; version: string }>;
   applyAgentUpdate: (nodeId: string) => Promise<{ accepted: true; version: string }>;
+  /** Sends the saved panel address to every remote agent (design/03 §11). */
+  announceEndpoint?: () => Promise<EndpointReport[]>;
   onSettings?: () => void;
 }): Hono {
   const app = new Hono();
@@ -453,7 +456,9 @@ export function createApi(options: {
     try {
       if (typeof body["publicUrl"] === "string" && body["publicUrl"].trim())
         options.certificates?.validatePublicUrl(body["publicUrl"]);
+      const previousUrl = options.settings.view().publicUrl;
       const publicUrl = panelAddress(options.settings, body, user.username);
+      if (publicUrl !== previousUrl) void options.announceEndpoint?.();
       const created = options.catalog.create({
         name: field(body, "name"),
         tags: stringList(body["tags"]),
@@ -746,6 +751,7 @@ export function createApi(options: {
     if (!body) return invalid(c);
     if (options.access && "security" in body && options.access.get(user.id).role !== "owner")
       throw new AccountError("Only an owner can change panel sign-in security.", 403);
+    const previousUrl = options.settings.view().publicUrl;
     try {
       let tested = false;
       if (isRecord(body["security"]) && isRecord(body["security"]["turnstile"])) {
@@ -804,7 +810,11 @@ export function createApi(options: {
         publicUrl: options.settings.view().publicUrl,
       },
     });
-    return c.json({ data: settingsView() });
+    const agents =
+      options.settings.view().publicUrl !== previousUrl && options.announceEndpoint
+        ? await options.announceEndpoint()
+        : null;
+    return c.json({ data: settingsView(), ...(agents ? { agents } : {}) });
   });
 
   app.post("/api/v1/security/turnstile/test", async (c) => {
@@ -1471,16 +1481,6 @@ function prefsOf(node: NodeRecord | null): { name: string; tags: string[]; maint
 
 function offlineLive(id: string): NodeLive {
   return blankNodeLive(id);
-}
-
-function agentWsUrl(publicUrl: string): string {
-  if (!publicUrl) return "";
-  const url = new URL(publicUrl);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = "/_agent/ws";
-  url.search = "";
-  url.hash = "";
-  return url.toString();
 }
 
 function panelAddress(settings: Settings, body: Record<string, unknown>, username: string): string {

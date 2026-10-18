@@ -75,6 +75,7 @@ function appWith(
     checkUpdate?: () => Promise<UpdateView>;
     applyUpdate?: () => Promise<{ accepted: true; version: string }>;
     applyAgentUpdate?: (nodeId: string) => Promise<{ accepted: true; version: string }>;
+    announceEndpoint?: Parameters<typeof createApi>[0]["announceEndpoint"];
   } = {},
 ): ReturnType<typeof createApi> {
   return createApi({
@@ -116,6 +117,7 @@ function appWith(
       (async () => {
         throw new Error("applyAgentUpdate is not stubbed");
       }),
+    ...(extras.announceEndpoint ? { announceEndpoint: extras.announceEndpoint } : {}),
   });
 }
 
@@ -571,6 +573,35 @@ describe("PATCH /api/v1/settings", () => {
     expect(response.status).toBe(200);
     expect(body.data.theme).toBe("light");
     expect(settings.view().theme).toBe("light");
+  });
+
+  it("sends a changed panel address to the agents and reports what each did", async () => {
+    const settings = createSettings(openDatabase(":memory:"));
+    const announceEndpoint = vi.fn(async () => [
+      { nodeId: "nd_1", name: "web", outcome: "reached" as const },
+    ]);
+    const app = appWith(createAudit(openDatabase(":memory:")), "tok", {
+      settings,
+      announceEndpoint,
+    });
+    const save = (body: Record<string, unknown>) =>
+      app.request("/api/v1/settings", {
+        method: "PATCH",
+        headers: { cookie: "unpanel_sid=tok", "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const changed = (await (
+      await save({ publicUrl: "https://panel.example.com:28517" })
+    ).json()) as {
+      agents?: unknown;
+    };
+    expect(changed.agents).toEqual([{ nodeId: "nd_1", name: "web", outcome: "reached" }]);
+    const same = (await (await save({ publicUrl: "https://panel.example.com:28517" })).json()) as {
+      agents?: unknown;
+    };
+    expect(same.agents).toBeUndefined();
+    await save({ theme: "light" });
+    expect(announceEndpoint).toHaveBeenCalledOnce();
   });
 
   it("stores refresh, retention, and update settings", async () => {

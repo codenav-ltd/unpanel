@@ -6,7 +6,13 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { join } from "node:path";
 import { compareVersions, product } from "@unpanel/shared";
-import { certHttp01Detect, privateKeyFromPem, publicKeyFromPem, termOpen } from "@unpanel/protocol";
+import {
+  agentEndpointUpdate,
+  certHttp01Detect,
+  privateKeyFromPem,
+  publicKeyFromPem,
+  termOpen,
+} from "@unpanel/protocol";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createAudit } from "./audit/log.ts";
 import { createAuth } from "./auth/service.ts";
@@ -15,6 +21,7 @@ import { exportPanelDb, stageRestore } from "./backup/panel.ts";
 import { openPanelData } from "./data/panel-data.ts";
 import { createHub, HubCallError } from "./hub.ts";
 import { createHistory } from "./metrics/history.ts";
+import { agentWsUrl, createEndpointAnnouncer } from "./nodes/endpoint.ts";
 import { createNodes } from "./nodes/store.ts";
 import { createSettings, seedPublicUrl } from "./settings/store.ts";
 import { findUpdate, releaseForVersion, UpdateError } from "./updates/check.ts";
@@ -89,6 +96,8 @@ export async function startPanel(options: {
   });
   const audit = createAudit(data.db);
   const sampledAt = new Map<string, number>();
+  // Bound once the announcer exists; it needs the hub and the certificates.
+  let syncEndpoint: (nodeId: string) => void = () => undefined;
   const hub = createHub({
     panelKey: options.panelKey,
     agentKey: (agentId) =>
@@ -110,6 +119,7 @@ export async function startPanel(options: {
         result: event === "offline" ? "error" : "ok",
         nodeId: agentId,
       });
+      if (event !== "offline") syncEndpoint(agentId);
     },
   });
   const host = options.host ?? "127.0.0.1";
@@ -136,9 +146,43 @@ export async function startPanel(options: {
         // local agent uses the separate IPC server and stays connected.
         // Browser streams opened over plain HTTP close too, rather than continue unencrypted.
         for (const client of plainSockets) client.terminate();
+        // Agents keep trusting the panel only if they learn its new certificate now.
+        void endpoints.announceAll();
       }
     },
   });
+  const endpoints = createEndpointAnnouncer({
+    nodes: () => nodes.list(),
+    endpointUrls: (nodeId) => hub.endpointUrls(nodeId),
+    online: (nodeId) => hub.online(nodeId),
+    send: (nodeId, target) =>
+      hub.call(nodeId, agentEndpointUpdate, {
+        urls: [target.url],
+        ...(target.tlsCa ? { tlsCa: target.tlsCa } : {}),
+      }),
+    target: () => {
+      const publicUrl = settings.view().publicUrl;
+      if (!publicUrl) return null;
+      const active = certificates.view().certificates.find((cert) => cert.active);
+      const tlsCa =
+        publicUrl.startsWith("https:") && active?.selfSigned
+          ? certificates.publicCertificate()?.trim()
+          : null;
+      return { url: agentWsUrl(publicUrl), ...(tlsCa ? { tlsCa } : {}) };
+    },
+    record: (report, target) =>
+      audit.record({
+        action: "node.endpoint",
+        result: report.outcome === "failed" ? "error" : "ok",
+        nodeId: report.nodeId,
+        params: {
+          url: target.url,
+          outcome: report.outcome,
+          ...(report.detail ? { detail: report.detail } : {}),
+        },
+      }),
+  });
+  syncEndpoint = (nodeId) => endpoints.sync(nodeId);
   const secureCookie = (): boolean =>
     certificates.view().activeId !== null || (options.secureCookie ?? false);
   const containers = createContainerWatch({
@@ -238,6 +282,7 @@ export async function startPanel(options: {
     checkUpdate: () => updates.check(),
     updateHistory: () => readUpdateHistory(options.dataDir),
     applyUpdate: (version) => updates.install(version),
+    announceEndpoint: () => endpoints.announceAll(),
     applyAgentUpdate: async (nodeId) => {
       if (nodeId === "local") {
         throw new UpdateError("E_CONFLICT", "The local agent is updated together with the panel.");
