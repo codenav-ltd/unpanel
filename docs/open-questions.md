@@ -13,6 +13,7 @@
 | Q10 | Depend on restic for backups? | No; built-in tar + gzip + encryption, optional restic when detected | backup module | [modules/backup.md](./modules/backup.md) |
 | Q12 | SQLite driver | better-sqlite3; evaluate `node:sqlite` during M0 | Panel, packaging | [ADR-0006](./adr/0006-sqlite-drizzle.md) |
 | Q13 | Who may use the file manager, and when must they confirm their identity? | Owners and admins only. Listing needs no confirmation; reading contents, downloading and every change need a sudo session (identity confirmed in the last five minutes) | Files, RBAC | [modules/terminal-files.md](./modules/terminal-files.md) §2.1 |
+| Q14 | Can an existing certificate change its HTTP-01 validation method (temporary listener ↔ web root)? | No. The method is fixed at issuance and reused by every renewal; request a new certificate for the domain to switch | Certificates | [modules/certificates.md](./modules/certificates.md) §3.2.1 |
 
 ## Decided
 

@@ -4,7 +4,7 @@
 
 **Available from alpha.19:** the panel's Certificates page supports self-signed generation, PEM import, and Let's Encrypt production/staging issuance for one domain through HTTP-01 on the local root agent. Certificate material and account keys are encrypted in SQLite. Applying a certificate enables native HTTPS/WSS on the existing panel port after local fingerprint and health verification. ACME renewal uses the certificate's actual lifetime with retry backoff and preserves the active certificate on failure. New direct-access installs default to self-signed HTTPS. See [the access runbook](../kb/panel-https.md).
 
-The sections below describe the broader design. DNS-01, wildcards, other CAs, external monitoring, ARI, certificate deployment to remote services, and renewal hooks are not implemented yet. The current code is in `apps/panel/src/tls/` and `apps/agent/src/cert.ts`; HTTP-01 uses a temporary listener only and does not rewrite Nginx configuration.
+The sections below describe the broader design. DNS-01, wildcards, other CAs, external monitoring, ARI, certificate deployment to remote services, and renewal hooks are not implemented yet. The current code is in `apps/panel/src/tls/`, `apps/agent/src/cert.ts` and `apps/agent/src/webroot.ts`. HTTP-01 is answered either by a temporary listener on port 80 or by a challenge file in the web root of a web server that already owns port 80 (§3.2.1); Unpanel never rewrites Nginx or Apache configuration for it.
 
 Manual renewal preserves the certificate's automatic-renewal setting. Choosing Renew now does not silently re-enable a schedule the user disabled. Failed issuance or activation continues to leave the previous active certificate in service.
 
@@ -65,10 +65,32 @@ flowchart LR
 
 **HTTP-01 details** (on the target node):
 
-1. Nginx present and the domain already has a managed site: the site already includes the `acme.conf` snippet, so the agent just writes `/var/lib/unpanel-agent/acme/.well-known/acme-challenge/<token>`;
-2. Nginx present but no site for the domain yet: the agent temporarily writes `conf.d/unpanel-acme-<slug>.conf` (port 80 only, `server_name` set to the domain, serving only the challenge path), tests and reloads, and removes it afterwards;
-3. No Nginx and port 80 free: the agent temporarily starts a minimal HTTP server on port 80 that answers only the challenge path, and closes it immediately afterwards;
-4. Port 80 taken by something else (Caddy, a Docker container, …): return a clear error and guide the user to DNS-01.
+1. Nginx present and the domain already has a managed site: the site already includes the `acme.conf` snippet, so the agent just writes `/var/lib/unpanel-agent/acme/.well-known/acme-challenge/<token>` (design; needs the Nginx module);
+2. Port 80 owned by a web server that serves files (Nginx, Apache, or anything else with a document root): **web root** validation, §3.2.1 (implemented);
+3. Port 80 free: the agent temporarily starts a minimal HTTP server on port 80 that answers only the challenge path, and closes it immediately afterwards (implemented, called the **temporary listener**);
+4. Port 80 taken by something that serves no files (Caddy with only `reverse_proxy`, a Docker container, …): return a clear error and guide the user to DNS-01.
+
+Changing the port is not an option: the CA always connects to port 80 for HTTP-01 (and 443 for TLS-ALPN-01).
+
+#### 3.2.1 Web root validation ✅
+
+The certificate stores its validation method, `{ method: "standalone" }` or `{ method: "webroot", webroot: "/var/www/example" }`, and every renewal reuses it. Records without one are `standalone`. To switch methods, request a new certificate for the domain ([open question Q14](../open-questions.md)).
+
+**Detection** (`cert.http01.detect {domain, webroot?}`) runs when the user leaves the domain field or clicks Check, and returns what owns port 80 plus probed web root candidates:
+
+1. **Port 80**: a test bind tells whether it is free; `ss -Hltnp` names the owning program when available.
+2. **Candidates**, in order, at most four probed, de-duplicated by path:
+   - Nginx (`nginx` or `openresty` owns the port, or the owner is unknown and `nginx` exists): parse `nginx -T`, resolving `include` globs against the dumped files. Take `server` blocks whose `server_name` matches the domain (exact, `*.suffix`, `.domain`, `prefix.*`, `~regex`), port 80 first, then others (a port 80 site that redirects to HTTPS is validated through the HTTPS site), then the port 80 `default_server`. For each, the `root` that applies to `/.well-known/acme-challenge/` through the longest matching prefix `location`, inheriting from `server` and `http`. A location using `alias` gives no candidate.
+   - Apache (`apache2` or `httpd`): parse `apache2ctl -S` (or `apachectl -S`, `httpd -S`) for the virtual hosts whose `ServerName` or `ServerAlias` matches, read each vhost block from its reported `file:line` for `DocumentRoot`, then the `Main DocumentRoot`.
+   - Existing defaults: `/var/www/html`, `/usr/share/nginx/html`.
+   - With `webroot` given, only that path is probed.
+3. **Probe**: write `<webroot>/.well-known/acme-challenge/unpanel-probe-<random>` with random content, request it from `127.0.0.1:80` (then `[::1]:80`) with `Host: <domain>`, follow up to five redirects the way the CA does (same host only, http or https on ports 80/443, any certificate), and compare the body. The file, and any folders the probe created, are removed afterwards. A candidate counts only when the probe returns the content; parsing alone never decides. This catches redirects, `location ~ /\.` deny rules, proxied sites and wrong guesses.
+
+The UI recommends the temporary listener when port 80 is free, the first verified web root otherwise, and asks for a path when nothing verified, listing each candidate with why it failed.
+
+**Issuance** writes `<webroot>/.well-known/acme-challenge/<token>` (mode 0644, folders 0755, exclusive create so an existing file or symlink is never followed), and removes the file and the folders it created after validation or after ten minutes. DNS and public reachability are still checked by the ACME client fetching the challenge through public DNS before the CA is asked to validate, so a wrong setup does not consume the CA's failed-validation limit.
+
+**Path rules** (agent side, before any write): absolute and normalized, at most 4096 characters, an existing directory, and neither the real path of the web root nor that of the challenge folder may be `/`, inside `/proc`, `/sys`, `/dev`, `/boot` or `/etc`, or inside the node's file deny list (`BUILTIN_DENY` plus `UNPANEL_FILES_DENY`, see [terminal-files.md](./terminal-files.md) §2.1). The agent only ever creates `.well-known/acme-challenge/` and files named by a validated token or probe name.
 
 ### 3.3 Issuance parameters
 
@@ -120,7 +142,8 @@ type ReloadAction =
 
 | Method | Risk | Notes |
 |---|---|---|
-| `cert.http01.put` / `cert.http01.remove` | write | Place / remove challenge files, creating a temporary site or listener when needed |
+| `cert.http01.detect` | write | Report what owns port 80 and probe web root candidates for a domain (§3.2.1); writes and removes a probe file only |
+| `cert.http01.put` / `cert.http01.remove` | write | Place / remove a challenge in a web root (`webroot` given) or on the temporary listener |
 | `cert.deploy` | danger | Deploy certificate files and run reload actions |
 | `cert.remove` | danger | Remove deployed files |
 | `cert.inspect` | read | Serial and expiry of certificates deployed on the node (for reconciliation) |
