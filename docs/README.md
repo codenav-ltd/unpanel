@@ -23,7 +23,8 @@ docs/
 │   ├── 07-http-api.md         Browser <-> Panel API conventions, WebSocket topics, route catalog
 │   ├── 08-frontend.md         Frontend architecture, layout, theming, components, live data
 │   ├── 09-deployment.md       Packaging, installation, filesystem layout, config, upgrades
-│   └── 10-testing.md          Test strategy, CI, quality gates
+│   ├── 10-testing.md          Test strategy, CI, quality gates
+│   └── 11-website.md          The public site: message, page structure, look, languages
 ├── modules/                   One document per feature
 │   ├── monitoring.md          Resource monitoring and traffic accounting
 │   ├── alerting.md            Anomaly detection and the alert engine
@@ -52,7 +53,8 @@ docs/
 1. New contributors: `design/00` → `design/01` → `adr/README` → the `modules/*` you care about
 2. Working on an agent feature: `design/02` → the matching `modules/*` → the matching `kb/*`
 3. Working on the frontend: `design/08` → `design/07` → `kb/ui-reference-3x-ui.md`
-4. Something is broken in production: `kb/troubleshooting.md` → `kb/runbooks.md`
+4. Working on the website: `design/11` → `design/08` §2
+5. Something is broken in production: `kb/troubleshooting.md` → `kb/runbooks.md`
 
 ## Conventions
 
