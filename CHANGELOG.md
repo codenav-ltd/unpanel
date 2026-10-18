@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Let's Encrypt certificates work when Nginx, Apache or another web server already uses port 80: choose Existing web server and the agent writes the validation file into that site's web root, then removes it. Renewals use the same folder.
 - Certificates checks port 80 when you enter a domain. It finds the web root from the Nginx or Apache configuration and confirms it by fetching a test file from this server, or recommends the temporary listener when port 80 is free. Needs this release on the panel and its local agent.
+- Files edits with its own find and replace bar: match case, whole word and regular expression toggles, a live match count, and replace one or all. The status bar adds Go to line (Ctrl+G) and a Wrap toggle.
+- Files can duplicate items and copy or move them to another folder with a folder picker. Copies keep modes and owners, links stay links, and nothing is ever replaced. Needs the agent from this release.
+- Files selects several items at once (checkboxes, Shift and Ctrl/⌘ clicks, or the keyboard), then cuts, copies, pastes, duplicates, moves or deletes them together. The listing also gets a filter, a hidden files toggle, keyboard navigation and a menu on empty space.
+- Files compresses items to tar.gz or zip and extracts zip, tar and tar.gz archives into a new folder. Extraction refuses paths outside the archive, never writes through links and keeps 1 GiB of disk free. Needs the agent from this release.
+- Files moves items when you drag them onto a folder, a breadcrumb or the tree (hold Alt or Ctrl to copy), and uploads whole folders, dropped or chosen with Upload folder in the empty-space menu.
 
 ## [0.1.0-alpha.45] - 2026-10-15
 
