@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.46] - 2026-10-18
+
 ### Added
 
 - Let's Encrypt certificates work when Nginx, Apache or another web server already uses port 80: choose Existing web server and the agent writes the validation file into that site's web root, then removes it. Renewals use the same folder.
