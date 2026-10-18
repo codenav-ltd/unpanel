@@ -62,7 +62,11 @@ Single-server pages are real screenshots: Dashboard, Docker, Terminal, Files and
 
 1. `run.sh` starts a systemd container from the footprint benchmark image, installs the published release with `install.sh`, installs Docker inside it and starts a small demo stack.
 2. `capture.mjs` completes first-run setup through the API, prepares state (files, an alert rule, a terminal session) and captures each page at 1440×900 at 2× with Playwright.
-3. Images are written to `apps/site/src/assets/shots/` as WebP and committed.
+3. Images are written to `apps/site/src/assets/shots/` as WebP and committed. `run.sh down` removes the containers and volumes.
+
+The Alerts shot needs a live incident: the demo's `mailer` service exits once, 90 seconds after start, and the "Container down" rule opens it. Capture Alerts after that.
+
+The link-preview images (`public/og-en.png`, `public/og-zh-CN.png`, 1200×630) are rendered from the built hero by `shots/og.mjs` against `pnpm preview`. Regenerate them when the headline or the overview changes.
 
 Refresh them when a captured page changes visibly. Screens never show real hostnames, addresses or user data.
 
