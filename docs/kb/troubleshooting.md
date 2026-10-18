@@ -23,6 +23,8 @@ Symptom → likely cause → fix. Start with `unpanel status` and `sudo unpanel 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Node stays "pending" after install | Agent cannot reach `panel_url`, or token expired | `unpanel-agent doctor`; generate a new install command |
+| Every remote node went offline after the panel server got a new IP or domain | Agents keep the address they were enrolled with (`UNPANEL_AGENT_URL` in `/etc/unpanel-agent/agent.env`), and a self-signed certificate still names the old IP. Address changes are not sent to agents yet ([Q15](../open-questions.md)) | Set the new address in Settings, then Reconnect agent on each node and run its command on that server |
+| One remote node went offline after its own IP changed | The panel does not check agent IPs, so look at the path to the panel: a firewall or security group allowing only the old IP, outbound network or DNS on the node, or a disabled node (retries hourly) | On the node: `sudo journalctl -u unpanel-agent -n 50 --no-pager` |
 | Node flaps online/offline | Unstable network, proxy idle timeouts shorter than the 15 s heartbeat | Check `journalctl -u unpanel-agent`; raise proxy idle timeout |
 | Handshake closed with 4401 | Pinned panel key mismatch (panel reinstalled without restoring `identity.key`) | Re-enroll the node, or restore the identity key ([runbooks.md](./runbooks.md)) |
 | Handshake closed with 4426 | Protocol major too old/new | Upgrade the agent ([release-process.md](./release-process.md) §6) |

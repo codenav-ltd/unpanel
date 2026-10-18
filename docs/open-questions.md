@@ -14,6 +14,7 @@
 | Q12 | SQLite driver | better-sqlite3; evaluate `node:sqlite` during M0 | Panel, packaging | [ADR-0006](./adr/0006-sqlite-drizzle.md) |
 | Q13 | Who may use the file manager, and when must they confirm their identity? | Owners and admins only. Listing needs no confirmation; reading contents, downloading and every change need a sudo session (identity confirmed in the last five minutes) | Files, RBAC | [modules/terminal-files.md](./modules/terminal-files.md) §2.1 |
 | Q14 | Can an existing certificate change its HTTP-01 validation method (temporary listener ↔ web root)? | No. The method is fixed at issuance and reused by every renewal; request a new certificate for the domain to switch | Certificates | [modules/certificates.md](./modules/certificates.md) §3.2.1 |
+| Q15 | How do remote agents learn a new panel address? | Saving a new panel address sends signed `agent.endpoint.update` to every online agent: the new URL first, the current one kept as a fallback, plus the new certificate when the panel uses self-signed HTTPS. Each agent tries them in order and keeps the first that passes the handshake. Offline agents still need Reconnect agent. Not built yet: until then every remote node needs Reconnect agent | Agent protocol, Settings, node lifecycle | [design/02](./design/02-agent-protocol.md) §9, [kb/runbooks.md](./kb/runbooks.md) |
 
 ## Decided
 
