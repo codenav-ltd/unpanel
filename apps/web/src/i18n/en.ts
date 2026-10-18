@@ -24,7 +24,27 @@ export const en = {
     production: "Let's Encrypt production",
     staging: "Let's Encrypt staging (untrusted test certificate)",
     http01Hint:
-      "Point this domain to the panel server and allow inbound TCP port 80 for issuance and renewals. The local agent opens port 80 temporarily. If Nginx or another service already uses it, import an existing certificate instead. Wildcards are not supported by this method.",
+      "Point this domain to the panel server and allow inbound TCP port 80 for issuance and renewals. Wildcards are not supported by this method.",
+    validation: "Domain validation",
+    standalone: "Temporary listener",
+    webroot: "Existing web server",
+    webrootPath: "Web root folder",
+    check: "Check",
+    checking: "Checking port 80…",
+    portFree:
+      "Port 80 is free. The agent answers validation on it and closes it right after. Renewals do the same.",
+    found: "{server} uses port 80 and serves this domain from {path} ({source}).",
+    folderOk:
+      "{path} serves this domain. Validation files are placed there and removed afterwards.",
+    folderFailed: "{path} did not work: {detail}",
+    notFound:
+      "{server} uses port 80, but no folder was confirmed to serve this domain. Enter the folder its site for this domain serves.",
+    tried: "Folders checked",
+    anotherProgram: "Another program",
+    validationUsed: "Domain validation",
+    validationListener: "Temporary listener on port 80",
+    validationWebroot: "Web root {path}",
+    checkFailed: "check domain validation",
     terms: "I agree to the Let's Encrypt subscriber agreement.",
     agreement: "Read the agreement",
     selfSignedHint:

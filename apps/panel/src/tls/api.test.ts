@@ -36,6 +36,7 @@ it("protects certificate routes, validates requests, and returns no private key"
       ["/selfsigned", "POST"],
       ["/import", "POST"],
       ["/issue", "POST"],
+      ["/detect", "POST"],
       ["/id/activate", "POST"],
       ["/id/renew", "POST"],
       ["/id", "PATCH"],
@@ -78,6 +79,13 @@ it("protects certificate routes, validates requests, and returns no private key"
       headers,
     });
     expect(gone.status).toBe(409);
+    const detect = await app.request("/api/v1/certificates/detect", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ domain: "panel.example.com" }),
+    });
+    expect(detect.status).toBe(400);
+    expect(await detect.text()).toContain("not available");
   } finally {
     db.close();
   }

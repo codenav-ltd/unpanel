@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Let's Encrypt certificates work when Nginx, Apache or another web server already uses port 80: choose Existing web server and the agent writes the validation file into that site's web root, then removes it. Renewals use the same folder.
+- Certificates checks port 80 when you enter a domain. It finds the web root from the Nginx or Apache configuration and confirms it by fetching a test file from this server, or recommends the temporary listener when port 80 is free. Needs this release on the panel and its local agent.
+
 ## [0.1.0-alpha.45] - 2026-10-15
 
 ### Changed

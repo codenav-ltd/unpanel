@@ -4,7 +4,7 @@
 import type { Context, Hono } from "hono";
 import type { Audit } from "../audit/log.ts";
 import { CertificateError } from "./material.ts";
-import type { Certificates, CertificateView } from "./store.ts";
+import type { Certificates, CertificateView, Validation } from "./store.ts";
 
 export function registerCertificateApi(
   app: Hono,
@@ -16,13 +16,10 @@ export function registerCertificateApi(
   },
 ) {
   const { certificates, audit } = options;
-  async function run(
+  async function run<T = CertificateView>(
     c: Context,
     action: string,
-    work: (
-      user: string,
-      body: Record<string, unknown>,
-    ) => Promise<CertificateView> | CertificateView,
+    work: (user: string, body: Record<string, unknown>) => Promise<T> | T,
   ): Promise<Response> {
     const user = options.username(c);
     if (!user)
@@ -91,6 +88,13 @@ export function registerCertificateApi(
   }
   const string = (body: Record<string, unknown>, key: string): string =>
     typeof body[key] === "string" ? body[key] : "";
+  const validation = (value: unknown): Validation => {
+    if (!value || typeof value !== "object") return { method: "standalone" };
+    const { method, webroot } = value as Record<string, unknown>;
+    return method === "webroot"
+      ? { method, webroot: typeof webroot === "string" ? webroot : "" }
+      : { method: "standalone" };
+  };
   app.get("/api/v1/certificates", (c) => run(c, "certificate.list", () => certificates.view()));
   app.post("/api/v1/certificates/selfsigned", (c) =>
     run(c, "certificate.generate", (_user, body) => certificates.generate(string(body, "host"))),
@@ -100,6 +104,11 @@ export function registerCertificateApi(
       certificates.upload(string(body, "host"), string(body, "cert"), string(body, "key")),
     ),
   );
+  app.post("/api/v1/certificates/detect", (c) =>
+    run(c, "certificate.detect", (_user, body) =>
+      certificates.detect(string(body, "domain"), string(body, "webroot")),
+    ),
+  );
   app.post("/api/v1/certificates/issue", (c) =>
     run(c, "certificate.issue", (_user, body) =>
       certificates.issue({
@@ -107,6 +116,7 @@ export function registerCertificateApi(
         email: string(body, "email"),
         staging: body["staging"] === true,
         termsAgreed: body["termsAgreed"] === true,
+        validation: validation(body["validation"]),
       }),
     ),
   );

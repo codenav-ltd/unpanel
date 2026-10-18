@@ -3,6 +3,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import type { Http01Detection } from "@unpanel/protocol";
 import { decryptSecret, encryptSecret } from "../auth/secret.ts";
 import { normalizePublicUrl, type Settings } from "../settings/store.ts";
 import {
@@ -12,6 +13,9 @@ import {
   selfSignedCertificate,
   type TlsMaterial,
 } from "./material.ts";
+
+/** How HTTP-01 is answered. See modules/certificates.md §3.2.1. */
+export type Validation = { method: "standalone" } | { method: "webroot"; webroot: string };
 
 export interface CertificateRecord {
   id: string;
@@ -27,6 +31,8 @@ export interface CertificateRecord {
   autoRenew: boolean;
   staging: boolean;
   email: string;
+  /** ACME only; records issued before web root validation have none and use the listener. */
+  validation?: Validation;
   active: boolean;
   lastError: string | null;
   nextAttempt: number;
@@ -49,6 +55,7 @@ export interface IssueInput {
   email: string;
   staging: boolean;
   termsAgreed: boolean;
+  validation: Validation;
 }
 export interface CertificateIssuer {
   (
@@ -70,6 +77,8 @@ export function createCertificates(options: {
   port: () => number;
   apply: (material: TlsMaterial | null) => Promise<void>;
   issue: CertificateIssuer;
+  /** Probes HTTP-01 options on the local agent. */
+  detect?: (domain: string, webroot?: string) => Promise<Http01Detection>;
   record: (action: string, result: "ok" | "error", detail: string) => void;
   now?: () => number;
 }) {
@@ -187,7 +196,7 @@ export function createCertificates(options: {
     material: TlsMaterial,
     source: CertificateRecord["source"],
     host: string,
-    input: { email?: string; staging?: boolean; id?: string } = {},
+    input: { email?: string; staging?: boolean; id?: string; validation?: Validation } = {},
   ): Promise<CertificateRecord> {
     const info = inspectMaterial(material, host, now());
     const record: CertificateRecord = {
@@ -198,6 +207,7 @@ export function createCertificates(options: {
       autoRenew: input.id ? read(input.id).record.autoRenew : source === "acme",
       staging: input.staging ?? false,
       email: input.email ?? "",
+      ...(input.validation ? { validation: input.validation } : {}),
       active: false,
       lastError: null,
       nextAttempt: 0,
@@ -246,9 +256,34 @@ export function createCertificates(options: {
       busy = false;
     }
   }
+  function checkWebroot(webroot: string): string {
+    const value = webroot.trim();
+    if (!value.startsWith("/") || value.length > 4096)
+      throw new CertificateError(
+        "Enter the web root as an absolute path, such as /var/www/example.",
+      );
+    return value;
+  }
+  async function detect(domain: string, webroot: string): Promise<Http01Detection> {
+    const normalized = normalizeHost(domain, true);
+    const path = webroot.trim() ? checkWebroot(webroot) : undefined;
+    if (!options.detect)
+      throw new CertificateError("Domain validation checks are not available on this panel.");
+    try {
+      return await options.detect(normalized, path);
+    } catch (error) {
+      throw new CertificateError(
+        error instanceof Error ? error.message : "The local agent could not check port 80.",
+      );
+    }
+  }
   function issue(input: IssueInput, id?: string): CertificateView {
     assertIdle();
     const domain = normalizeHost(input.domain, true);
+    const validation: Validation =
+      input.validation.method === "webroot"
+        ? { method: "webroot", webroot: checkWebroot(input.validation.webroot) }
+        : { method: "standalone" };
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email) || input.email.length > 254)
       throw new CertificateError("Enter a valid contact email address.");
     if (!input.termsAgreed)
@@ -280,10 +315,11 @@ export function createCertificates(options: {
             );
           },
         };
-        const material = await options.issue({ ...input, domain }, account, progress);
+        const material = await options.issue({ ...input, domain, validation }, account, progress);
         const record = await add(material, "acme", domain, {
           email: input.email,
           staging: input.staging,
+          validation,
           ...(id ? { id } : {}),
         });
         setJob({
@@ -374,7 +410,13 @@ export function createCertificates(options: {
         "Only ACME certificates can be renewed here. Import a replacement for this certificate.",
       );
     return issue(
-      { domain: record.host, email: record.email, staging: record.staging, termsAgreed: true },
+      {
+        domain: record.host,
+        email: record.email,
+        staging: record.staging,
+        termsAgreed: true,
+        validation: record.validation ?? { method: "standalone" },
+      },
       id,
     );
   }
@@ -413,6 +455,7 @@ export function createCertificates(options: {
   }
   return {
     view,
+    detect,
     generate,
     upload,
     issue,

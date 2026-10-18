@@ -51,6 +51,7 @@ const request = {
   email: "admin@example.com",
   termsAgreed: true,
   staging: true,
+  validation: { method: "standalone" as const },
 };
 
 describe("panel certificate lifecycle", () => {
@@ -195,6 +196,62 @@ describe("panel certificate lifecycle", () => {
       await f.store.settled();
       expect(f.store.view().job.state).toBe("success");
       expect(f.store.view().certificates[0]?.autoRenew).toBe(false);
+    } finally {
+      f.db.close();
+    }
+  });
+  it("keeps the web root for renewals and checks paths before any agent call", async () => {
+    const issue = vi.fn<CertificateIssuer>(async (input) => selfSignedCertificate(input.domain));
+    const f = await fixture(issue);
+    try {
+      expect(() =>
+        f.store.issue({ ...request, validation: { method: "webroot", webroot: "var/www" } }),
+      ).toThrow("absolute path");
+      f.store.issue({ ...request, validation: { method: "webroot", webroot: " /var/www/panel " } });
+      await f.store.settled();
+      const id = firstId(f.store);
+      expect(f.store.view().certificates[0]?.validation).toEqual({
+        method: "webroot",
+        webroot: "/var/www/panel",
+      });
+      f.store.renew(id);
+      await f.store.settled();
+      expect(issue.mock.calls[1]?.[0].validation).toEqual({
+        method: "webroot",
+        webroot: "/var/www/panel",
+      });
+      // Records from before web root validation renew through the listener.
+      const row = f.db.prepare("SELECT data_json FROM panel_certificates").get() as {
+        data_json: string;
+      };
+      const legacy = JSON.parse(row.data_json) as Record<string, unknown>;
+      delete legacy["validation"];
+      f.db.prepare("UPDATE panel_certificates SET data_json = ?").run(JSON.stringify(legacy));
+      f.store.renew(id);
+      await f.store.settled();
+      expect(issue.mock.calls[2]?.[0].validation).toEqual({ method: "standalone" });
+    } finally {
+      f.db.close();
+    }
+  });
+  it("reports web root checks from the agent as certificate errors", async () => {
+    const f = await fixture();
+    const detection = {
+      port80: { free: false, program: "nginx" },
+      server: "nginx" as const,
+      webroots: [{ path: "/var/www/html", source: "common default", ok: true, detail: "ok" }],
+    };
+    const detect = vi
+      .fn()
+      .mockResolvedValueOnce(detection)
+      .mockRejectedValueOnce(new Error("This agent does not handle cert.http01.detect."));
+    const store = createCertificates({ ...f.options, detect });
+    try {
+      expect(await store.detect("Panel.Example.com", "")).toEqual(detection);
+      expect(detect).toHaveBeenCalledWith("panel.example.com", undefined);
+      await expect(store.detect("panel.example.com", "")).rejects.toBeInstanceOf(CertificateError);
+      await expect(store.detect("panel.example.com", "relative")).rejects.toThrow("absolute path");
+      await expect(f.store.detect("panel.example.com", "")).rejects.toThrow("not available");
     } finally {
       f.db.close();
     }

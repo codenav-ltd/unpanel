@@ -286,7 +286,9 @@ export function createHub(options: {
     params: Params,
   ) => Promise<Result>;
   http01: (
-    params: { domain: string; token: string; keyAuthorization: string } | { token: string },
+    params:
+      | { domain: string; token: string; keyAuthorization: string; webroot?: string }
+      | { token: string },
   ) => Promise<void>;
   upgrade: (
     nodeId: string,
@@ -539,7 +541,9 @@ export function createHub(options: {
   }
 
   function http01(
-    params: { domain: string; token: string; keyAuthorization: string } | { token: string },
+    params:
+      | { domain: string; token: string; keyAuthorization: string; webroot?: string }
+      | { token: string },
   ): Promise<void> {
     const method = "domain" in params ? certHttp01Put : certHttp01Remove;
     const link = links.get("local");

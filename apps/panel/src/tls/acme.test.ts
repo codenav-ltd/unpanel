@@ -22,6 +22,7 @@ const input = {
   email: "owner@example.com",
   staging: true,
   termsAgreed: true,
+  validation: { method: "standalone" as const },
 };
 const authz = { identifier: { type: "dns", value: input.domain } } as acme.Authorization;
 type AutoOptions = Parameters<acme.Client["auto"]>[0];
@@ -65,6 +66,29 @@ it("uses a reusable encrypted account key and HTTP-01 callbacks with a fresh EC 
   const second = await issuer({ ...input, staging: false }, { key: accountKey, saveKey }, progress);
   expect(saveKey).toHaveBeenCalledOnce();
   expect(second.key).not.toBe(first.key);
+});
+
+it("writes the challenge into the chosen web root", async () => {
+  const put = vi.fn(async () => undefined);
+  const progress = vi.fn();
+  mocks.auto.mockImplementation(async (options: Parameters<acme.Client["auto"]>[0]) => {
+    await options.challengeCreateFn?.(authz, step, "validation-token.thumbprint");
+    return "downloaded-chain";
+  });
+  await createAcmeIssuer({ put, remove: async () => undefined })(
+    { ...input, validation: { method: "webroot", webroot: "/var/www/panel" } },
+    { key: "", saveKey: () => undefined },
+    progress,
+  );
+  expect(put).toHaveBeenCalledWith({
+    domain: input.domain,
+    token: step.token,
+    keyAuthorization: "validation-token.thumbprint",
+    webroot: "/var/www/panel",
+  });
+  expect(progress).toHaveBeenCalledWith(
+    "Requesting the certificate and preparing HTTP-01 in /var/www/panel.",
+  );
 });
 
 it("retries cleanup when the ACME library swallows a challenge removal failure", async () => {

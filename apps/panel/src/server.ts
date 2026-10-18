@@ -6,7 +6,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { join } from "node:path";
 import { compareVersions, product } from "@unpanel/shared";
-import { privateKeyFromPem, publicKeyFromPem, termOpen } from "@unpanel/protocol";
+import { certHttp01Detect, privateKeyFromPem, publicKeyFromPem, termOpen } from "@unpanel/protocol";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createAudit } from "./audit/log.ts";
 import { createAuth } from "./auth/service.ts";
@@ -127,6 +127,8 @@ export async function startPanel(options: {
       put: (params) => hub.http01(params),
       remove: (token) => hub.http01({ token }),
     }),
+    detect: (domain, webroot) =>
+      hub.call("local", certHttp01Detect, { domain, ...(webroot ? { webroot } : {}) }),
     record: (action, result, detail) => {
       audit.record({ action, result, params: { detail } });
       if (action === "certificate.activate" && result === "ok") {

@@ -30,7 +30,12 @@ acme.axios.interceptors.response.use((response) => {
 });
 
 export function createAcmeIssuer(challenge: {
-  put: (params: { domain: string; token: string; keyAuthorization: string }) => Promise<void>;
+  put: (params: {
+    domain: string;
+    token: string;
+    keyAuthorization: string;
+    webroot?: string;
+  }) => Promise<void>;
   remove: (token: string) => Promise<void>;
 }): CertificateIssuer {
   // Bound network requests without disabling certificate verification.
@@ -53,8 +58,13 @@ export function createAcmeIssuer(challenge: {
     let cleanupFailure: unknown;
     let failure: unknown;
     let material: TlsMaterial | undefined;
+    const webroot = input.validation.method === "webroot" ? input.validation.webroot : undefined;
     try {
-      progress("Requesting the certificate and preparing HTTP-01 on TCP port 80.");
+      progress(
+        webroot
+          ? `Requesting the certificate and preparing HTTP-01 in ${webroot}.`
+          : "Requesting the certificate and preparing HTTP-01 on TCP port 80.",
+      );
       const cert = await client.auto({
         csr,
         email: input.email,
@@ -65,8 +75,17 @@ export function createAcmeIssuer(challenge: {
             throw new Error("The CA returned an unsupported domain validation challenge.");
           }
           tokens.add(step.token);
-          await challenge.put({ domain: input.domain, token: step.token, keyAuthorization });
-          progress("Waiting for Let's Encrypt to validate the domain through TCP port 80.");
+          await challenge.put({
+            domain: input.domain,
+            token: step.token,
+            keyAuthorization,
+            ...(webroot ? { webroot } : {}),
+          });
+          progress(
+            webroot
+              ? "Waiting for Let's Encrypt to validate the domain through the web server on TCP port 80."
+              : "Waiting for Let's Encrypt to validate the domain through TCP port 80.",
+          );
         },
         challengeRemoveFn: async (_authz, step) => {
           if (!step.token) return;
@@ -89,7 +108,7 @@ export function createAcmeIssuer(challenge: {
     }
     if (cleanupFailure)
       throw new Error(
-        `${failure instanceof Error ? `${failure.message} ` : ""}The HTTP-01 listener could not be closed. It expires automatically in ten minutes. Check the local agent in Logs.`,
+        `${failure instanceof Error ? `${failure.message} ` : ""}${webroot ? "The HTTP-01 challenge file could not be removed." : "The HTTP-01 listener could not be closed."} It expires automatically in ten minutes. Check the local agent in Logs.`,
         { cause: cleanupFailure },
       );
     if (failure) throw failure;

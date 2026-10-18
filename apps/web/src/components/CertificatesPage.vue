@@ -9,7 +9,7 @@ import {
   SafetyCertificateOutlined,
   WarningOutlined,
 } from "@ant-design/icons-vue";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { en } from "../i18n/en.ts";
 import { couldNotReach, readProblem, replyNotReceived } from "../http-error.ts";
 import AppDialog from "./AppDialog.vue";
@@ -29,6 +29,13 @@ interface Certificate {
   autoRenew: boolean;
   lastError: string | null;
   nextAttempt: number;
+  validation?: Validation;
+}
+type Validation = { method: "standalone" } | { method: "webroot"; webroot: string };
+interface Detection {
+  port80: { free: boolean; program: string | null };
+  server: "nginx" | "apache" | null;
+  webroots: { path: string; source: string; ok: boolean; detail: string }[];
 }
 interface CertificateView {
   certificates: Certificate[];
@@ -49,6 +56,13 @@ const host = ref("");
 const email = ref("");
 const environment = ref("production");
 const terms = ref(false);
+const validation = ref<Validation["method"]>("standalone");
+const webroot = ref("");
+/** The latest check, for the domain (and folder, when one was entered) it ran against. */
+const detection = ref<{ domain: string; path: string; result: Detection } | null>(null);
+const detecting = ref(false);
+const detectError = ref("");
+let detectRun = 0;
 const cert = ref("");
 const key = ref("");
 const busy = ref("");
@@ -64,6 +78,98 @@ let generation = 0;
 let refreshRequest: AbortController | null = null;
 const controller = new AbortController();
 const running = computed(() => Boolean(busy.value) || data.value?.job.state === "running");
+const validations = [
+  { id: "standalone" as const, label: copy.standalone },
+  { id: "webroot" as const, label: copy.webroot },
+];
+const detectionNote = computed<{ tone: "ok" | "warn"; text: string } | null>(() => {
+  const current = detection.value;
+  if (!current) return null;
+  const { result, path } = current;
+  const found = result.webroots.find((item) => item.ok);
+  if (path) {
+    const checked = result.webroots[0];
+    return found
+      ? { tone: "ok", text: copy.folderOk.replace("{path}", path) }
+      : {
+          tone: "warn",
+          text: copy.folderFailed
+            .replace("{path}", path)
+            .replace("{detail}", checked?.detail ?? ""),
+        };
+  }
+  if (result.port80.free) return { tone: "ok", text: copy.portFree };
+  const server =
+    result.server === "nginx"
+      ? "Nginx"
+      : result.server === "apache"
+        ? "Apache"
+        : (result.port80.program ?? copy.anotherProgram);
+  return found
+    ? {
+        tone: "ok",
+        text: copy.found
+          .replace("{server}", server)
+          .replace("{path}", found.path)
+          .replace("{source}", found.source),
+      }
+    : { tone: "warn", text: copy.notFound.replace("{server}", server) };
+});
+/** Failed candidates from an automatic check, so a wrong guess can be understood. */
+const tried = computed(() =>
+  detection.value && !detection.value.path
+    ? detection.value.result.webroots.filter((item) => !item.ok)
+    : [],
+);
+const looksLikeDomain = (value: string): boolean =>
+  /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value.trim());
+watch(host, () => {
+  detectRun += 1;
+  detecting.value = false;
+  detection.value = null;
+  detectError.value = "";
+});
+async function detect(path = ""): Promise<void> {
+  const domain = host.value.trim().toLowerCase();
+  if (disposed || mode.value !== "acme" || !looksLikeDomain(domain)) return;
+  const run = ++detectRun;
+  detecting.value = true;
+  detectError.value = "";
+  try {
+    let response: Response;
+    try {
+      response = await fetch("/api/v1/certificates/detect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45_000)]),
+        body: JSON.stringify({ domain, webroot: path }),
+      });
+    } catch {
+      throw new Error(couldNotReach(copy.checkFailed));
+    }
+    if (!response.ok) throw new Error(await readProblem(response, copy.checkFailed));
+    const result = ((await response.json()) as { data: Detection }).data;
+    if (run !== detectRun) return;
+    if (!result?.port80 || !Array.isArray(result.webroots))
+      throw new Error("The panel returned an invalid validation check.");
+    detection.value = { domain, path, result };
+    if (path) return;
+    const found = result.webroots.find((item) => item.ok);
+    if (result.port80.free) validation.value = "standalone";
+    else {
+      validation.value = "webroot";
+      if (found) webroot.value = found.path;
+    }
+  } catch (failure) {
+    if (run === detectRun && !disposed)
+      detectError.value = failure instanceof Error ? failure.message : copy.missingReply;
+  } finally {
+    if (run === detectRun) detecting.value = false;
+  }
+}
+function check(): void {
+  void detect(validation.value === "webroot" ? webroot.value.trim() : "");
+}
 const modes = [
   { id: "acme" as const, label: copy.letsEncrypt, icon: GlobalOutlined },
   { id: "selfsigned" as const, label: copy.selfSigned, icon: LockOutlined },
@@ -172,6 +278,10 @@ async function add(): Promise<void> {
         email: email.value,
         staging: environment.value === "staging",
         termsAgreed: terms.value,
+        validation:
+          validation.value === "webroot"
+            ? { method: "webroot", webroot: webroot.value.trim() }
+            : { method: "standalone" },
       },
       "",
     );
@@ -305,9 +415,73 @@ onUnmounted(() => {
               maxlength="253"
               autocomplete="off"
               spellcheck="false"
+              @change="detect()"
           /></label>
           <template v-if="mode === 'acme'">
             <p class="hint">{{ copy.http01Hint }}</p>
+            <div class="certificate-validation" role="group" :aria-label="copy.validation">
+              <div class="certificate-validation-head">
+                <span class="field-label">{{ copy.validation }}</span>
+                <button
+                  type="button"
+                  class="quiet"
+                  :disabled="detecting || !looksLikeDomain(host)"
+                  :aria-busy="detecting"
+                  @click="check"
+                >
+                  <span v-if="detecting" class="spinner" aria-hidden="true" />{{ copy.check }}
+                </button>
+              </div>
+              <div class="certificate-modes">
+                <button
+                  v-for="item in validations"
+                  :key="item.id"
+                  type="button"
+                  class="quiet"
+                  :aria-pressed="validation === item.id"
+                  @click="validation = item.id"
+                >
+                  {{ item.label }}
+                </button>
+              </div>
+              <label v-if="validation === 'webroot'" class="field"
+                ><span>{{ copy.webrootPath }}</span
+                ><input
+                  v-model="webroot"
+                  type="text"
+                  placeholder="/var/www/example"
+                  required
+                  maxlength="4096"
+                  pattern="/.*"
+                  autocomplete="off"
+                  spellcheck="false"
+                  class="command"
+                  @change="webroot.trim() && detect(webroot.trim())"
+              /></label>
+              <p v-if="detecting" class="hint" role="status">{{ copy.checking }}</p>
+              <p
+                v-else-if="detectionNote"
+                class="certificate-check"
+                :data-tone="detectionNote.tone"
+                role="status"
+              >
+                <SafetyCertificateOutlined
+                  v-if="detectionNote.tone === 'ok'"
+                  aria-hidden="true"
+                /><WarningOutlined v-else aria-hidden="true" /><span>{{ detectionNote.text }}</span>
+              </p>
+              <p v-else-if="detectError" class="form-error" role="alert">{{ detectError }}</p>
+              <details v-if="!detecting && tried.length" class="certificate-details">
+                <summary>{{ copy.tried }}</summary>
+                <ul class="certificate-tried">
+                  <li v-for="item in tried" :key="item.path">
+                    <code>{{ item.path }}</code
+                    ><small>{{ item.source }}</small
+                    ><span>{{ item.detail }}</span>
+                  </li>
+                </ul>
+              </details>
+            </div>
             <div class="certificate-form-grid">
               <label class="field"
                 ><span>{{ copy.email }}</span
@@ -509,6 +683,16 @@ onUnmounted(() => {
               <dd>
                 <code>{{ item.fingerprint }}</code>
               </dd>
+              <template v-if="item.source === 'acme'">
+                <dt>{{ copy.validationUsed }}</dt>
+                <dd>
+                  {{
+                    item.validation?.method === "webroot"
+                      ? copy.validationWebroot.replace("{path}", item.validation.webroot)
+                      : copy.validationListener
+                  }}
+                </dd>
+              </template>
             </dl>
             <p v-if="item.source === 'acme'" class="hint">{{ copy.renewalHint }}</p>
           </details>

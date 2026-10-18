@@ -13,10 +13,12 @@ import { performAgentUpgrade, performUpgrade } from "./upgrade.ts";
 import { createHttp01Responder } from "./cert.ts";
 import { createDocker, DockerError } from "./docker.ts";
 import { createStreamHost, type StreamMethod } from "./stream-host.ts";
-import { FilesError, type createFiles } from "./files.ts";
+import { FilesError, filesPolicy, type createFiles } from "./files.ts";
+import { detectWebroot } from "./webroot.ts";
 import { dockerMethods, dockerOperations, fsMethods, fsOperations } from "@unpanel/protocol";
 import {
   agentUpgrade,
+  certHttp01Detect,
   certHttp01Put,
   certHttp01Remove,
   authMessage,
@@ -50,6 +52,7 @@ const agentMethods = new Set([
   hostSwap.name,
   certHttp01Put.name,
   certHttp01Remove.name,
+  certHttp01Detect.name,
 ]);
 
 function swapCode(error: SwapRefused): ErrorCode {
@@ -78,7 +81,8 @@ export function connectAgent(options: {
   capabilities?: { name: string; meta?: Record<string, unknown> }[];
 }): { stop: () => void } {
   const agentId = options.agentId ?? "local";
-  const challenges = createHttp01Responder();
+  const deny = filesPolicy().deny;
+  const challenges = createHttp01Responder({ deny });
   const docker = createDocker();
   const hostInfo =
     options.hostInfo ??
@@ -345,8 +349,19 @@ export function connectAgent(options: {
       }
       if (
         frame.t === "req" &&
-        (frame.m === certHttp01Put.name || frame.m === certHttp01Remove.name)
+        (frame.m === certHttp01Put.name ||
+          frame.m === certHttp01Remove.name ||
+          frame.m === certHttp01Detect.name)
       ) {
+        const detect = (): Promise<unknown> => {
+          const parsed = certHttp01Detect.params.safeParse(frame.p);
+          if (!parsed.success)
+            return Promise.reject(new Error("Invalid web root check parameters."));
+          return detectWebroot(parsed.data.domain, {
+            deny,
+            ...(parsed.data.webroot ? { webroot: parsed.data.webroot } : {}),
+          });
+        };
         const work =
           agentId !== "local"
             ? Promise.reject(
@@ -354,7 +369,9 @@ export function connectAgent(options: {
               )
             : frame.m === certHttp01Put.name
               ? challenges.put(frame.p)
-              : challenges.remove(frame.p);
+              : frame.m === certHttp01Detect.name
+                ? detect()
+                : challenges.remove(frame.p);
         void work
           .then((r) => socket?.send(encodeTextFrame({ t: "res", id: frame.id, ok: true, r })))
           .catch((error: unknown) =>
