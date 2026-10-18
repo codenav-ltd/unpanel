@@ -56,7 +56,7 @@ describe("terminal management", () => {
     const fake = host(1000);
     expect(await runManage(input, fake)).toBe(1);
     expect(fake.err).toHaveBeenCalledWith(
-      expect.stringContaining(`sudo unpanel-manage ${input.join(" ")}`),
+      expect.stringContaining(`sudo unpanel ${input.join(" ")}`),
     );
     expect(fake.openStore).not.toHaveBeenCalled();
     expect(fake.password).not.toHaveBeenCalled();

@@ -10,7 +10,7 @@ import { recoveryStore } from "./manage/recovery.ts";
 import { terminalHost, type ManageHost } from "./manage/terminal.ts";
 
 const help = [
-  `Usage: ${product.manageBin} COMMAND [OPTIONS]`,
+  `Usage: ${product.bin} COMMAND [OPTIONS]`,
   "",
   "Service control (panel is the default):",
   "  status [panel|agent|all]          Show service status (defaults to all).",
@@ -90,7 +90,7 @@ function parse(argv: string[]): Command {
   ) {
     return { name, args, root: true };
   }
-  throw new ManageError(`Unknown command or invalid options. Run ${product.manageBin} help.`);
+  throw new ManageError(`Unknown command or invalid options. Run ${product.bin} help.`);
 }
 
 export async function runManage(
@@ -111,7 +111,7 @@ export async function runManage(
     if (command.root && host.uid() !== 0) {
       // Parsed arguments cannot contain passwords or arbitrary shell syntax.
       host.err(
-        `This command needs administrator access. Run:\n  sudo ${product.manageBin} ${[name, ...args].join(" ")}\n`,
+        `This command needs administrator access. Run:\n  sudo ${product.bin} ${[name, ...args].join(" ")}\n`,
       );
       return 1;
     }
@@ -132,7 +132,7 @@ export async function runManage(
       ]);
       if (exit !== 0 && name !== "status")
         host.err(
-          `Could not ${name} ${target}. Check ${product.manageBin} status and ${product.manageBin} logs ${target}.\n`,
+          `Could not ${name} ${target}. Check ${product.bin} status and ${product.bin} logs ${target}.\n`,
         );
       else if (exit === 0 && name !== "status") host.out(`${target} service ${name} completed.\n`);
       return exit;

@@ -31,7 +31,7 @@ export function recoveryStore(db: DatabaseSync) {
       .prepare("SELECT id,username,password_hash,status FROM users WHERE username=? COLLATE NOCASE")
       .get(username) as RecoveryUser | undefined;
     if (!found)
-      throw new ManageError("Account not found. Run unpanel-manage users to list account names.");
+      throw new ManageError("Account not found. Run unpanel users to list account names.");
     return found;
   }
   function current(expected: RecoveryUser): RecoveryUser {

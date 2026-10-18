@@ -11,7 +11,7 @@ set -eu
 approval=""
 if [ "$#" -ne 0 ]; then
   if [ "$#" -ne 2 ] || [ "$1" != "--approve" ]; then
-    echo "Usage: sudo unpanel-manage update [--approve VERSION]" >&2
+    echo "Usage: sudo unpanel update [--approve VERSION]" >&2
     exit 1
   fi
   approval=$2

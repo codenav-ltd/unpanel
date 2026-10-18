@@ -67,7 +67,10 @@ describe("installPanel", () => {
     const files = [...fake.files];
     for (const [file, original] of files.filter(
       ([file]) =>
-        file.endsWith(".env") || file.endsWith(".service") || file === product.paths.manageBin,
+        file.endsWith(".env") ||
+        file.endsWith(".service") ||
+        file === product.paths.bin ||
+        file === product.paths.legacyBin,
     )) {
       fake.files.set(file, original + "\n# changed\n");
       expect(matchesInstallation(plan, reader), file).toBe(false);
@@ -75,6 +78,18 @@ describe("installPanel", () => {
     }
     fake.files.delete("/etc/unpanel/agent.pub.pem");
     expect(matchesInstallation(plan, reader)).toBe(false);
+  });
+
+  it("reinstalls once when only the pre-alpha.47 command exists", async () => {
+    const fake = installHost({ user: true });
+    await installPanel(plan, fake.host);
+    fake.files.delete(product.paths.bin);
+    expect(
+      matchesInstallation(plan, {
+        read: (file) => fake.files.get(file) ?? null,
+        exists: fake.host.exists,
+      }),
+    ).toBe(false);
   });
 
   it("does not reuse services generated for a different runtime, root or port", async () => {
@@ -96,11 +111,11 @@ describe("installPanel", () => {
     await installPanel(plan, fake.host);
     expect(fake.files.get("/etc/systemd/system/unpanel.service")).toContain("User=unpanel");
     expect(fake.files.get("/etc/systemd/system/unpanel-agent.service")).toContain("User=root");
-    expect(fake.files.get(product.paths.manageBin)).toContain("apps/panel/src/manage.ts");
-    expect(fake.files.get(product.paths.manageBin)).toContain('"$@"');
-    expect(fake.files.get(product.paths.manageBin)).toContain(
-      "UNPANEL_ENV_FILE='/etc/unpanel/panel.env'",
-    );
+    const wrapper = fake.files.get(product.paths.bin);
+    expect(wrapper).toContain("apps/panel/src/manage.ts");
+    expect(wrapper).toContain('"$@"');
+    expect(wrapper).toContain("UNPANEL_ENV_FILE='/etc/unpanel/panel.env'");
+    expect(fake.files.get(product.paths.legacyBin)).toBe(wrapper);
     expect(fake.files.get("/etc/unpanel/panel.pem")).toBe("PRIVATE");
     expect(fake.commands).toContain("systemctl restart unpanel.service");
     expect(fake.commands).toContain("systemctl restart unpanel-agent.service");

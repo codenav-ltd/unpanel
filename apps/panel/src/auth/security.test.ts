@@ -230,9 +230,7 @@ describe("login security", () => {
     security.noteFailure("192.0.2.1", "ada");
     expect(security.noteFailure("192.0.2.2", "ada").panelAttemptsLeft).toBe(1);
     expect(security.noteFailure("192.0.2.3", "ada").block?.code).toBe("E_PANEL_LOCKED");
-    expect(security.beforeAttempt("192.0.2.99", "ada")?.message).toContain(
-      "sudo unpanel-manage unlock",
-    );
+    expect(security.beforeAttempt("192.0.2.99", "ada")?.message).toContain("sudo unpanel unlock");
     expect(unlockPanelLock(db)).toBe(true);
     expect(security.beforeAttempt("192.0.2.99", "ada")).toBeNull();
   });

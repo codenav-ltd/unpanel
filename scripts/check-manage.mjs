@@ -121,7 +121,7 @@ try {
     assert.equal(response.status, 1);
     assert.match(
       response.stderr,
-      /sudo unpanel-manage/,
+      /sudo unpanel /,
       `Unprivileged fixture failed. Native package paths: ${JSON.stringify(
         readdirSync(modules).map((name) => ({
           name,

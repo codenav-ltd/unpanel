@@ -620,7 +620,7 @@ function panelBlock(row: BanRow, now: number): LoginBlock {
     code: "E_PANEL_LOCKED",
     message:
       row.expires_at === null
-        ? "This panel is locked after too many failed sign-in attempts. Connect over SSH and run sudo unpanel-manage unlock."
+        ? "This panel is locked after too many failed sign-in attempts. Connect over SSH and run sudo unpanel unlock."
         : "This panel is temporarily locked after too many failed sign-in attempts.",
     ...(retryAfter === undefined ? {} : { retryAfter }),
   };

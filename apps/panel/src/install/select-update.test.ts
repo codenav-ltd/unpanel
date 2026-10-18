@@ -64,7 +64,7 @@ describe("select-update", () => {
   it("checks a review-required release without installing or bypassing approval", () => {
     const review = { stable: null, beta: { ...release("0.1.0-alpha.12"), reviewRequired: true } };
     expect(cli("0.1.0-alpha.11", "linux-x64", review, ["--check"])).toContain(
-      "sudo unpanel-manage update --approve 0.1.0-alpha.12",
+      "sudo unpanel update --approve 0.1.0-alpha.12",
     );
     expect(() => cli("0.1.0-alpha.11", "linux-x64", review)).toThrow(/requires review/);
     expect(cli("0.1.0-alpha.11", "linux-x64", review, ["--approve", "0.1.0-alpha.12"])).toContain(

@@ -465,7 +465,7 @@ export const en = {
     banPanelHint:
       "Block password sign-in from every address after the configured number of failures.",
     panelLockWarning:
-      "If this panel address is public, anyone can deliberately trigger a whole-panel lock with repeated wrong passwords. A permanent lock must be removed over SSH with sudo unpanel-manage unlock.",
+      "If this panel address is public, anyone can deliberately trigger a whole-panel lock with repeated wrong passwords. A permanent lock must be removed over SSH with sudo unpanel unlock.",
     duration: "Lock duration",
     temporary: "Temporary",
     permanent: "Permanent",

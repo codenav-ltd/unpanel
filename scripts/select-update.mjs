@@ -244,13 +244,13 @@ async function main() {
     );
     if (chosen.reviewRequired)
       process.stdout.write(
-        `Review required. After reading the notes, run:\n  sudo unpanel-manage update --approve ${chosen.version}\n`,
+        `Review required. After reading the notes, run:\n  sudo unpanel update --approve ${chosen.version}\n`,
       );
     return;
   }
   if (chosen.reviewRequired && approval !== chosen.version)
     throw new Error(
-      `Release ${chosen.version} requires review. Read https://github.com/codenav-ltd/unpanel/releases/tag/v${chosen.version}, then run: sudo unpanel-manage update --approve ${chosen.version}`,
+      `Release ${chosen.version} requires review. Read https://github.com/codenav-ltd/unpanel/releases/tag/v${chosen.version}, then run: sudo unpanel update --approve ${chosen.version}`,
     );
   process.stdout.write(`${chosen.url}\n${chosen.sha256}\n${chosen.version}\n`);
 }

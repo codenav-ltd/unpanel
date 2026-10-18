@@ -11,9 +11,9 @@ export const product = {
   siteUrl: "https://unpanel.codenav.dev",
   /** channels.json. The panel also reads GitHub releases if this file is missing. */
   updatesUrl: "https://unpanel.codenav.dev/channels.json",
+  /** The panel's server command (ADR-0013). */
   bin: "unpanel",
   agentBin: "unpanel-agent",
-  manageBin: "unpanel-manage",
   user: "unpanel",
   envPrefix: "UNPANEL_",
   agentEnvPrefix: "UNPANEL_AGENT_",
@@ -24,7 +24,9 @@ export const product = {
     socket: "/run/unpanel/agent.sock",
     agentEtc: "/etc/unpanel-agent",
     agentLib: "/var/lib/unpanel-agent",
-    manageBin: "/usr/local/sbin/unpanel-manage",
+    bin: "/usr/local/sbin/unpanel",
+    /** The same wrapper under its pre-alpha.47 name, kept for existing scripts. */
+    legacyBin: "/usr/local/sbin/unpanel-manage",
   },
   units: {
     panel: "unpanel.service",

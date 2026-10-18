@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The server command is now `unpanel`: `sudo unpanel restart`, `sudo unpanel unlock`, `sudo unpanel reset-2fa alice`. `unpanel-manage` keeps working as the same command, so existing scripts and notes need no change. Updating to this release adds the new name.
+
 ## [0.1.0-alpha.46] - 2026-10-18
 
 ### Added

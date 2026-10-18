@@ -77,7 +77,8 @@ export async function installPanel(
   host.write(`${plan.etc}/panel.env`, panelEnvironment(plan), 0o640);
   host.own(`${plan.etc}/panel.env`, 0, user.gid, 0o640);
   host.write(`${plan.agentEtc}/agent.env`, agentEnvironment(plan), 0o600);
-  host.write(product.paths.manageBin, manageScript(plan), 0o755);
+  for (const bin of [product.paths.bin, product.paths.legacyBin])
+    host.write(bin, manageScript(plan), 0o755);
   host.write(`/etc/systemd/system/${product.units.panel}`, panelService(plan), 0o644);
   host.write(`/etc/systemd/system/${product.units.agent}`, agentService(plan), 0o644);
 
@@ -104,7 +105,8 @@ export function matchesInstallation(
   const files: [string, string][] = [
     [`${plan.etc}/panel.env`, panelEnvironment(plan)],
     [`${plan.agentEtc}/agent.env`, agentEnvironment(plan)],
-    [product.paths.manageBin, manageScript(plan)],
+    [product.paths.bin, manageScript(plan)],
+    [product.paths.legacyBin, manageScript(plan)],
     [`/etc/systemd/system/${product.units.panel}`, panelService(plan)],
     [`/etc/systemd/system/${product.units.agent}`, agentService(plan)],
   ];

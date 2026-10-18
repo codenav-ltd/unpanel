@@ -17,7 +17,7 @@ export const installHelp = [
   "",
   "Downloads the release package built for this version and starts it under systemd.",
   "The download is checked against the SHA-256 published with that release.",
-  "Afterwards, Settings → Updates or sudo unpanel-manage update installs newer releases.",
+  "Afterwards, Settings → Updates or sudo unpanel update installs newer releases.",
   "",
   "Options:",
   "  --public-url   Origin browsers and other servers use. Detected when omitted.",
