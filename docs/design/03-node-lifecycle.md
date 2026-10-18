@@ -82,6 +82,8 @@ The agent reports `HostInfo` (design/02 §3.3) on every handshake; the panel sto
 - Public IPs: both what the agent reports locally and the source IP the panel sees (both are shown if they differ)
 - Agent version, protocol version, RTT, clock skew, capabilities, policy summary
 
+The CPU model comes from Node (`model name` in `/proc/cpuinfo`). Arm kernels do not write that line, so on Linux the agent falls back to `CPU implementer` and `CPU part` and names them the way `lscpu` does (`ARM Neoverse-N1`, `HiSilicon TaiShan-v110`), or names only the vendor when the part is not in its table. When neither is known the model is empty and the UI leaves it out rather than showing "unknown".
+
 ## 4. Online state
 
 | Condition | State |
