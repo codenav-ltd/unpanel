@@ -10,13 +10,13 @@ The site has one job: a developer who runs a few to a few dozen Linux servers se
 
 | They use now | What they lack that Unpanel has |
 |---|---|
-| BaoTa, aaPanel, 1Panel | Several servers for free; no system packages or LNMP stack added; a web process that is not root |
+| BaoTa, aaPanel, 1Panel | Servers join without opening a port; no system packages or LNMP stack added; a web process that is not root; several servers free (1Panel charges for it) |
 | Nezha, Beszel, Netdata | Terminal, files, Docker and alerts on the same page as the monitoring |
 | Portainer | The host around the containers: load, disk forecast, certificates |
 | Cockpit, Webmin | Many servers as a first-class concept; agents dial out, so servers behind NAT work |
 | SSH and scripts | One page that shows which server needs attention, Telegram alerts, an audit log |
 
-Positioning: for individual developers and small teams who run their own Linux servers, Unpanel is a self-hosted multi-server panel that shows every server's load and alerts on one page and opens a terminal, files and Docker on any of them. Unlike BaoTa or 1Panel, it does not take the server over and does not charge for more than one server.
+Positioning: for individual developers and small teams who run their own Linux servers, Unpanel is a self-hosted multi-server panel that shows every server's load and alerts on one page and opens a terminal, files and Docker on any of them. Unlike BaoTa or aaPanel, it does not take the server over; unlike any of them, a managed server opens no port; unlike 1Panel, it does not charge for more than one server.
 
 ## 2. Message hierarchy
 
@@ -26,8 +26,9 @@ Supporting line (the mechanism): one small agent per server dials out to the pan
 
 | Claim | Proof shown on the page |
 |---|---|
-| See every server at once, free | The interactive overview; 1Panel, aaPanel and BaoTa charge for several servers (their own sites, October 2026) |
-| Nothing else installed | 0 system packages, 7 files under `/etc`, 8 MB on disk, from `scripts/bench-footprint.sh` |
+| See every server at once, free | The interactive overview; 1Panel sells multi-node management in its Pro edition, one licence per node (its README and node documentation, October 2026) |
+| Servers join without opening a port | The connection diagram; 1Panel's nodes accept SSH and its agent port, and BaoTa and aaPanel reach each node's own panel API or SSH (their node code, October 2026) |
+| Nothing else installed | 0 system packages, 7 files under `/etc`, 9 MB on disk plus the Node.js runtime, from `scripts/bench-footprint.sh` |
 | The web process is never root | 1 of 2 processes runs as root; [ADR-0003](../adr/0003-unprivileged-panel-local-agent.md); identity check and audit for terminal and files |
 | Updates are fast and reversible | 1.4 s and 1.5 MB per update, automatic rollback; the release strip built from `CHANGELOG.md` |
 
@@ -41,10 +42,11 @@ Sections follow the order a visitor's questions arise. Anchors are stable becaus
 |---|---|---|---|
 | Hero | `#top` | What is this, is it for me? | Headline, supporting line, install command, the drawn overview |
 | Product tour | `#product` | Show me | Real screenshots, one per job, captions beside them |
-| Footprint | `#footprint` | How is it different? | Square grid of files added under `/etc`, switchable per panel; full measurements in a disclosure |
+| Footprint | `#footprint` | How is it different? | Square grid per panel, opening on disk used, then system packages and files added under `/etc`; full measurements in a disclosure |
 | Connection | `#connect` | How do remote servers join? | Diagram of agents dialling out, three facts |
 | Security | `#security` | Is a web panel with root safe? | Three-step replay: open terminal, confirm identity, audit row |
 | Updates | `#updates` | Will it be maintained? Will updates break it? | Update time comparison and the release strip |
+| Compare | `#compare` | How does it stack up overall? | One table against 1Panel, aaPanel and BaoTa, grouped by cost, adding servers, footprint, privileges, updates and idle use |
 | Pricing | `#pricing` | What does it cost? | One edition, three promises |
 | Now and next | `#roadmap` | Does it have what I need? | Shipped modules and planned ones |
 | FAQ | `#faq` | What about…? | Questions with plain answers |
@@ -74,6 +76,8 @@ Refresh them when a captured page changes visibly. Screens never show real hostn
 
 - The release strip reads `CHANGELOG.md` at build time: version, date and the first sentence of the first entry. It cannot go stale.
 - The comparison figures live in `src/content/measurements.ts` with the date and versions measured. Update them only with a new run of the benchmark scripts.
+- The comparison keeps rows where Unpanel loses (idle memory) and drops rows where every panel is alike (listening ports, services). The disk chart draws the Node.js runtime as part of Unpanel's bar, in a dimmer shade, so its 9 MB is never shown alone.
+- Vendor facts (editions, licences, how nodes connect) are checked against the vendor's own pages or the installed code, and each links to its source. When a vendor changes, the row changes: in October 2026 BaoTa and aaPanel made multi-node management free, so the site stopped saying they charge for it.
 - The shipped and planned module lists live in the locale files. A release that ships a module updates them ([release process](../kb/release-process.md)).
 
 ## 4. Visual language
