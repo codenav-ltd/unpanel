@@ -4,51 +4,51 @@ Current commands are documented in [terminal management](./terminal-management.m
 
 ## Lost second factor (cannot log in)
 
-1. On the panel server: `sudo unpanel-manage users`.
+1. On the panel server: `sudo unpanel users`.
 2. Use a recovery code if you still have one (login page → "Use a recovery code").
 3. Otherwise reset the factors for that user:
    ```bash
-   sudo unpanel-manage reset-2fa alice
+   sudo unpanel reset-2fa alice
    ```
    Type the account name to confirm. This removes TOTP, passkeys, email OTP methods, recovery codes and the 2FA requirement, and revokes sessions and pending sign-ins.
 4. Log in with the password, add replacement methods in Settings → Security and restore the desired policy. Enrollment is not automatically forced.
-5. Lost the password too: `sudo unpanel-manage reset-password alice`. Enter and confirm a new password privately; no temporary password is printed.
+5. Lost the password too: `sudo unpanel reset-password alice`. Enter and confirm a new password privately; no temporary password is printed.
 
 ## Turnstile widget unavailable
 
-1. On the panel server: `sudo unpanel-manage turnstile disable`.
+1. On the panel server: `sudo unpanel turnstile disable`.
 2. Refresh the sign-in page and sign in. No restart is needed; keys and other sign-in protections are preserved.
 3. Update the panel, then test and re-enable Turnstile in Settings → Security.
 
 ## Sign-in lock
 
-1. Inspect the locks: `sudo unpanel-manage security`.
-2. For a whole-panel lock: `sudo unpanel-manage unlock`.
-3. For one IP address: `sudo unpanel-manage unban 203.0.113.10`, substituting the actual address.
+1. Inspect the locks: `sudo unpanel security`.
+2. For a whole-panel lock: `sudo unpanel unlock`.
+3. For one IP address: `sudo unpanel unban 203.0.113.10`, substituting the actual address.
 
 ## Service not responding
 
-1. `unpanel-manage status`.
-2. `sudo unpanel-manage logs --lines 100`; for local-agent errors use `sudo unpanel-manage logs agent`.
-3. After correcting the cause, `sudo unpanel-manage restart` or `sudo unpanel-manage restart agent`.
+1. `unpanel status`.
+2. `sudo unpanel logs --lines 100`; for local-agent errors use `sudo unpanel logs agent`.
+3. After correcting the cause, `sudo unpanel restart` or `sudo unpanel restart agent`.
 
 ## Planned runbooks
 
-**Everything below remains a design target.** The `unpanel admin` commands, configuration formats and forced-enrollment flows below are not implemented. Do not use them as recovery instructions for current alpha installs; use the commands above and the feature-specific KB.
+**Everything below remains a design target.** The `unpanel` commands, configuration formats and forced-enrollment flows below are not implemented. Do not use them as recovery instructions for current alpha installs; use the commands above and the feature-specific KB.
 
 ### Emergency lockdown (suspected active attack)
 
 ```bash
-sudo unpanel admin lockdown
+sudo unpanel lockdown
 ```
 
 Revokes all sessions and API tokens and suspends every `danger` operation on all agents until the owner logs in again and lifts the lockdown in Settings → Security (see [design/04](../design/04-auth.md) §11). As an extra measure you can restrict the UI to localhost with `security.ip_allow = ["127.0.0.1/32"]` in `/etc/unpanel/config.toml` and use an SSH tunnel (`ssh -L 28517:127.0.0.1:28517 server`).
 
 ### Suspected compromise
 
-1. `sudo unpanel admin lockdown` (above).
+1. `sudo unpanel lockdown` (above).
 2. Preserve evidence: `sudo cp -a /var/lib/unpanel /root/unpanel-evidence-$(date +%F)`; export logs: `journalctl -u unpanel -u unpanel-agent --since -7d > /root/unpanel-logs.txt`.
-3. Verify the audit chain: `sudo unpanel admin audit verify`. A break shows the first tampered row.
+3. Verify the audit chain: `sudo unpanel audit verify`. A break shows the first tampered row.
 4. Review recent audit entries for unknown actors, new API tokens, policy changes, terminal sessions.
 5. Rotate everything: user passwords and factors, API tokens, Telegram bot token (via @BotFather), DNS provider and S3 credentials stored in the panel, then the master key and identity key (below).
 6. On each node, check `/etc/unpanel-agent/policy.toml` and `/etc/unpanel-agent/hooks/` for unexpected changes (the panel cannot write them; changes there mean the node itself was accessed).
@@ -57,7 +57,7 @@ Revokes all sessions and API tokens and suspends every `danger` operation on all
 ### Rotate the master key
 
 ```bash
-sudo unpanel admin rotate-master-key
+sudo unpanel rotate-master-key
 ```
 
 Generates a new key with a new `keyId`, re-encrypts every `_enc` column in one transaction, keeps the old key in `/etc/unpanel/master.key.old-<keyId>` until you confirm, and restarts the panel. Verify the UI (certificates, notification channels) works, then delete the old key file: `sudo shred -u /etc/unpanel/master.key.old-*`.
@@ -65,7 +65,7 @@ Generates a new key with a new `keyId`, re-encrypts every `_enc` column in one t
 ### Rotate the panel identity key
 
 1. Make sure every node is online (Nodes page). Offline nodes will not receive the new key and must be re-enrolled afterwards.
-2. `sudo unpanel admin rotate-identity` — creates a new key and sends `agent.identity.rotate {newPk, sigOld, sigNew}` to every agent ([design/02](../design/02-agent-protocol.md) §9). Each agent verifies both signatures and replaces its pinned key.
+2. `sudo unpanel rotate-identity` — creates a new key and sends `agent.identity.rotate {newPk, sigOld, sigNew}` to every agent ([design/02](../design/02-agent-protocol.md) §9). Each agent verifies both signatures and replaces its pinned key.
 3. The command waits for acknowledgements, prints nodes that did not confirm, then switches the panel to the new key.
 4. Re-enroll any node listed as not confirmed (Nodes → node → "Generate install command").
 
@@ -81,7 +81,7 @@ Needed when moving to a new IP or domain.
 
 ### Migrate the panel to a new server
 
-1. Old server: Settings → Backups → "Export disaster-recovery bundle" (or `sudo unpanel admin export-dr --out /root/unpanel-dr.tar.gz.age`), with a passphrase.
+1. Old server: Settings → Backups → "Export disaster-recovery bundle" (or `sudo unpanel export-dr --out /root/unpanel-dr.tar.gz.age`), with a passphrase.
 2. If the address will change, do steps 1–2 of "Change the panel address" first.
 3. Copy the bundle to the new server and install with restore:
    ```bash
@@ -114,8 +114,8 @@ Needed when moving to a new IP or domain.
 
 1. `df -h /var/lib/unpanel`; `du -sh /var/lib/unpanel/*`.
 2. Common culprits: `backups/` (local backup target), `updates/` (old packages), journald.
-3. Free space: `sudo unpanel admin prune --updates --pre-migrate-backups --keep 2`; `sudo journalctl --vacuum-size=200M`.
-4. If SQLite is the problem: `sudo unpanel admin db-stats` shows table sizes; lower retention in Settings → Data retention, then `sudo unpanel admin vacuum` (needs free space ≈ the DB size).
+3. Free space: `sudo unpanel prune --updates --pre-migrate-backups --keep 2`; `sudo journalctl --vacuum-size=200M`.
+4. If SQLite is the problem: `sudo unpanel db-stats` shows table sizes; lower retention in Settings → Data retention, then `sudo unpanel vacuum` (needs free space ≈ the DB size).
 
 ### Remove a node that no longer exists
 

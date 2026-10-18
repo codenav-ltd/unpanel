@@ -83,7 +83,7 @@ Plus `SHA256SUMS`, `SHA256SUMS.minisig` (Ed25519 signature), `install.sh`, and `
 ├── updates/             downloaded upgrade packages
 └── setup-token          exists only until first-run setup completes
 /run/unpanel/agent.sock    0660 unpanel:unpanel  (systemd RuntimeDirectory)
-/usr/local/bin/unpanel -> /opt/unpanel/current/bin/unpanel
+/usr/local/sbin/unpanel -> /opt/unpanel/current/bin/unpanel   (also as unpanel-manage)
 ```
 
 ### Agent
@@ -302,7 +302,7 @@ The panel runs as non-root and cannot replace `/opt/unpanel` or restart itself, 
 1. Triggered from UI/CLI → the panel downloads the new package to `/var/lib/unpanel/updates/` and verifies the signature.
 2. The panel calls `agent.panel.upgrade {version, path}` on the local agent.
 3. The agent:
-   1. takes an online SQLite backup via `unpanel admin backup-db`;
+   1. takes an online SQLite backup via `unpanel backup-db`;
    2. extracts to `/opt/unpanel/versions/<new>`;
    3. writes `pending.json` and switches `current`;
    4. runs `systemctl restart unpanel`.
@@ -343,24 +343,41 @@ sudo unpanel-agent uninstall [--purge] [--wipe-managed]   # --wipe-managed also 
 
 ## 10. CLI reference
 
-Both CLIs are thin wrappers that run as root and talk to the running process (panel commands go through the local agent or open the database directly when the panel is stopped). Every state-changing command is audited with `actor = "cli"`.
+The panel's server command is `unpanel` at `/usr/local/sbin/unpanel`, with flat subcommands ([ADR-0013](../adr/0013-one-panel-command.md)). `/usr/local/sbin/unpanel-manage` is the same wrapper under its pre-alpha.47 name. Both run `manage.cjs` with the Node runtime the panel uses. Commands that change state, read logs or open the database need root and print the exact `sudo` line otherwise. Recovery commands open the database as the `unpanel` user and record an audit entry with `actor = "cli"`.
+
+### 10.1 Shipped
+
+| Command | Purpose |
+|---|---|
+| `unpanel status [panel\|agent\|all]` | systemd status, both services by default |
+| `unpanel start\|stop\|restart [panel\|agent]` | Control a service (panel by default) |
+| `unpanel logs [panel\|agent] [--lines N] [--follow]` | Journal entries, latest 100 by default |
+| `unpanel update --check` / `update [--approve VERSION]` | Check for or install a panel release (§6) |
+| `unpanel security` | Turnstile, restrictions and active locks |
+| `unpanel unlock` / `unban <ip>` | Clear the whole-panel lock or one IP ban |
+| `unpanel turnstile disable` | Turn off the sign-in widget for recovery |
+| `unpanel users` | Account names, roles and status |
+| `unpanel reset-password <user> [--password-stdin]` / `reset-2fa <user> [--yes]` | Account recovery ([design/04](./04-auth.md) §11) |
+| `unpanel help` / `version` | |
+
+User-facing details are in [kb/terminal-management.md](../kb/terminal-management.md).
+
+### 10.2 Planned
 
 | Command | Purpose |
 |---|---|
 | `unpanel init` | Generate keys, certificate, config, and setup token (installer only) |
 | `unpanel doctor` | Diagnostics (§9) |
-| `unpanel admin info` | Print the access URL, port, base path, and certificate fingerprint |
-| `unpanel admin setup-token` | Regenerate the setup token (only while no user exists) |
-| `unpanel admin list-users` | List users, roles, enrolled factors |
-| `unpanel admin reset-2fa <user>` / `reset-password <user>` | Account recovery ([design/04](./04-auth.md) §11) |
-| `unpanel admin lockdown [--off]` | Emergency lockdown |
-| `unpanel admin audit verify` | Verify the audit hash chain |
-| `unpanel admin rotate-master-key` | Re-encrypt secrets with a new master key |
-| `unpanel admin rotate-identity` | Rotate the panel identity key across agents |
-| `unpanel admin backup-db --out <file>` | Online SQLite backup |
-| `unpanel admin export-dr --out <file>` | Disaster-recovery bundle (passphrase prompt) |
-| `unpanel admin prune [--updates] [--pre-migrate-backups] [--keep N]` | Free disk space |
-| `unpanel admin db-stats` / `vacuum` | Table sizes / reclaim space |
+| `unpanel info` | Print the access URL, port, base path, and certificate fingerprint |
+| `unpanel setup-token` | Regenerate the setup token (only while no user exists) |
+| `unpanel lockdown [--off]` | Emergency lockdown |
+| `unpanel audit verify` | Verify the audit hash chain |
+| `unpanel rotate-master-key` | Re-encrypt secrets with a new master key |
+| `unpanel rotate-identity` | Rotate the panel identity key across agents |
+| `unpanel backup-db --out <file>` | Online SQLite backup |
+| `unpanel export-dr --out <file>` | Disaster-recovery bundle (passphrase prompt) |
+| `unpanel prune [--updates] [--pre-migrate-backups] [--keep N]` | Free disk space |
+| `unpanel db-stats` / `vacuum` | Table sizes / reclaim space |
 | `unpanel log-pretty` | Pretty-print pino JSON from stdin |
 | `unpanel node enroll-local` | Enroll the local agent (installer only) |
 | `unpanel uninstall [--purge]` | §7 |

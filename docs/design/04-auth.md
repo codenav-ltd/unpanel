@@ -24,7 +24,7 @@ Current implementation from alpha.25: single-user/team modes; owner, administrat
    ```
 2. The setup page creates the owner account (username + password). TOTP enrollment is on by default. The owner can turn it off; the page then shows a warning that the password alone can sign in. When TOTP stays on, the owner must confirm a code and that the recovery codes were saved.
 3. The setup token is then deleted, and `/setup` returns 404 forever. The panel starts in single-user mode (§12.5).
-4. Lost setup token: run `unpanel admin setup-token` on the server (only works while no user exists).
+4. Lost setup token: run `unpanel setup-token` on the server (only works while no user exists).
 
 ## 3. Users and credentials
 
@@ -177,7 +177,7 @@ The owner can configure these controls independently in **Settings → Security*
 - From alpha.32, failed and blocked sign-in responses preserve IP and panel remaining-attempt warnings. Simultaneous cooldowns and bans are displayed together with their own retry times; an attempt rejected by an existing restriction does not increment failure counters. Expired or disabled restrictions are omitted.
 - A successful password verification resets the consecutive username, address, and panel failure counters.
 - Expired temporary bans are removed automatically. IP bans can also be removed from Settings.
-- A whole-panel lock can be cleared from an SSH session with `sudo unpanel-manage unlock`.
+- A whole-panel lock can be cleared from an SSH session with `sudo unpanel unlock`.
 - The Turnstile secret is encrypted with the panel master key. Settings responses expose only the site key and whether a secret exists.
 - From alpha.22, Security opens a three-step Turnstile guide: enter the widget keys, complete a browser challenge that the panel verifies with Cloudflare, then review and save. Testing does not persist settings. Existing secrets can be retained without returning them to the browser. Keep the current session open while checking a fresh sign-in. Tokens expire after five minutes and are single-use; the test consumes its token, so sign-in needs a new challenge. Verified 2026-10-03 against [Cloudflare's Siteverify documentation](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/).
 - Password changes use a dialog for the current password, new password confirmation, and review. Verification happens on final save; a failed request keeps the dialog open. The caller stays signed in and other sessions and pending logins are revoked.
@@ -189,12 +189,12 @@ The owner can configure these controls independently in **Settings → Security*
 | Situation | Remedy |
 |---|---|
 | Lost TOTP device | Log in with a recovery code → re-enroll |
-| Recovery codes lost too | On the server: `sudo unpanel admin reset-2fa <username>` (root on the server is the ultimate root of trust) |
-| Forgotten password | `sudo unpanel admin reset-password <username>` |
-| Forgotten panel URL/path | `sudo unpanel admin info` |
-| Suspected compromise | `sudo unpanel admin lockdown`: revokes all sessions and tokens and suspends all `danger` operations on all agents until the owner logs in again and lifts it |
+| Recovery codes lost too | On the server: `sudo unpanel reset-2fa <username>` (root on the server is the ultimate root of trust) |
+| Forgotten password | `sudo unpanel reset-password <username>` |
+| Forgotten panel URL/path | `sudo unpanel info` |
+| Suspected compromise | `sudo unpanel lockdown`: revokes all sessions and tokens and suspends all `danger` operations on all agents until the owner logs in again and lifts it |
 
-All `unpanel admin` actions are audited with `actor = "cli"`.
+All `unpanel` recovery commands are audited with `actor = "cli"`.
 
 ## 12. Authorization (RBAC and user modes)
 
@@ -265,6 +265,6 @@ The mode only changes what is exposed. It is never consulted by `can()`, so no r
      - Telegram bindings bound to them (`notification_channels.bound_user_id`) stop accepting commands;
      - role bindings are **kept**.
   3. Switching back to team mode does **not** re-enable anyone automatically; the owner re-enables users one by one.
-- A disabled user cannot log in, and `unpanel admin reset-password` does not re-enable them. Re-enabling requires team mode.
+- A disabled user cannot log in, and `unpanel reset-password` does not re-enable them. Re-enabling requires team mode.
 
 Setup always starts in `single` mode. The setup page mentions that team mode can be enabled later in Settings → Users.

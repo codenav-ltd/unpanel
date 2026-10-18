@@ -7,7 +7,7 @@ Every installed version already trusts `unpanel.codenav.dev` as a release host, 
 | Client | Mirror first since |
 |---|---|
 | `install.sh`, `install-agent.sh` | the next release |
-| `unpanel-manage update` | after the install has that release |
+| `unpanel update` | after the install has that release |
 | Settings → Updates, remote agent updates | after the panel or agent has that release |
 
 ## One-time setup

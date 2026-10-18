@@ -101,7 +101,7 @@ A pnpm workspace monorepo, TypeScript strict mode, ESM.
 │   │       ├── notify/        Channels, Telegram bot
 │   │       ├── acme/          Certificate center
 │   │       ├── features/      Panel-side orchestration per feature (thin)
-│   │       └── cli/           `unpanel` subcommands (admin reset, backup, doctor, ...)
+│   │       └── cli/           `unpanel` subcommands (service control, recovery, backup, doctor, ...)
 │   ├── agent/
 │   │   └── src/
 │   │       ├── main.ts

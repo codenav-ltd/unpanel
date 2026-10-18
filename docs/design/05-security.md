@@ -134,7 +134,7 @@ The policy guard runs after schema validation and before the handler; denials re
 
 - Master key: 32 random bytes in `/etc/unpanel/master.key`, mode 0600, owned by `unpanel`, generated at install time.
 - Cipher: AES-256-GCM with a fresh 12-byte random nonce per value; AAD = `<table>:<column>:<row id>`, so ciphertext cannot be copied to another row.
-- Format: `v1:<keyId>:<base64url(nonce|ciphertext|tag)>`. `keyId` supports master-key rotation (`unpanel admin rotate-master-key` re-encrypts every field).
+- Format: `v1:<keyId>:<base64url(nonce|ciphertext|tag)>`. `keyId` supports master-key rotation (`unpanel rotate-master-key` re-encrypts every field).
 - Encrypted fields: TOTP secrets, Telegram bot tokens, DNS provider credentials, S3/WebDAV credentials, certificate private keys, ACME account keys, webhook signing secrets.
 - Plaintext stays in memory as briefly as possible and is never logged (pino `redact` list).
 
@@ -142,7 +142,7 @@ The policy guard runs after schema validation and before the handler; denials re
 
 - Records: time, actor (user / token / CLI / system), source IP, action (method or route), target (node + resource), parameter summary (secrets redacted), outcome, duration.
 - All writes and dangerous operations are recorded. Reads are recorded only when sensitive (viewing a private key, downloading a file, opening a terminal).
-- **Tamper evidence**: every record includes `prevHash` and `hash = sha256(prevHash || canonicalJSON(record))`, forming a hash chain. `unpanel admin audit verify` checks the chain. Optionally, the daily chain head can be sent to Telegram/webhook as an external anchor.
+- **Tamper evidence**: every record includes `prevHash` and `hash = sha256(prevHash || canonicalJSON(record))`, forming a hash chain. `unpanel audit verify` checks the chain. Optionally, the daily chain head can be sent to Telegram/webhook as an external anchor.
 - Retention: 180 days by default, configurable.
 
 ## 7. Dependencies and supply chain
@@ -154,7 +154,7 @@ The policy guard runs after schema validation and before the handler; denials re
 
 ## 8. Incident response
 
-- `unpanel admin lockdown` (see [design/04](./04-auth.md) §11).
+- `unpanel lockdown` (see [design/04](./04-auth.md) §11).
 - On any node, `unpanel-agent policy set panel.read_only=true` takes effect immediately (it edits the local policy and reloads).
 - Runbook: "Suspected panel compromise" in [kb/runbooks.md](../kb/runbooks.md).
 

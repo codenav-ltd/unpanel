@@ -26,5 +26,6 @@ ADRs record *why*. The code shows what the system is; ADRs explain why it is tha
 | [0010](./0010-https-by-default.md) | HTTPS by default (starting with a self-signed certificate) | Accepted |
 | [0011](./0011-agpl-license.md) | AGPL-3.0-or-later | Accepted |
 | [0012](./0012-one-edition.md) | One edition, with every feature free | Accepted |
+| [0013](./0013-one-panel-command.md) | One panel command: `unpanel` | Accepted |
 
 "Q" numbers refer to [open-questions.md](../open-questions.md).
