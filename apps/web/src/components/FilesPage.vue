@@ -35,6 +35,7 @@ import {
 } from "@ant-design/icons-vue";
 import ActionMenu from "./ActionMenu.vue";
 import AppDialog from "./AppDialog.vue";
+import FileArchiveDialog from "./FileArchiveDialog.vue";
 import FileTransferDialog from "./FileTransferDialog.vue";
 import FileTree from "./FileTree.vue";
 import ReauthenticateDialog from "./ReauthenticateDialog.vue";
@@ -44,6 +45,7 @@ import {
   crumbs,
   filesClient,
   FilesRequestError,
+  isArchive,
   isFolder,
   joinPath,
   modeString,
@@ -441,6 +443,7 @@ function rowActions(entry: FileEntry) {
       { id: "duplicate", label: en.files.duplicate, shortcut: shortcut("mod+d") },
       { id: "copyTo", label: en.files.copyTo, separator: true },
       { id: "moveTo", label: en.files.moveTo },
+      { id: "compress", label: en.files.compressMenu },
       {
         id: "delete",
         label: en.files.delete,
@@ -450,13 +453,21 @@ function rowActions(entry: FileEntry) {
       },
     ];
   const folder = isFolder(entry);
+  const archive = isArchive(entry);
   return [
     { id: "open", label: en.files.open, shortcut: "Enter" },
     { id: "download", label: folder ? en.files.downloadFolder : en.files.download },
+    ...(archive
+      ? [
+          { id: "extractHere", label: en.files.extractHere, separator: true },
+          { id: "extractTo", label: en.files.extractTo },
+        ]
+      : []),
     { id: "rename", label: en.files.rename, separator: true, shortcut: "F2" },
     { id: "duplicate", label: en.files.duplicate, shortcut: shortcut("mod+d") },
     { id: "copyTo", label: en.files.copyTo },
     { id: "moveTo", label: en.files.moveTo },
+    { id: "compress", label: en.files.compressMenu },
     { id: "cut", label: en.files.cut, separator: true, shortcut: shortcut("mod+x") },
     { id: "copyItems", label: en.files.copy, shortcut: shortcut("mod+c") },
     { id: "copy", label: en.files.copyPath },
@@ -485,6 +496,9 @@ function rowAction(entry: FileEntry, action: string): void {
   else if (action === "rename") openName("rename", entry);
   else if (action === "duplicate") void duplicate(items);
   else if (action === "copyTo" || action === "moveTo") openTransfer(action, items);
+  else if (action === "compress") compressing.value = items.map(fullPath);
+  else if (action === "extractHere") void extractHere(entry);
+  else if (action === "extractTo") transfer.value = { mode: "extract", sources: [fullPath(entry)] };
   else if (action === "cut" || action === "copyItems") {
     selection.value = select(emptySelection, order.value, entry.name, "replace");
     if (items.length > 1)
@@ -686,20 +700,60 @@ async function duplicate(items: FileEntry[]): Promise<void> {
   await reveal(produced);
 }
 
-/* Copy to… and Move to… */
-const transfer = ref<{ mode: "copy" | "move"; sources: string[] } | null>(null);
+/* Copy to…, Move to… and Extract to… */
+const transfer = ref<{ mode: "copy" | "move" | "extract"; sources: string[] } | null>(null);
 
-async function transferred(destination: string, count: number): Promise<void> {
+async function transferred(destination: string, count: number, produced: string[]): Promise<void> {
   const current = transfer.value;
   if (!current) return;
   const subject =
     count === 1 && current.sources.length === 1
       ? baseName(current.sources[0] ?? "")
       : en.files.itemCount.replace("{count}", String(count));
-  status.value = (current.mode === "move" ? en.files.movedTo : en.files.copiedTo)
-    .replace("{name}", subject)
-    .replace("{path}", destination);
-  await load();
+  status.value =
+    current.mode === "extract"
+      ? en.files.extracted.replace("{name}", produced[0] ?? destination)
+      : (current.mode === "move" ? en.files.movedTo : en.files.copiedTo)
+          .replace("{name}", subject)
+          .replace("{path}", destination);
+  // Into this folder: select what arrived. Elsewhere: what moved away is gone from here.
+  if (destination === path.value) await reveal(produced);
+  else await load();
+}
+
+/* Compress… and Extract here */
+const compressing = ref<string[] | null>(null);
+const takenNames = computed(() => new Set(listing.value?.entries.map((entry) => entry.name)));
+
+async function compressed(to: string): Promise<void> {
+  compressing.value = null;
+  status.value = en.files.compressed.replace("{name}", baseName(to));
+  await reveal([to]);
+}
+
+/** Unpacks into a new folder beside the archive, named by the agent. */
+async function extractHere(entry: FileEntry): Promise<void> {
+  if (working.value) return;
+  working.value = {
+    label: en.files.extracting.replace("{name}", entry.name),
+    done: 0,
+    total: 1,
+  };
+  failure.value = "";
+  try {
+    const result = await withStepUp(() => client.extract(fullPath(entry), path.value));
+    if (!result) return;
+    const name = baseName(result.path);
+    status.value = result.skipped
+      ? en.files.extractSkipped.replace("{name}", name).replace("{count}", String(result.skipped))
+      : en.files.extracted.replace("{name}", name);
+    working.value = null;
+    await reveal([result.path]);
+  } catch (error) {
+    failure.value = `${entry.name}: ${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    working.value = null;
+  }
 }
 
 async function copyPath(entry: FileEntry): Promise<void> {
@@ -1376,6 +1430,13 @@ defineExpose({ reload: load });
                 <span>{{ en.files.moveTo }}</span>
               </button>
               <button
+                type="button"
+                class="bar-action"
+                @click="compressing = selected.map(fullPath)"
+              >
+                <span>{{ en.files.compressMenu }}</span>
+              </button>
+              <button
                 v-if="selected.length === 1 && selected[0]"
                 type="button"
                 class="bar-action"
@@ -1660,6 +1721,15 @@ defineExpose({ reload: load });
         </button>
       </template>
     </AppDialog>
+
+    <FileArchiveDialog
+      :client="client"
+      :sources="compressing"
+      :taken="takenNames"
+      :guard="withStepUp"
+      @done="compressed"
+      @close="compressing = null"
+    />
 
     <FileTransferDialog
       :client="client"
@@ -2015,8 +2085,10 @@ button.files-icon[aria-pressed="false"] {
 }
 .files-selbar {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  container-type: inline-size;
   gap: 2px;
   min-height: 40px;
   padding: 4px 8px;
@@ -2104,12 +2176,8 @@ button.bar-action.files-selbar-danger:hover {
   gap: 8px;
   overflow-wrap: anywhere;
 }
-@media (max-width: 760px) {
-  .files-selbar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
+/* The list's own width decides, since the tree beside it takes a varying share. */
+@container (max-width: 860px) {
   .files-selbar .bar-action:has(.anticon) > span:not(.anticon) {
     display: none;
   }

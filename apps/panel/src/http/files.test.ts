@@ -169,6 +169,21 @@ describe("files API", () => {
     });
   });
 
+  it("audits packing and unpacking with what was packed", async () => {
+    mkdirSync(join(root, "site"));
+    writeFileSync(join(root, "site", "index.html"), "hi");
+    const to = join(root, "site.zip");
+    expect((await post("archive", { paths: [join(root, "site")], to, format: "zip" })).status).toBe(
+      200,
+    );
+    const unpacked = await post("extract", { path: to, into: root });
+    expect(await unpacked.json()).toMatchObject({ data: { path: join(root, "site-2") } });
+    expect(audit.map((entry) => [entry.action, entry.target, entry.params])).toEqual([
+      ["fs.archive", to, { format: "zip", items: 1, paths: [join(root, "site")] }],
+      ["fs.extract", `${to} → ${root}`, undefined],
+    ]);
+  });
+
   it("checks an upload target before the body is sent", async () => {
     writeFileSync(join(root, "taken"), "");
     const check = async (name: string) =>

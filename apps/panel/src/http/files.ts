@@ -121,6 +121,8 @@ export function registerFilesApi(
     "mkdir",
     "rename",
     "copy",
+    "archive",
+    "extract",
     "delete",
     "chmod",
     "chown",
@@ -160,15 +162,25 @@ export function registerFilesApi(
       const target =
         operation === "rename" || operation === "copy"
           ? `${String(params["from"])} → ${String(params["to"])}`
-          : String(params["path"]);
+          : operation === "archive"
+            ? String(params["to"])
+            : operation === "extract"
+              ? `${String(params["path"])} → ${String(params["into"])}`
+              : String(params["path"]);
       const details =
-        operation === "chmod"
-          ? { mode: Number(params["mode"]).toString(8), recursive: params["recursive"] }
-          : operation === "chown"
-            ? { owner: params["owner"], group: params["group"], recursive: params["recursive"] }
-            : operation === "delete"
-              ? { recursive: params["recursive"] }
-              : undefined;
+        operation === "archive"
+          ? {
+              format: params["format"],
+              items: (params["paths"] as string[]).length,
+              paths: (params["paths"] as string[]).slice(0, 20),
+            }
+          : operation === "chmod"
+            ? { mode: Number(params["mode"]).toString(8), recursive: params["recursive"] }
+            : operation === "chown"
+              ? { owner: params["owner"], group: params["group"], recursive: params["recursive"] }
+              : operation === "delete"
+                ? { recursive: params["recursive"] }
+                : undefined;
       try {
         const data = await options.call(c.req.param("id"), method, params);
         if (audited.has(operation)) record(c, user, `fs.${operation}`, target, undefined, details);

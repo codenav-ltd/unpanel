@@ -103,6 +103,19 @@ export function filesClient(node: string) {
     rename: (from: string, to: string) => post("rename", { from, to }, TRANSFER_TIMEOUT_MS),
     copy: (from: string, to: string) =>
       post<{ skipped: number }>("copy", { from, to }, TRANSFER_TIMEOUT_MS),
+    archive: (paths: string[], to: string, format: ArchiveFormat) =>
+      post<{ size: number; skipped: number }>(
+        "archive",
+        { paths, to, format },
+        TRANSFER_TIMEOUT_MS,
+      ),
+    /** Unpacks into a new folder in `into`; returns where it went. */
+    extract: (path: string, into: string) =>
+      post<{ path: string; entries: number; skipped: number }>(
+        "extract",
+        { path, into },
+        TRANSFER_TIMEOUT_MS,
+      ),
     remove: (path: string, recursive: boolean) => post("delete", { path, recursive }),
     chmod: (path: string, mode: number, recursive: boolean) =>
       post("chmod", { path, mode, recursive }),
@@ -194,6 +207,31 @@ export function copyName(name: string, folder: boolean, taken: ReadonlySet<strin
   const stem = name.slice(0, name.length - extension.length);
   for (let index = 1; ; index += 1) {
     const candidate = `${stem}-copy${index === 1 ? "" : `-${index}`}${extension}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+export type ArchiveFormat = "tar.gz" | "zip";
+
+const ARCHIVE_NAME = /\.(?:zip|tar|tar\.gz|tgz)$/i;
+
+/** Whether the agent can unpack this entry (modules/terminal-files.md §2.2). */
+export const isArchive = (entry: FileEntry): boolean =>
+  (entry.type === "file" || (entry.type === "link" && entry.targetType === "file")) &&
+  ARCHIVE_NAME.test(entry.name);
+
+/**
+ * A free name for a new archive: `site` → `site.tar.gz`, then `site-2.tar.gz`. An archive
+ * extension already on `stem` is replaced, so `site.zip` → `site.tar.gz` switches formats.
+ */
+export function archiveName(
+  stem: string,
+  format: ArchiveFormat,
+  taken: ReadonlySet<string>,
+): string {
+  const base = stem.replace(ARCHIVE_NAME, "") || "archive";
+  for (let index = 1; ; index += 1) {
+    const candidate = `${base}${index === 1 ? "" : `-${index}`}.${format}`;
     if (!taken.has(candidate)) return candidate;
   }
 }

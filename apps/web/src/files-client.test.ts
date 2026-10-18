@@ -4,8 +4,10 @@
 import { describe, expect, it } from "vitest";
 import {
   baseName,
+  archiveName,
   copyName,
   crumbs,
+  isArchive,
   joinPath,
   modeString,
   normalizePath,
@@ -81,6 +83,23 @@ describe("sortEntries", () => {
     const items = [entry("a", "file", 30, 1), entry("b", "file", 10, 3), entry("c", "file", 20, 2)];
     expect(sortEntries(items, "size", false).map((item) => item.name)).toEqual(["b", "c", "a"]);
     expect(sortEntries(items, "mtime", true).map((item) => item.name)).toEqual(["b", "c", "a"]);
+  });
+});
+
+describe("archives", () => {
+  it("names a new archive after its contents under a free name", () => {
+    expect(archiveName("site", "tar.gz", new Set())).toBe("site.tar.gz");
+    expect(archiveName("site", "zip", new Set(["site.zip"]))).toBe("site-2.zip");
+    expect(archiveName("site.zip", "tar.gz", new Set())).toBe("site.tar.gz");
+    expect(archiveName("", "zip", new Set())).toBe("archive.zip");
+  });
+
+  it("offers extraction only for files it can read", () => {
+    expect(isArchive(entry("a.tar.gz", "file"))).toBe(true);
+    expect(isArchive(entry("a.TGZ", "file"))).toBe(true);
+    expect(isArchive({ ...entry("a.zip", "link"), targetType: "file" })).toBe(true);
+    expect(isArchive(entry("a.zip", "dir"))).toBe(false);
+    expect(isArchive(entry("a.tar.xz", "file"))).toBe(false);
   });
 });
 

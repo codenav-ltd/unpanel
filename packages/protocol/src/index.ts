@@ -82,10 +82,12 @@ export {
   type TermOpenParams,
 } from "./methods/term.ts";
 export {
+  FS_ARCHIVE_ITEMS,
   FS_LIST_LIMIT,
   FS_READ_LIMIT,
   FS_TRANSFER_TIMEOUT_MS,
   FS_UPLOAD_LIMIT,
+  fsArchiveFormat,
   fsCapabilityMeta,
   fsDownload,
   fsEntry,
@@ -93,6 +95,7 @@ export {
   fsOperations,
   fsPath,
   fsUpload,
+  type FsArchiveFormat,
   type FsEntry,
   type FsOperation,
   type FsWriteParams,

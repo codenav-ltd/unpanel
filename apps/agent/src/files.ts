@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 CodeNav Ltd and contributors
 
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { constants, realpathSync, readFileSync, statSync } from "node:fs";
+import { constants, createReadStream, realpathSync, readFileSync, statSync } from "node:fs";
 import {
   chmod,
   chown,
@@ -13,14 +14,17 @@ import {
   mkdir,
   open,
   opendir,
+  readdir,
   readlink,
   realpath,
   rename,
   rm,
   rmdir,
   stat,
+  statfs,
   symlink,
   unlink,
+  utimes,
 } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -29,10 +33,22 @@ import {
   FS_READ_LIMIT,
   fsMethods,
   type ErrorCode,
+  type FsArchiveFormat,
   type FsEntry,
   type FsOperation,
   type FsWriteParams,
 } from "@unpanel/protocol";
+import {
+  ArchiveError,
+  readTar,
+  readTarGz,
+  readZip,
+  sniff,
+  zipDirectory,
+  ZipWriter,
+  type ArchiveEntry,
+  type ArchiveItem,
+} from "./archive-formats.ts";
 
 /** A file operation refused with a protocol error code and a sentence for the UI. */
 export class FilesError extends Error {
@@ -158,6 +174,7 @@ type Accounts = ReturnType<typeof createAccounts>;
 /** Turns a filesystem error into a refusal the UI can show. */
 export function filesFailure(error: unknown, path: string): FilesError {
   if (error instanceof FilesError) return error;
+  if (error instanceof ArchiveError) return new FilesError("E_PRECONDITION", error.message);
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   switch (code) {
     case "ENOENT":
@@ -407,26 +424,7 @@ export function createFiles(
       const tmp = await temp(real, content, parent, 0o644).catch((error: unknown) => {
         throw filesFailure(error, path);
       });
-      try {
-        // A hard link fails atomically when the name was taken meanwhile.
-        await link(tmp, real).catch(async (error: unknown) => {
-          const code = (error as NodeJS.ErrnoException).code ?? "";
-          // Filesystems without hard links get a checked rename instead.
-          if (!["EPERM", "ENOTSUP", "EOPNOTSUPP", "EMLINK"].includes(code)) throw error;
-          if (
-            await lstat(real).then(
-              () => true,
-              () => false,
-            )
-          )
-            throw new FilesError("E_CONFLICT", `${path} already exists.`);
-          await rename(tmp, real);
-        });
-      } catch (error) {
-        throw filesFailure(error, path);
-      } finally {
-        await unlink(tmp).catch(() => undefined);
-      }
+      await placeNew(tmp, real, path);
       const stats = await stat(real);
       return { mtime: stats.mtimeMs, size: stats.size };
     }
@@ -554,6 +552,230 @@ export function createFiles(
     return { status: "ok" as const };
   }
 
+  /** Items of one folder, checked for packing: returns their real paths and that folder. */
+  async function packable(paths: string[]) {
+    const reals: string[] = [];
+    for (const path of paths) {
+      const real = await guard.entry(path);
+      const stats = await lstat(real).catch((error: unknown) => {
+        throw filesFailure(error, path);
+      });
+      if (stats.isDirectory()) guard.tree(real, path);
+      reals.push(real);
+    }
+    const folder = dirname(reals[0] ?? "/");
+    if (reals.some((real) => dirname(real) !== folder))
+      throw new FilesError("E_INVALID_PARAMS", "Choose items from one folder.");
+    if (new Set(reals).size !== reals.length)
+      throw new FilesError("E_INVALID_PARAMS", "An item is listed twice.");
+    return { reals, folder };
+  }
+
+  async function archive(paths: string[], to: string, format: FsArchiveFormat) {
+    const { reals, folder } = await packable(paths);
+    const target = await guard.entry(to);
+    if (reals.some((real) => within(target, real)))
+      throw new FilesError(
+        "E_INVALID_PARAMS",
+        "Save the archive outside the folders being packed.",
+      );
+    if (await exists(target))
+      throw new FilesError("E_CONFLICT", `${to} already exists. Choose another name.`);
+    const parent = await stat(dirname(target)).catch((error: unknown) => {
+      throw filesFailure(error, dirname(to));
+    });
+    if (!parent.isDirectory())
+      throw new FilesError("E_PRECONDITION", `${dirname(to)} is not a folder.`);
+    const tmp = join(
+      dirname(target),
+      `.${basename(target)}.unpanel-archive-${randomBytes(4).toString("hex")}`,
+    );
+    let skipped = 0;
+    try {
+      if (format === "tar.gz")
+        await tarGz(
+          folder,
+          reals.map((real) => basename(real)),
+          tmp,
+        );
+      else skipped = await zipItems(reals, tmp);
+      await chmod(tmp, 0o644);
+      await inherit(tmp, parent);
+    } catch (error) {
+      await rm(tmp, { force: true }).catch(() => undefined);
+      throw filesFailure(error, to);
+    }
+    await placeNew(tmp, target, to);
+    return { status: "ok" as const, size: (await stat(target)).size, skipped };
+  }
+
+  /** Packs `reals` into a new zip at `out`; returns how many entries were left out. */
+  async function zipItems(reals: string[], out: string): Promise<number> {
+    const handle = await open(out, "wx", 0o600);
+    let skipped = 0;
+    try {
+      const zip = new ZipWriter(handle);
+      const add = async (real: string, name: string): Promise<void> => {
+        const stats = await lstat(real);
+        const base = { mode: stats.mode & 0o7777, mtime: stats.mtimeMs };
+        if (stats.isSymbolicLink())
+          await zip.add({ name, type: "symlink", ...base }, Buffer.from(await readlink(real)));
+        else if (stats.isFile())
+          await zip.add({ name, type: "file", ...base }, createReadStream(real));
+        else if (stats.isDirectory()) {
+          await zip.add({ name: `${name}/`, type: "dir", ...base });
+          const names = (await readdir(real)).sort();
+          for (const child of names) await add(join(real, child), `${name}/${child}`);
+        } else skipped += 1;
+      };
+      for (const real of reals) await add(real, basename(real));
+      await zip.finish();
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    return skipped;
+  }
+
+  async function extract(path: string, into: string) {
+    const { real } = await regularFile(path);
+    const folder = await guard.existing(into);
+    const owner = await stat(folder).catch((error: unknown) => {
+      throw filesFailure(error, into);
+    });
+    if (!owner.isDirectory()) throw new FilesError("E_PRECONDITION", `${into} is not a folder.`);
+    const tmp = join(folder, `.unpanel-extract-${randomBytes(4).toString("hex")}`);
+    try {
+      await mkdir(tmp, 0o700);
+    } catch (error) {
+      throw filesFailure(error, into);
+    }
+    try {
+      const { entries, skipped } = await unpack(real, path, tmp, await spaceFor(folder));
+      // One top folder becomes the result itself, instead of `site/site`.
+      const top = await readdir(tmp, { withFileTypes: true });
+      const only = top.length === 1 ? top[0] : undefined;
+      const single = only?.isDirectory() ? only.name : null;
+      const name = await freeName(folder, single ?? archiveStem(basename(path)));
+      const destination = join(into, name);
+      await guard.entry(destination);
+      if (single) {
+        await rename(join(tmp, single), join(folder, name));
+        await rmdir(tmp);
+      } else {
+        await chmod(tmp, 0o755);
+        await rename(tmp, join(folder, name));
+      }
+      if (isRoot()) await lchown(join(folder, name), owner.uid, owner.gid);
+      await syncDir(folder);
+      return { status: "ok" as const, path: destination, entries, skipped };
+    } catch (error) {
+      await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
+      throw filesFailure(error, path);
+    }
+  }
+
+  /**
+   * Writes every entry of the archive at `real` below `tmp`: folders and files first, links
+   * last, so no entry is ever written through a link; then folder modes and times.
+   */
+  async function unpack(real: string, shown: string, tmp: string, budget: number) {
+    const handle = await open(real, "r");
+    try {
+      const head = Buffer.alloc(512);
+      const { bytesRead } = await handle.read(head, 0, 512, 0);
+      const format = sniff(head.subarray(0, bytesRead));
+      let items: AsyncIterable<ArchiveItem>;
+      if (format === "zip") {
+        const records = await zipDirectory(handle, (await handle.stat()).size);
+        const total = records.reduce((sum, record) => sum + record.entry.size, 0);
+        if (total > budget) throw tooLarge(shown);
+        items = readZip(handle, real, records);
+      } else if (format === "tar") items = readTar(createReadStream(real));
+      else if (format === "tar.gz") items = readTarGz(createReadStream(real));
+      else
+        throw new FilesError(
+          "E_PRECONDITION",
+          `${shown} is not a zip, tar or tar.gz archive. Unpack it in a terminal.`,
+        );
+
+      const folders = new Map<string, ArchiveEntry>();
+      const links: { path: string; target: string }[] = [];
+      let entries = 0;
+      let skipped = 0;
+      let written = 0;
+      for await (const { entry, body } of items) {
+        entries += 1;
+        if (entries > EXTRACT_ENTRIES)
+          throw new FilesError(
+            "E_PRECONDITION",
+            `${shown} has more than ${EXTRACT_ENTRIES.toLocaleString("en")} entries. Unpack it in a terminal.`,
+          );
+        const target = join(tmp, entry.path);
+        if (entry.type === "dir") {
+          await mkdir(target, { recursive: true, mode: 0o700 });
+          folders.set(target, entry);
+        } else if (entry.type === "file" && body) {
+          await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+          await vacate(target, entry.path);
+          const out = await open(target, "wx", 0o600);
+          try {
+            for await (const chunk of body) {
+              written += chunk.length;
+              if (written > budget) throw tooLarge(shown);
+              await out.write(chunk);
+            }
+          } finally {
+            await out.close();
+          }
+          await chmod(target, entry.mode === null ? 0o644 : entry.mode & 0o777);
+          if (entry.mtime !== null) await utimes(target, entry.mtime / 1000, entry.mtime / 1000);
+        } else if (entry.type === "hardlink" && entry.target) {
+          // Only a file this archive already unpacked; never a path outside it.
+          const source = join(tmp, entryPathOrSkip(entry.target));
+          const found = await lstat(source).catch(() => null);
+          if (found?.isFile() && source !== tmp) {
+            await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+            await vacate(target, entry.path);
+            await link(source, target);
+          } else skipped += 1;
+        } else if (entry.type === "symlink" && entry.target)
+          links.push({ path: entry.path, target: entry.target });
+        else skipped += 1;
+      }
+      for (const entry of links) {
+        const target = join(tmp, entry.path);
+        // A link unpacked just before may sit where a folder is expected; never go through it.
+        if (
+          !(await plainFolders(tmp, entry.path)) ||
+          (await lstat(target).catch(() => null))?.isDirectory()
+        ) {
+          skipped += 1;
+          continue;
+        }
+        await rm(target, { force: true });
+        await symlink(entry.target, target);
+      }
+      const owner = await stat(dirname(tmp));
+      for await (const found of walk(tmp)) {
+        if (isRoot()) await lchown(found.path, owner.uid, owner.gid);
+        // Folders the archive did not list (only their contents) get the usual mode.
+        if (!found.link && !folders.has(found.path) && (await lstat(found.path)).isDirectory())
+          await chmod(found.path, 0o755);
+      }
+      // Last and deepest first: a folder's mode may close it, and its contents would change
+      // its time.
+      const deepest = [...folders].sort(([a], [b]) => b.length - a.length);
+      for (const [target, entry] of deepest) {
+        await chmod(target, entry.mode === null ? 0o755 : entry.mode & 0o777);
+        if (entry.mtime !== null) await utimes(target, entry.mtime / 1000, entry.mtime / 1000);
+      }
+      return { entries, skipped };
+    } finally {
+      await handle.close();
+    }
+  }
+
   async function remove(path: string, recursive: boolean) {
     const real = await guard.entry(path);
     guard.unprotected(real, path);
@@ -642,6 +864,14 @@ export function createFiles(
           return move(String(params["from"]), String(params["to"]));
         case "copy":
           return copy(String(params["from"]), String(params["to"]));
+        case "archive":
+          return archive(
+            params["paths"] as string[],
+            String(params["to"]),
+            params["format"] as FsArchiveFormat,
+          );
+        case "extract":
+          return extract(params.path, String(params["into"]));
         case "delete":
           return remove(params.path, params["recursive"] === true);
         case "chmod": {
@@ -684,4 +914,118 @@ async function syncDir(path: string): Promise<void> {
   if (!handle) return;
   await handle.sync().catch(() => undefined);
   await handle.close();
+}
+
+/** More entries than this is not something to unpack from a browser. */
+const EXTRACT_ENTRIES = 200_000;
+
+/**
+ * A file name an archive can unpack to without a later entry replacing a folder; a file
+ * listed twice is replaced, as tar does.
+ */
+async function vacate(target: string, shown: string): Promise<void> {
+  const found = await lstat(target).catch(() => null);
+  if (!found) return;
+  if (found.isDirectory())
+    throw new ArchiveError(`The archive has ${shown} as both a folder and a file.`);
+  await unlink(target);
+}
+
+function entryPathOrSkip(target: string): string {
+  const parts = target
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter((part) => part && part !== ".");
+  // An escaping target resolves to the temp folder itself, which is never a file.
+  return parts.includes("..") || target.startsWith("/") ? "" : parts.join("/");
+}
+
+/**
+ * Makes sure every folder between `root` and the entry at `path` is a real folder, creating
+ * missing ones. False when one of them is a link or a file.
+ */
+async function plainFolders(root: string, path: string): Promise<boolean> {
+  let at = root;
+  for (const part of path.split("/").slice(0, -1)) {
+    at = join(at, part);
+    const found = await lstat(at).catch(() => null);
+    if (!found) await mkdir(at, 0o700);
+    else if (!found.isDirectory()) return false;
+  }
+  return true;
+}
+
+/** Bytes an archive may unpack to: the free space less 1 GiB, so the server keeps running. */
+async function spaceFor(folder: string): Promise<number> {
+  const info = await statfs(folder);
+  return Math.max(0, info.bavail * info.bsize - 1024 ** 3);
+}
+
+const tooLarge = (shown: string): FilesError =>
+  new FilesError(
+    "E_PRECONDITION",
+    `${shown} unpacks to more than the free space on this disk allows (Unpanel keeps 1 GiB free).`,
+  );
+
+/** `site.tar.gz` → `site`, `backup.zip` → `backup`, `dump.bin` → `dump`. */
+export function archiveStem(name: string): string {
+  const stem = name.replace(/\.(?:tar\.gz|tgz|tar|zip)$/i, "");
+  if (stem !== name) return stem || "archive";
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(0, dot) : name;
+}
+
+/** `name`, or `name-2`, `name-3`, … whichever is free in `folder`. */
+async function freeName(folder: string, name: string): Promise<string> {
+  for (let index = 1; index < 1000; index += 1) {
+    const candidate = index === 1 ? name : `${name}-${index}`;
+    if (!(await exists(join(folder, candidate)))) return candidate;
+  }
+  throw new FilesError("E_CONFLICT", `Too many folders are named like ${name}. Rename some.`);
+}
+
+/** Packs `names` of `folder` into a tar.gz at `out` with the system tar, links kept as links. */
+function tarGz(folder: string, names: string[], out: string): Promise<void> {
+  return new Promise((done, fail) => {
+    const child = spawn("tar", ["-czf", out, "-C", folder, "--", ...names], {
+      stdio: ["ignore", "ignore", "pipe"],
+      // macOS tar would add `._name` metadata files; other systems ignore this.
+      env: { ...process.env, COPYFILE_DISABLE: "1" },
+    });
+    let errors = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (errors.length < 4096) errors += chunk.toString("utf8");
+    });
+    child.on("error", (error) =>
+      fail(new FilesError("E_EXTERNAL", `tar could not be started: ${error.message}.`)),
+    );
+    child.on("close", (code) => {
+      // GNU tar exits 1 when a file changed while it was read; the archive is still whole.
+      if (code === 0 || code === 1) done();
+      else {
+        const line = errors.trim().split("\n").at(-1) ?? "";
+        fail(new FilesError("E_EXTERNAL", `tar failed${line ? `: ${line}` : ""}.`));
+      }
+    });
+  });
+}
+
+/**
+ * Puts the finished temp file `tmp` at `real` without replacing anything: a hard link fails
+ * atomically when the name was taken meanwhile. The temp name is removed either way.
+ */
+async function placeNew(tmp: string, real: string, shown: string): Promise<void> {
+  try {
+    await link(tmp, real).catch(async (error: unknown) => {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      // Filesystems without hard links get a checked rename instead.
+      if (!["EPERM", "ENOTSUP", "EOPNOTSUPP", "EMLINK"].includes(code)) throw error;
+      if (await exists(real)) throw new FilesError("E_CONFLICT", `${shown} already exists.`);
+      await rename(tmp, real);
+    });
+  } catch (error) {
+    throw filesFailure(error, shown);
+  } finally {
+    await unlink(tmp).catch(() => undefined);
+  }
 }

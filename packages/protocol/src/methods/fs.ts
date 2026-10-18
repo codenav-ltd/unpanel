@@ -50,6 +50,11 @@ const recursive = { recursive: z.boolean().default(false) };
 /** Copies and moves between filesystems run as long as the data takes, up to this. */
 export const FS_TRANSFER_TIMEOUT_MS = 10 * 60_000;
 
+/** How many items one archive can be made from. */
+export const FS_ARCHIVE_ITEMS = 1000;
+export const fsArchiveFormat = z.enum(["tar.gz", "zip"]);
+export type FsArchiveFormat = z.infer<typeof fsArchiveFormat>;
+
 function fsMethod<Params, Result>(
   name: string,
   risk: "read" | "write" | "danger",
@@ -122,6 +127,37 @@ export const fsMethods = {
     z.object({ from: fsPath, to: fsPath }).strict(),
     /** `skipped` counts sockets, pipes and devices, which are not copied. */
     z.object({ status: z.literal("ok"), skipped: z.number().int().nonnegative() }),
+    { timeoutMs: FS_TRANSFER_TIMEOUT_MS, since: "0.1.0-alpha.46" },
+  ),
+  archive: fsMethod(
+    "archive",
+    "write",
+    z
+      .object({
+        /** Items of one folder. */
+        paths: z.array(fsPath).min(1).max(FS_ARCHIVE_ITEMS),
+        to: fsPath,
+        format: fsArchiveFormat,
+      })
+      .strict(),
+    z.object({
+      status: z.literal("ok"),
+      size: z.number().nonnegative(),
+      skipped: z.number().int().nonnegative(),
+    }),
+    { timeoutMs: FS_TRANSFER_TIMEOUT_MS, since: "0.1.0-alpha.46" },
+  ),
+  extract: fsMethod(
+    "extract",
+    "write",
+    z.object({ path: fsPath, into: fsPath }).strict(),
+    /** `path` is the new folder; `skipped` counts entries that were not unpacked. */
+    z.object({
+      status: z.literal("ok"),
+      path: z.string(),
+      entries: z.number().int().nonnegative(),
+      skipped: z.number().int().nonnegative(),
+    }),
     { timeoutMs: FS_TRANSFER_TIMEOUT_MS, since: "0.1.0-alpha.46" },
   ),
   delete: fsMethod("delete", "danger", z.object({ path: fsPath, ...recursive }).strict(), ok),
