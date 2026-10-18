@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import os from "node:os";
 import { hostInfoSchema, type HostInfo } from "@unpanel/protocol";
 import { product } from "@unpanel/shared";
+import { cpuModel } from "./cpu-model.ts";
 
 /** Best-effort host facts. Linux reads /etc/os-release; other systems use Node's os module. */
 export function collectHostInfo(): HostInfo {
@@ -18,7 +19,7 @@ export function collectHostInfo(): HostInfo {
     kernel: os.release(),
     arch,
     cpu: {
-      model: cpus[0]?.model ?? "unknown",
+      model: cpuModel(cpus[0]?.model),
       cores: threads,
       threads,
     },
