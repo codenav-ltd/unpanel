@@ -235,7 +235,7 @@ const confirm = useConfirmDanger();  // await confirm({ title, typeToConfirm: co
 
 - uPlot instances are reused per component; points live in `Float64Array` ring buffers outside the reactivity system (`shallowRef` + manual `setData`).
 - Updates are coalesced with `requestAnimationFrame`, at most one render per frame.
-- Small trend lines (`Sparkline` default `percent` scale) follow their peak so small changes stay visible. Charts that are read for their value, such as System history, use `scale="full"` with 0/50/100% reference lines, so a line's height matches the percentage.
+- Percentage charts (`Sparkline` default `full` scale) always draw 0–100%, so a line's height matches its value: the dashboard's CPU, memory, swap and storage tiles and System history, which adds 0/50/100% reference lines. Only unbounded values (throughput, connections) use `scale="auto"`, which follows the peak.
 - Live charts keep the last 5 minutes (150 points at 2 s). Selecting a historical range fetches over HTTP and stops live appends.
 
 ## 7. Key components
@@ -243,7 +243,7 @@ const confirm = useConfirmDanger();  // await confirm({ title, typeToConfirm: co
 | Component | Purpose |
 |---|---|
 | `PulseRail` | The node pulse strip (§2.3) |
-| `VitalTile` | Resource card: figure, detail, average, peak, and a sparkline scaled to the recent peak. Load-scale coloring |
+| `VitalTile` | Resource card: figure, detail, average, peak, and a sparkline on the fixed 0–100% scale. Load-scale coloring |
 | `HistoryDialog` | System history: CPU / Memory / Storage tabs and 1h / 24h / 7d windows of persisted minute averages |
 | `MetricChart` | uPlot wrapper: multiple series, unit formatting (bytes/rates/percent), hover readout, theme-aware |
 | `NodeStatusDot` | Online (solid green) / offline (red) / maintenance (grey striped) / alerting (orange, pulses once then solid) |

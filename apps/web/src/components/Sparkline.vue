@@ -14,15 +14,15 @@ const props = withDefaults(
     /** A second line drawn in the muted colour, for upload against download. */
     compare?: readonly (number | null)[];
     /**
-     * `percent` follows the peak and falls back to 0–100 while flat at zero, which suits small
-     * trend lines. `full` always draws 0–100 so a reading's height matches its value.
+     * `full` always draws 0–100 so a percentage's height matches its value. `auto` follows the
+     * peak, for values with no upper bound such as throughput.
      */
-    scale?: "percent" | "full" | "auto";
+    scale?: "full" | "auto";
     height?: number;
     /** Sample under the pointer. A gap stays a gap and is not drawn as zero. */
     cursor?: number | null;
   }>(),
-  { compare: () => [], scale: "percent", height: 62, cursor: null },
+  { compare: () => [], scale: "full", height: 62, cursor: null },
 );
 
 const emit = defineEmits<{ hover: [index: number | null] }>();
@@ -37,14 +37,13 @@ const uid = useId().replaceAll(":", "");
 const fillId = `spark-fill-${uid}`;
 const compareId = `spark-compare-${uid}`;
 
-/** Y max follows the peak, the same way 3x-ui's overview sparkline does, unless the scale is full. */
+/** On the auto scale, Y max follows the peak the same way 3x-ui's overview sparkline does. */
 const chart = computed(() => {
   const primary = numeric(props.samples);
   if (primary.length === 0) return null;
   const secondary = numeric(props.compare);
   const peak = Math.max(...primary, ...secondary);
-  const max =
-    props.scale === "full" ? 100 : peak > 0 ? peak * 1.1 : props.scale === "percent" ? 100 : 1;
+  const max = props.scale === "full" ? 100 : peak > 0 ? peak * 1.1 : 1;
   const height = props.height;
   const yOf = (value: number): number =>
     height - (Math.min(max, Math.max(0, value)) / max) * (height - 2) - 1;

@@ -193,7 +193,6 @@ watch(tab, () => {
       <div class="history-plot">
         <Sparkline
           :samples="samples"
-          scale="full"
           :height="220"
           :cursor="cursor"
           :label="`${labels[tab]}, ${windowLabel}`"
