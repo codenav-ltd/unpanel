@@ -671,7 +671,17 @@ export const en = {
     cancelUpload: "Cancel upload of {name}",
     dismiss: "Dismiss",
     dropHere: "Drop to upload to {path}",
-    folderUpload: "Folders cannot be uploaded yet. Upload the files inside, or a .tar.gz.",
+    uploadOntoFolder: "A folder with this name is already there, so the file was not uploaded.",
+    uploadFolder: "Upload folder",
+    uploadedFolder: "Uploaded {name} ({count} files)",
+    uploadCount: "{done} of {total} files",
+    uploadTruncated:
+      "Only the first {count} files were queued. Upload larger folders as a .tar.gz or .zip and extract them here.",
+    replaceRest: "Do the same for the other {count} files in this upload",
+    moveDropped: "Moved {name} into {path}.",
+    copyDropped: "Copied {name} into {path}.",
+    dropMove: "Move to {path}",
+    dropCopy: "Copy to {path}",
     verify:
       "Confirm your identity to read or change files. You will not be asked again for five minutes.",
     forbidden: "Only owners and admins can use the file manager.",

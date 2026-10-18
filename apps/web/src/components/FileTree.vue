@@ -25,6 +25,14 @@ const props = defineProps<{
   pending: string;
   /** Without a listing beside it (a folder picker), the tree loads the current folder itself. */
   standalone?: boolean;
+  /** The folder a drag would drop into, highlighted. */
+  dropTarget?: string | null;
+  /** Lets folders take drops; `over` says whether this one can. */
+  drops?: {
+    over: (path: string, event: DragEvent) => boolean;
+    leave: (path: string, event: DragEvent) => void;
+    drop: (path: string, event: DragEvent) => void;
+  };
 }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
 
@@ -72,6 +80,40 @@ function toggle(path: string): void {
     expanded.add(path);
     void load(path);
   }
+}
+
+/** A closed folder opens when a drag rests on it, so a drop can reach deeper. */
+const SPRING_MS = 700;
+let spring: { path: string; timer: ReturnType<typeof setTimeout> } | null = null;
+
+function onDragOver(path: string, event: DragEvent): void {
+  if (!props.drops?.over(path, event)) return;
+  if (spring?.path === path || expanded.has(path)) return;
+  if (spring) clearTimeout(spring.timer);
+  spring = {
+    path,
+    timer: setTimeout(() => {
+      spring = null;
+      if (!expanded.has(path)) toggle(path);
+    }, SPRING_MS),
+  };
+}
+
+function onDragLeave(path: string, event: DragEvent): void {
+  props.drops?.leave(path, event);
+  if (
+    spring?.path === path &&
+    !(event.currentTarget as Node).contains(event.relatedTarget as Node)
+  ) {
+    clearTimeout(spring.timer);
+    spring = null;
+  }
+}
+
+function onDrop(path: string, event: DragEvent): void {
+  if (spring) clearTimeout(spring.timer);
+  spring = null;
+  props.drops?.drop(path, event);
 }
 
 /** The tree rendered as rows, depth first through the open folders. */
@@ -147,8 +189,12 @@ defineExpose({ show });
           class="file-tree-name"
           :aria-current="row.path === current ? 'location' : undefined"
           :aria-busy="row.path === pending || undefined"
+          :data-drop="dropTarget === row.path || undefined"
           :title="row.path"
           @click="emit('navigate', row.path)"
+          @dragover="onDragOver(row.path, $event)"
+          @dragleave="onDragLeave(row.path, $event)"
+          @drop="onDrop(row.path, $event)"
         >
           <FolderOutlined aria-hidden="true" /><span>{{ row.name }}</span>
         </button>
@@ -214,6 +260,11 @@ defineExpose({ show });
 .file-tree-name :deep(.anticon) {
   flex: none;
   color: var(--text-3);
+}
+.file-tree-name[data-drop] {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  box-shadow: inset 0 0 0 1px var(--primary);
+  color: var(--text);
 }
 .file-tree-name[aria-current="location"] {
   background: var(--bg-hover);

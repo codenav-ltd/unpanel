@@ -44,7 +44,6 @@ import {
   baseName,
   crumbs,
   filesClient,
-  FilesRequestError,
   isArchive,
   isFolder,
   joinPath,
@@ -68,6 +67,14 @@ import {
   shortcut,
   type Selection,
 } from "../files-selection.ts";
+import {
+  droppedSet,
+  pickedSet,
+  UPLOAD_FILE_LIMIT,
+  useUploads,
+  type Upload,
+  type UploadSet,
+} from "../files-uploads.ts";
 import { formatBytes } from "../format.ts";
 import { en } from "../i18n/en.ts";
 import { needsStepUp, useStepUp } from "../step-up.ts";
@@ -520,6 +527,7 @@ const backgroundActions = computed(() => [
   { id: "newFile", label: en.files.newFile },
   { id: "newFolder", label: en.files.newFolder },
   { id: "upload", label: en.files.uploadFiles },
+  { id: "uploadFolder", label: en.files.uploadFolder },
   ...(clip.value
     ? [
         {
@@ -559,6 +567,7 @@ function backgroundAction(action: string): void {
   if (action === "newFile") openName("file");
   else if (action === "newFolder") openName("folder");
   else if (action === "upload") picker.value?.click();
+  else if (action === "uploadFolder") folderPicker.value?.click();
   else if (action === "paste") void paste();
   else if (action === "selectAll") selectAll();
   else if (action === "toggleHidden") toggleHidden();
@@ -993,127 +1002,86 @@ async function submitPermissions(): Promise<void> {
   await load();
 }
 
-/* Uploads: one at a time, each confirmed before its bytes are sent. */
-interface Upload {
-  id: number;
-  name: string;
-  folder: string;
-  file: File;
-  sent: number;
-  state: "queued" | "uploading" | "done" | "failed" | "cancelled";
-  error: string;
-  controller: AbortController;
-}
-const uploads = ref<Upload[]>([]);
+/* Uploads (files-uploads.ts) */
 const picker = ref<HTMLInputElement | null>(null);
-const replaceDialog = ref<{ upload: Upload; decide: (replace: boolean) => void } | null>(null);
+const folderPicker = ref<HTMLInputElement | null>(null);
+const replaceDialog = ref<{
+  upload: Upload;
+  others: number;
+  all: boolean;
+  decide: (replace: boolean) => void;
+} | null>(null);
 const dragging = ref(false);
 /** Enter and leave fire for every child; the count says whether the pointer is still inside. */
 let dragDepth = 0;
-let nextUpload = 1;
-let pumping = false;
+let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
-function enqueue(files: Iterable<File>): void {
-  uploads.value = uploads.value.filter((item) => item.state !== "cancelled");
-  for (const file of files)
-    uploads.value.push({
-      id: nextUpload++,
-      name: file.name,
-      folder: path.value,
-      file,
-      sent: 0,
-      state: "queued",
-      error: "",
-      controller: new AbortController(),
-    });
-  void pump();
-}
+const uploads = useUploads({
+  client,
+  guard: withStepUp,
+  askReplace: (upload, others) =>
+    new Promise((resolve) => {
+      replaceDialog.value = {
+        upload,
+        others,
+        all: false,
+        decide: (replace) => {
+          const all = replaceDialog.value?.all ?? false;
+          replaceDialog.value = null;
+          resolve({ replace, all });
+        },
+      };
+    }),
+  progressed: (folder) => {
+    if (folder !== path.value || reloadTimer) return;
+    // A folder upload finishes many files a second; the listing catches up twice a second.
+    reloadTimer = setTimeout(() => {
+      reloadTimer = undefined;
+      void load();
+    }, 500);
+  },
+  finished: (row) => {
+    status.value = row.group
+      ? en.files.uploadedFolder.replace("{name}", row.label).replace("{count}", String(row.files))
+      : en.files.uploaded.replace("{name}", row.label);
+  },
+});
+const uploadList = uploads.rows;
 
-function askReplace(upload: Upload): Promise<boolean> {
-  return new Promise((resolve) => {
-    replaceDialog.value = {
-      upload,
-      decide: (replace) => {
-        replaceDialog.value = null;
-        resolve(replace);
-      },
-    };
-  });
-}
-
-async function pump(): Promise<void> {
-  if (pumping) return;
-  pumping = true;
-  try {
-    for (
-      let next = uploads.value.find((item) => item.state === "queued");
-      next;
-      next = uploads.value.find((item) => item.state === "queued")
-    ) {
-      const upload = next;
-      upload.state = "uploading";
-      const target = joinPath(upload.folder, upload.name);
-      try {
-        const found = await withStepUp(() => client.uploadCheck(target));
-        if (found === null) {
-          upload.state = "cancelled";
-          continue;
-        }
-        if (found.exists && (found.type !== "file" || !(await askReplace(upload)))) {
-          upload.state = "cancelled";
-          continue;
-        }
-        await client.upload(target, upload.file, {
-          overwrite: found.exists,
-          signal: upload.controller.signal,
-          progress: (sent) => (upload.sent = sent),
-        });
-        upload.sent = upload.file.size;
-        upload.state = "done";
-        status.value = en.files.uploaded.replace("{name}", upload.name);
-        if (upload.folder === path.value) void load();
-        globalThis.setTimeout(() => dismiss(upload), 4000);
-      } catch (error) {
-        if (error instanceof FilesRequestError && error.code === "E_CANCELLED")
-          upload.state = "cancelled";
-        else {
-          upload.state = "failed";
-          upload.error = error instanceof Error ? error.message : String(error);
-        }
-      }
-    }
-  } finally {
-    pumping = false;
-  }
-}
-
-function cancelUpload(upload: Upload): void {
-  if (upload.state === "queued") upload.state = "cancelled";
-  else upload.controller.abort();
-}
-
-function dismiss(upload: Upload): void {
-  // By id: the queue hands out reactive proxies, so object identity is not reliable.
-  uploads.value = uploads.value.filter((item) => item.id !== upload.id);
+function enqueue(set: UploadSet, folder = path.value): void {
+  if (set.truncated)
+    failure.value = en.files.uploadTruncated.replace(
+      "{count}",
+      UPLOAD_FILE_LIMIT.toLocaleString("en"),
+    );
+  if (set.sources.length || set.folders.length) uploads.enqueue(set, folder);
 }
 
 function onPick(event: Event): void {
   const input = event.target as HTMLInputElement;
-  if (input.files) enqueue([...input.files]);
+  if (input.files) enqueue(pickedSet(input.files));
   input.value = "";
 }
 
-function onDrop(event: DragEvent): void {
+/** Files and folders from the computer, into `folder` (a folder row) or the open folder. */
+function dropUpload(event: DragEvent, folder = path.value): void {
   dragDepth = 0;
   dragging.value = false;
-  const items = [...(event.dataTransfer?.items ?? [])];
-  const folders = items.some((item) => item.webkitGetAsEntry?.()?.isDirectory);
-  if (folders) failure.value = en.files.folderUpload;
-  const files = items
-    .filter((item) => item.kind === "file" && !item.webkitGetAsEntry?.()?.isDirectory)
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => file !== null);
-  if (files.length) enqueue(files);
+  // Taken now: the browser empties the list once this handler returns.
+  const entries = [...(event.dataTransfer?.items ?? [])]
+    .filter((item) => item.kind === "file")
+    .map((item) => item.webkitGetAsEntry())
+    .filter((entry): entry is FileSystemEntry => entry !== null);
+  droppedSet(entries).then(
+    (set) => enqueue(set, folder),
+    (error: unknown) => (failure.value = error instanceof Error ? error.message : String(error)),
+  );
+}
+
+function onDrop(event: DragEvent): void {
+  if (event.dataTransfer?.types.includes("Files")) dropUpload(event);
+  dragDepth = 0;
+  dragging.value = false;
 }
 
 function onDragOver(event: DragEvent): void {
@@ -1132,10 +1100,123 @@ function onDragLeave(): void {
   if (dragDepth === 0) dragging.value = false;
 }
 
-const activeUploads = computed(() => uploads.value.filter((item) => item.state !== "cancelled"));
+/* Dragging rows onto folders */
+const DRAG_TYPE = "application/x-unpanel-files";
+/** Full paths this page is dragging; a drag from elsewhere carries nothing we act on. */
+const dragged = ref<string[] | null>(null);
+/** The folder under the pointer that a drop would go into. */
+const dropTarget = ref<string | null>(null);
+
+/** Alt (⌥) or Ctrl copies instead of moving, as in desktop file managers. */
+const copies = (event: DragEvent): boolean => event.altKey || event.ctrlKey;
+
+function onRowDragStart(entry: FileEntry, event: DragEvent): void {
+  // An unselected row moves alone; selecting it now would open the selection bar and shift
+  // the list under the pointer.
+  const items = selection.value.names.has(entry.name) ? selected.value : [entry];
+  dragged.value = items.map(fullPath);
+  const transfer = event.dataTransfer;
+  if (!transfer) return;
+  transfer.effectAllowed = "copyMove";
+  transfer.setData(DRAG_TYPE, JSON.stringify(dragged.value));
+  transfer.setData("text/plain", dragged.value.join("\n"));
+  if (items.length > 1) {
+    const ghost = document.createElement("div");
+    ghost.textContent = en.files.itemCount.replace("{count}", String(items.length));
+    ghost.style.cssText =
+      "position:fixed;top:-100px;left:0;padding:4px 10px;border-radius:6px;" +
+      "background:var(--primary);color:#fff;font:600 12px/1.5 system-ui,sans-serif";
+    document.body.append(ghost);
+    transfer.setDragImage(ghost, -12, -8);
+    setTimeout(() => ghost.remove());
+  }
+}
+
+function onRowDragEnd(): void {
+  dragged.value = null;
+  dropTarget.value = null;
+}
+
+/** What of the dragged items would actually move into `folder`; empty when nothing would. */
+function dropPlan(folder: string): string[] {
+  const paths = dragged.value ?? [];
+  // Never into an item itself or anything inside it.
+  if (paths.some((item) => folder === item || folder.startsWith(`${item}/`))) return [];
+  return paths.filter((item) => parentOf(item) !== folder);
+}
+
+/** Whether a drag over `folder` can drop there; says so to the browser and highlights it. */
+function dragOverFolder(folder: string, event: DragEvent): boolean {
+  const transfer = event.dataTransfer;
+  if (!transfer) return false;
+  const ours = transfer.types.includes(DRAG_TYPE);
+  if (ours ? !dropPlan(folder).length : !transfer.types.includes("Files")) {
+    if (dropTarget.value === folder) dropTarget.value = null;
+    return false;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  transfer.dropEffect = ours ? (copies(event) ? "copy" : "move") : "copy";
+  dropTarget.value = folder;
+  return true;
+}
+
+function leaveFolder(folder: string, event: DragEvent): void {
+  const into = event.relatedTarget as Node | null;
+  if ((event.currentTarget as Node).contains(into)) return;
+  if (dropTarget.value === folder) dropTarget.value = null;
+}
+
+async function dropOnFolder(folder: string, event: DragEvent): Promise<void> {
+  const transfer = event.dataTransfer;
+  if (!transfer) return;
+  dropTarget.value = null;
+  if (!transfer.types.includes(DRAG_TYPE)) {
+    if (!transfer.types.includes("Files")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dropUpload(event, folder);
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  const plan = dropPlan(folder);
+  const copy = copies(event);
+  dragged.value = null;
+  if (!plan.length || working.value) return;
+  const produced = await batch(
+    copy ? en.files.copying : en.files.moving,
+    plan.map((from) => {
+      const to = joinPath(folder, baseName(from));
+      return {
+        name: baseName(from),
+        result: to,
+        work: () => (copy ? client.copy(from, to) : client.rename(from, to)),
+      };
+    }),
+  );
+  if (produced.length)
+    status.value = (copy ? en.files.copyDropped : en.files.moveDropped)
+      .replace(
+        "{name}",
+        produced.length === 1
+          ? baseName(produced[0] ?? "")
+          : en.files.itemCount.replace("{count}", String(produced.length)),
+      )
+      .replace("{path}", folder);
+  if (folder === path.value) await reveal(produced);
+  else await load();
+}
+
+/** Drop handlers for the folder tree. */
+const treeDrops = {
+  over: dragOverFolder,
+  leave: leaveFolder,
+  drop: (folder: string, event: DragEvent) => void dropOnFolder(folder, event),
+};
 
 function onBeforeUnload(event: BeforeUnloadEvent): void {
-  if (!uploads.value.some((item) => item.state === "uploading" || item.state === "queued")) return;
+  if (!uploads.busy.value) return;
   event.preventDefault();
 }
 
@@ -1177,7 +1258,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   globalThis.removeEventListener("popstate", onPop);
   globalThis.removeEventListener("beforeunload", onBeforeUnload);
-  for (const upload of uploads.value) upload.controller.abort();
+  uploads.abortAll();
+  clearTimeout(reloadTimer);
 });
 
 defineExpose({ reload: load });
@@ -1201,6 +1283,7 @@ defineExpose({ reload: load });
           <FileAddOutlined aria-hidden="true" />{{ en.files.newFile }}
         </button>
         <input ref="picker" type="file" multiple hidden @change="onPick" />
+        <input ref="folderPicker" type="file" webkitdirectory hidden @change="onPick" />
       </div>
     </header>
 
@@ -1235,6 +1318,8 @@ defineExpose({ reload: load });
           :current="path"
           :pending="loading ? path : ''"
           :roots="treeRoots"
+          :drop-target="dropTarget"
+          :drops="treeDrops"
           @navigate="go"
         />
       </aside>
@@ -1284,7 +1369,11 @@ defineExpose({ reload: load });
                 <button
                   type="button"
                   :aria-current="index === trail.length - 1 ? 'location' : undefined"
+                  :data-drop="dropTarget === crumb.path || undefined"
                   @click="go(crumb.path)"
+                  @dragover="dragOverFolder(crumb.path, $event)"
+                  @dragleave="leaveFolder(crumb.path, $event)"
+                  @drop="dropOnFolder(crumb.path, $event)"
                 >
                   {{ crumb.name }}
                 </button>
@@ -1531,9 +1620,17 @@ defineExpose({ reload: load });
                   :data-flash="flashed.has(entry.name) || undefined"
                   :data-selected="selection.names.has(entry.name) || undefined"
                   :data-cursor="cursor === entry.name || undefined"
+                  :data-drop="dropTarget === fullPath(entry) || undefined"
+                  :data-dragged="dragged?.includes(fullPath(entry)) || undefined"
+                  draggable="true"
                   @click="onRowClick(entry, $event)"
                   @dblclick="openEntry(entry)"
                   @contextmenu.prevent="onRowMenu(entry, $event)"
+                  @dragstart="onRowDragStart(entry, $event)"
+                  @dragend="onRowDragEnd"
+                  @dragover="isFolder(entry) && dragOverFolder(fullPath(entry), $event)"
+                  @dragleave="isFolder(entry) && leaveFolder(fullPath(entry), $event)"
+                  @drop="isFolder(entry) && dropOnFolder(fullPath(entry), $event)"
                 >
                   <td class="files-check-cell" @click.stop>
                     <input
@@ -1626,7 +1723,7 @@ defineExpose({ reload: load });
               @action="backgroundAction"
             />
             <p v-if="dragging" class="files-drop" aria-hidden="true">
-              {{ en.files.dropHere.replace("{path}", path) }}
+              {{ en.files.dropHere.replace("{path}", dropTarget ?? path) }}
             </p>
           </div>
         </template>
@@ -1643,24 +1740,33 @@ defineExpose({ reload: load });
           @download="editing && downloadPath(editing.path)"
         />
 
-        <section v-if="activeUploads.length" class="files-uploads" :aria-label="en.files.uploads">
+        <section v-if="uploadList.length" class="files-uploads" :aria-label="en.files.uploads">
           <div
-            v-for="upload in activeUploads"
-            :key="upload.id"
+            v-for="row in uploadList"
+            :key="row.batch"
             class="files-upload"
-            :data-state="upload.state"
+            :data-state="row.state"
           >
             <div class="files-upload-line">
-              <span class="files-upload-name">{{ upload.name }}</span>
+              <FolderFilled v-if="row.group" class="files-folder" aria-hidden="true" />
+              <span class="files-upload-name">{{ row.label }}</span>
               <span class="files-upload-figure">
-                {{ formatBytes(upload.sent) }} / {{ formatBytes(upload.file.size) }}
+                <template v-if="row.group"
+                  >{{
+                    en.files.uploadCount
+                      .replace("{done}", String(row.finished))
+                      .replace("{total}", String(row.files))
+                  }}
+                  ·
+                </template>
+                {{ formatBytes(row.sent) }} / {{ formatBytes(row.size) }}
               </span>
               <button
-                v-if="upload.state === 'queued' || upload.state === 'uploading'"
+                v-if="row.state === 'active'"
                 type="button"
                 class="quiet files-icon"
-                :aria-label="en.files.cancelUpload.replace('{name}', upload.name)"
-                @click="cancelUpload(upload)"
+                :aria-label="en.files.cancelUpload.replace('{name}', row.label)"
+                @click="uploads.cancel(row.batch)"
               >
                 <CloseOutlined aria-hidden="true" />
               </button>
@@ -1669,7 +1775,7 @@ defineExpose({ reload: load });
                 type="button"
                 class="quiet files-icon"
                 :aria-label="en.files.dismiss"
-                @click="dismiss(upload)"
+                @click="uploads.dismiss(row.batch)"
               >
                 <CloseOutlined aria-hidden="true" />
               </button>
@@ -1677,20 +1783,27 @@ defineExpose({ reload: load });
             <div
               class="meter"
               role="progressbar"
-              :aria-label="en.files.uploading.replace('{name}', upload.name)"
-              :aria-valuenow="Math.round((upload.sent / Math.max(1, upload.file.size)) * 100)"
+              :aria-label="en.files.uploading.replace('{name}', row.label)"
+              :aria-valuenow="Math.round((row.sent / Math.max(1, row.size)) * 100)"
               aria-valuemin="0"
               aria-valuemax="100"
             >
               <span
                 class="meter-fill"
                 :data-level="
-                  upload.state === 'failed' ? 'danger' : upload.state === 'done' ? 'ok' : undefined
+                  row.state === 'failed' ? 'danger' : row.state === 'done' ? 'ok' : undefined
                 "
-                :style="{ transform: `scaleX(${upload.sent / Math.max(1, upload.file.size)})` }"
+                :style="{ transform: `scaleX(${row.sent / Math.max(1, row.size)})` }"
               />
             </div>
-            <p v-if="upload.error" class="files-upload-error">{{ upload.error }}</p>
+            <ul v-if="row.failures.length" class="files-upload-error">
+              <li v-for="item in row.failures.slice(0, 5)" :key="item.name">
+                <template v-if="row.group">{{ item.name }}: </template>{{ item.error }}
+              </li>
+              <li v-if="row.failures.length > 5">
+                {{ en.files.andMore.replace("{count}", String(row.failures.length - 5)) }}
+              </li>
+            </ul>
           </div>
         </section>
       </div>
@@ -1863,14 +1976,21 @@ defineExpose({ reload: load });
       :title="en.files.replaceTitle.replace('{name}', replaceDialog?.upload.name ?? '')"
       @close="replaceDialog?.decide(false)"
     >
-      <p v-if="replaceDialog" class="hint files-wrap">
-        {{
-          en.files.replaceBody.replace(
-            "{path}",
-            joinPath(replaceDialog.upload.folder, replaceDialog.upload.name),
-          )
-        }}
-      </p>
+      <template v-if="replaceDialog">
+        <p class="hint files-wrap">
+          {{
+            en.files.replaceBody.replace(
+              "{path}",
+              joinPath(replaceDialog.upload.folder, replaceDialog.upload.name),
+            )
+          }}
+        </p>
+        <label v-if="replaceDialog.others" class="account-check files-replace-rest">
+          <input v-model="replaceDialog.all" type="checkbox" />{{
+            en.files.replaceRest.replace("{count}", String(replaceDialog.others))
+          }}
+        </label>
+      </template>
       <template #footer>
         <button type="button" class="quiet" @click="replaceDialog?.decide(false)">
           {{ en.files.skip }}
@@ -2001,6 +2121,35 @@ button.files-icon {
 .files-crumbs button[aria-current="location"] {
   color: var(--text);
   font-weight: 600;
+}
+.files-crumbs button[data-drop] {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  box-shadow: inset 0 0 0 1px var(--primary);
+  color: var(--text);
+}
+.files-table tbody tr[data-drop] {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.files-table tbody tr[data-dragged] {
+  opacity: 0.5;
+}
+/* Rows cannot carry a shadow; the cells draw the outline. */
+.files-table tbody tr[data-drop] td {
+  box-shadow:
+    inset 0 1px 0 var(--primary),
+    inset 0 -1px 0 var(--primary);
+}
+.files-table tbody tr[data-drop] td:first-child {
+  box-shadow:
+    inset 1px 0 0 var(--primary),
+    inset 0 1px 0 var(--primary),
+    inset 0 -1px 0 var(--primary);
+}
+.files-table tbody tr[data-drop] td:last-child {
+  box-shadow:
+    inset -1px 0 0 var(--primary),
+    inset 0 1px 0 var(--primary),
+    inset 0 -1px 0 var(--primary);
 }
 .files-sep {
   color: var(--text-3);
@@ -2425,9 +2574,17 @@ th.files-num {
   background: var(--primary);
 }
 .files-upload-error {
+  display: grid;
+  gap: 2px;
   margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
   color: var(--danger);
   font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.files-replace-rest {
+  margin-top: 12px;
 }
 .files-empty {
   display: grid;
