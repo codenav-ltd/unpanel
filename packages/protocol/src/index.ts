@@ -42,6 +42,14 @@ export {
   type PanelUpgradeResult,
   type ServiceControlResult,
 } from "./methods/control.ts";
+export {
+  ENDPOINT_URL_LIMIT,
+  agentEndpointUpdate,
+  agentEndpointUrl,
+  endpointCapabilityMeta,
+  endpointUpdateResultSchema,
+  type EndpointUpdateResult,
+} from "./methods/endpoint.ts";
 export { hostSwap, swapResultSchema, type SwapResult } from "./methods/swap.ts";
 export { hostInfoSchema, systemInfo, type HostInfo } from "./methods/system.ts";
 export { metricsCpu } from "./methods/metrics.ts";

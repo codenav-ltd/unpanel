@@ -15,8 +15,10 @@ import { createDocker, DockerError } from "./docker.ts";
 import { createStreamHost, type StreamMethod } from "./stream-host.ts";
 import { FilesError, filesPolicy, type createFiles } from "./files.ts";
 import { detectWebroot } from "./webroot.ts";
+import type { createEndpoints } from "./endpoint.ts";
 import { dockerMethods, dockerOperations, fsMethods, fsOperations } from "@unpanel/protocol";
 import {
+  agentEndpointUpdate,
   agentUpgrade,
   certHttp01Detect,
   certHttp01Put,
@@ -47,6 +49,7 @@ const agentMethods = new Set([
   metricsCpu.name,
   panelUpgrade.name,
   agentUpgrade.name,
+  agentEndpointUpdate.name,
   panelRestart.name,
   panelStop.name,
   hostSwap.name,
@@ -69,6 +72,8 @@ export function connectAgent(options: {
   /** `ws://` or `wss://` URL of the panel's `/_agent/ws`. Used by remote nodes. */
   url?: string;
   tlsCa?: string;
+  /** A remote agent's saved panel addresses, tried in order; replaces `url` and `tlsCa`. */
+  endpoints?: ReturnType<typeof createEndpoints>;
   agentKey: KeyObject;
   panelPublicKey: KeyObject;
   agentId?: string;
@@ -93,16 +98,21 @@ export function connectAgent(options: {
   let socket: WebSocket | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let nonceA = "";
+  /** Index into the address list; advances when a connection fails before the panel is verified. */
+  let dial = 0;
   let streams: ReturnType<typeof createStreamHost> | undefined;
 
   const connect = (): void => {
     if (stopped) return;
     let panelVerified = false;
     nonceA = randomNonce();
-    socket = options.url
-      ? new WebSocket(options.url, {
+    const urls = options.endpoints?.urls() ?? (options.url ? [options.url] : []);
+    const url = urls[dial % Math.max(1, urls.length)];
+    const tlsCa = options.endpoints ? options.endpoints.tlsCa() : options.tlsCa;
+    socket = url
+      ? new WebSocket(url, {
           perMessageDeflate: false,
-          ...(options.tlsCa ? { ca: [...rootCertificates, options.tlsCa] } : {}),
+          ...(tlsCa ? { ca: [...rootCertificates, tlsCa] } : {}),
         })
       : new WebSocket("ws://127.0.0.1/_agent/ws", {
           perMessageDeflate: false,
@@ -169,6 +179,9 @@ export function connectAgent(options: {
                 version: product.version,
                 meta: { agentUpgrade: true },
               },
+              ...(options.endpoints
+                ? [{ name: "endpoint", meta: { urls: [...options.endpoints.urls()] } }]
+                : []),
               ...(options.capabilities ?? []).map((capability) => ({
                 ...capability,
                 version: product.version,
@@ -250,6 +263,46 @@ export function connectAgent(options: {
               }),
             );
           });
+      }
+      if (frame.t === "req" && frame.m === agentEndpointUpdate.name) {
+        const parsed = agentEndpointUpdate.params.safeParse(frame.p);
+        const endpoints = options.endpoints;
+        const replySocket = socket;
+        const reply = (result: Extract<TextFrame, { t: "res" }>): void => {
+          if (replySocket?.readyState === WebSocket.OPEN) replySocket.send(encodeTextFrame(result));
+        };
+        if (!endpoints)
+          reply({
+            t: "res",
+            id: frame.id,
+            ok: false,
+            e: { code: "E_UNSUPPORTED", msg: "This agent connects over the local socket." },
+          });
+        else if (!parsed.success)
+          reply({
+            t: "res",
+            id: frame.id,
+            ok: false,
+            e: {
+              code: "E_INVALID_PARAMS",
+              msg: "The panel address was not valid. Nothing was saved.",
+            },
+          });
+        else
+          void endpoints
+            .update(parsed.data)
+            .then((r) => reply({ t: "res", id: frame.id, ok: true, r }))
+            .catch((error: unknown) =>
+              reply({
+                t: "res",
+                id: frame.id,
+                ok: false,
+                e: {
+                  code: "E_INTERNAL",
+                  msg: `Could not save the panel address on this server: ${error instanceof Error ? error.message : "write failed"}`,
+                },
+              }),
+            );
       }
       if (frame.t === "req" && frame.m === hostSwap.name) {
         const parsed = hostSwap.params.safeParse(frame.p);
@@ -412,6 +465,9 @@ export function connectAgent(options: {
     socket.on("close", (code) => {
       host.closeAll();
       if (stopped || code === closeCode.replaced || code === closeCode.incompatible) return;
+      // Before the panel is verified this address failed, so try the next one. After a
+      // working session ends, start again from the newest address.
+      dial = panelVerified ? 0 : dial + 1;
       // A disabled or removed node backs off for an hour instead of reconnecting immediately.
       const delay = code === closeCode.disabled ? 60 * 60 * 1000 : 1000;
       timer = setTimeout(connect, delay);

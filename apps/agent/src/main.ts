@@ -5,6 +5,7 @@ import { createPublicKey, generateKeyPairSync, type KeyObject } from "node:crypt
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { product } from "@unpanel/shared";
 import { privateKeyFromPem, PROTOCOL_VERSION, publicKeyFromPem, termOpen } from "@unpanel/protocol";
+import { createEndpoints } from "./endpoint.ts";
 import { enrollAgent } from "./enroll.ts";
 import { collectHostInfo } from "./host-info.ts";
 import { connectAgent } from "./session.ts";
@@ -33,16 +34,32 @@ if (process.argv[2] === "enroll") {
   const agentKey = privateKeyFromPem(readFileSync(agentKeyFile, "utf8"));
   const panelPublicKey = publicKeyFromPem(readFileSync(panelPubFile, "utf8"));
   const tlsCa = process.env["UNPANEL_TLS_CA"];
+  const agentId = process.env["UNPANEL_AGENT_ID"];
+  // A remote agent learns new panel addresses at runtime and saves them in its env file.
+  const endpoints =
+    url && agentId
+      ? createEndpoints({
+          urls: [
+            url,
+            ...(process.env["UNPANEL_AGENT_FALLBACK_URLS"] ?? "").split(" ").filter(Boolean),
+          ],
+          ...(tlsCa ? { tlsCa: readFileSync(tlsCa, "utf8") } : {}),
+          envFile: process.env["UNPANEL_AGENT_ENV_FILE"] ?? `${product.paths.agentEtc}/agent.env`,
+          tlsCaFile: tlsCa ?? `${product.paths.agentEtc}/panel-tls.pem`,
+          agentId,
+          panelPublicKey,
+        })
+      : null;
   const policy = filesPolicy();
   const files = policy.enabled ? createFiles({ policy }) : null;
   const connect = (terminal: Awaited<ReturnType<typeof createTerminal>>): void => {
     connectAgent({
       ...(socketPath ? { socketPath } : {}),
-      ...(url ? { url } : {}),
-      ...(tlsCa ? { tlsCa: readFileSync(tlsCa, "utf8") } : {}),
+      ...(endpoints ? { endpoints } : url ? { url } : {}),
+      ...(!endpoints && tlsCa ? { tlsCa: readFileSync(tlsCa, "utf8") } : {}),
       agentKey,
       panelPublicKey,
-      ...(process.env["UNPANEL_AGENT_ID"] ? { agentId: process.env["UNPANEL_AGENT_ID"] } : {}),
+      ...(agentId ? { agentId } : {}),
       hostInfo: collectHostInfo,
       streams: new Map([
         ...(terminal ? ([[termOpen.name, terminal.method]] as const) : []),
