@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0-alpha.49] - 2026-10-18
+
 ### Fixed
 
 - Arm servers show their CPU, such as ARM Neoverse-N1 on AWS Graviton2 or HiSilicon TaiShan-v110 on Kunpeng 920, instead of "unknown". When the CPU cannot be named, the dashboard leaves the model out. Needs the agent from this release.
