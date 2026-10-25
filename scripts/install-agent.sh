@@ -7,7 +7,7 @@
 #     --panel URL --token TOKEN --agent-id ID --agent-url WS
 set -eu
 
-VERSION="0.1.0-alpha.49"
+VERSION="0.1.0-alpha.50"
 REF="v${VERSION}"
 RELEASE="https://github.com/codenav-ltd/unpanel/releases/download/${REF}"
 # The site mirror is tried first; GitHub serves the same files if it is missing or slow.
