@@ -175,7 +175,12 @@ export function createAlertEngine(options: {
     for (const seed of RECOMMENDED_RULES) persist(seeded(seed));
     db.prepare("INSERT INTO alert_meta VALUES ('seeded', '1')").run();
   }
-  function targets(rule: AlertRule, nodes: NodeRecord[], live: Map<string, NodeLive>): Target[] {
+  function targets(
+    rule: AlertRule,
+    nodes: NodeRecord[],
+    live: Map<string, NodeLive>,
+    open: IncidentRow[],
+  ): Target[] {
     if (rule.metric === "certificate" || rule.metric === "certificates")
       return options
         .certificates()
@@ -191,16 +196,30 @@ export function createAlertEngine(options: {
         node.status === "active" && (!rule.nodeIds.length || rule.nodeIds.includes(node.id)),
     );
     if (rule.metric === "container")
-      return watched.flatMap((node) => {
+      return watched.flatMap((node): Target[] => {
         const reading = live.get(node.id);
         const known = options.containers?.read(node.id);
         const nodeName = node.name || reading?.hostname || node.id;
+        // Not polled yet since the panel started: keep this node's open incidents waiting.
+        if (!known)
+          return open
+            .filter(
+              (incident) =>
+                incident.ruleId === rule.id &&
+                incident.targetId.startsWith(`${node.id}:container:`),
+            )
+            .map((incident) => ({
+              id: incident.targetId,
+              name: incident.targetName,
+              value: null,
+              maintenance: node.maintenance,
+            }));
         // Stale or offline: keep the last known containers with no reading, so open incidents wait.
         const current = Boolean(reading?.online && known?.fresh);
-        return (known?.containers ?? []).map((container) => ({
+        return known.containers.map((container) => ({
           id: `${node.id}:container:${container.name}`,
           name: `${container.name} on ${nodeName}`,
-          value: current ? (container.down ? 1 : 0) : null,
+          value: current && container.down !== null ? (container.down ? 1 : 0) : null,
           maintenance: node.maintenance,
           note: `Container ${container.name} ${container.note}`,
         }));
@@ -524,7 +543,7 @@ export function createAlertEngine(options: {
             .map((node) => node.id),
         );
       for (const rule of currentRules.filter((rule) => rule.enabled))
-        for (const target of targets(rule, nodes, live)) {
+        for (const target of targets(rule, nodes, live, open)) {
           const key = `${rule.id}:${target.id}`;
           valid.add(key);
           const state = pending.get(key) ?? {

@@ -71,4 +71,26 @@ describe("container watch", () => {
     clock = 91_000;
     expect(watch.read("n1")?.fresh).toBe(false);
   });
+
+  it("confirms a failure on the next poll, so removed --rm jobs never count", async () => {
+    let clock = 0;
+    let rows = [row("dead", "Dead", "b".repeat(64))];
+    const watch = createContainerWatch({ now: () => clock, list: async () => rows });
+    const poll = async () => {
+      watch.refresh(["n1"]);
+      await new Promise((resolve) => setTimeout(resolve));
+      clock += 30_000;
+    };
+    await poll();
+    expect(watch.read("n1")?.containers).toMatchObject([{ down: null, note: "is dead" }]);
+    // Docker finished removing it before the next poll.
+    rows = [];
+    await poll();
+    expect(watch.read("n1")?.containers).toEqual([]);
+    rows = [row("exited", "Exited (1) 5 seconds ago")];
+    await poll();
+    expect(watch.read("n1")?.containers).toMatchObject([{ down: null }]);
+    await poll();
+    expect(watch.read("n1")?.containers).toMatchObject([{ down: true }]);
+  });
 });

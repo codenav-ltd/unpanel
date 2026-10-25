@@ -4,7 +4,8 @@
 /** One container as the alert engine sees it. */
 export interface ContainerHealth {
   name: string;
-  down: boolean;
+  /** Null while a new failure waits for the next poll, since `--rm` jobs pass through dead. */
+  down: boolean | null;
   /** Completes "Container web …": "stopped with exit code 1". */
   note: string;
 }
@@ -85,6 +86,8 @@ export function createContainerWatch(options: {
   const busy = new Set<string>();
   const seenRunning = new Set<string>();
   const stoppedHere = new Set<string>();
+  /** Containers each node's last poll found down, by `<node>:<id>`. */
+  const downBefore = new Map<string, Set<string>>();
 
   async function poll(nodeId: string): Promise<void> {
     busy.add(nodeId);
@@ -92,6 +95,8 @@ export function createContainerWatch(options: {
     try {
       const rows = (await options.list(nodeId)) as Row[];
       const containers: ContainerHealth[] = [];
+      const before = downBefore.get(nodeId);
+      const down = new Set<string>();
       for (const row of rows) {
         const key = `${nodeId}:${row.Id}`;
         if (row.State === "running") {
@@ -99,8 +104,13 @@ export function createContainerWatch(options: {
           stoppedHere.delete(key);
         }
         const health = classify(row, seenRunning.has(key), stoppedHere.has(key));
+        if (health?.down) {
+          down.add(key);
+          if (!before?.has(key)) health.down = null;
+        }
         if (health) containers.push(health);
       }
+      downBefore.set(nodeId, down);
       latest.set(nodeId, { at: now(), containers });
     } catch {
       // Docker missing or the node unreachable: readings go stale and the engine waits.

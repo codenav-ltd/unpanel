@@ -210,6 +210,26 @@ describe("container rules", () => {
     expect(f.engine.incidents()[0]?.resolvedAt).not.toBeNull();
   });
 
+  it("waits on an unconfirmed failure and on a restart's first poll", () => {
+    const f = fixture();
+    f.engine.save(rule("container", 1, 1, [0, 300]));
+    f.state.containers = { fresh: true, containers: [{ ...down(), down: null }] };
+    f.at(0);
+    expect(f.engine.incidents()).toEqual([]);
+    f.state.containers = { fresh: true, containers: [down()] };
+    f.at(30_000);
+    expect(f.engine.incidents()).toMatchObject([{ resolvedAt: null }]);
+    // Restarted panel: no poll has returned yet.
+    f.state.containers = null;
+    f.at(15_000);
+    f.state.containers = { fresh: true, containers: [{ ...down(), down: null }] };
+    f.at(15_000);
+    f.state.containers = { fresh: true, containers: [down()] };
+    f.at(30_000);
+    expect(f.engine.incidents()).toMatchObject([{ resolvedAt: null }]);
+    expect(f.titles()).toEqual(["Unpanel · Warning: container"]);
+  });
+
   it("warn sooner than critical", () => {
     const f = fixture();
     expect(() => f.engine.save(rule("container", 1, 1, [300, 60]))).toThrow(/stopped container/);

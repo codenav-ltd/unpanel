@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- The Container down alert no longer fires for short-lived `docker run --rm` jobs, such as code sandboxes, that a check catches while Docker removes them. A container now counts as down once two checks in a row, 30 seconds apart, find it down. Restarting the panel no longer closes an open container alert and sends it again.
+
 ## [0.1.0-alpha.49] - 2026-10-18
 
 ### Fixed
