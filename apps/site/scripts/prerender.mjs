@@ -11,7 +11,9 @@ const site = fileURLToPath(new URL("..", import.meta.url));
 const dist = join(site, "dist");
 const ssr = join(site, "node_modules/.cache/site-ssr");
 
-const { render, allLocales } = await import(pathToFileURL(join(ssr, "entry-server.js")).href);
+const { render, allLocales, robotsTxt, sitemapXml } = await import(
+  pathToFileURL(join(ssr, "entry-server.js")).href
+);
 const template = await readFile(join(dist, "index.html"), "utf8");
 
 for (const placeholder of ["<!--app-lang-->", "<!--app-head-->", "<!--app-html-->"]) {
@@ -29,5 +31,10 @@ for (const locale of allLocales) {
   await writeFile(file, html);
   console.log(`prerendered ${page.file}`);
 }
+
+// Generated from the same locale list as the pages above (docs/design/11-website.md §7).
+await writeFile(join(dist, "robots.txt"), robotsTxt());
+await writeFile(join(dist, "sitemap.xml"), sitemapXml());
+console.log("wrote robots.txt, sitemap.xml");
 
 await rm(ssr, { recursive: true, force: true });

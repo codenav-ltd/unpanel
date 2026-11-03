@@ -15,6 +15,7 @@
 | Q13 | Who may use the file manager, and when must they confirm their identity? | Owners and admins only. Listing needs no confirmation; reading contents, downloading and every change need a sudo session (identity confirmed in the last five minutes) | Files, RBAC | [modules/terminal-files.md](./modules/terminal-files.md) §2.1 |
 | Q14 | Can an existing certificate change its HTTP-01 validation method (temporary listener ↔ web root)? | No. The method is fixed at issuance and reused by every renewal; request a new certificate for the domain to switch | Certificates | [modules/certificates.md](./modules/certificates.md) §3.2.1 |
 | Q16 | Should the website send Chinese-language browsers to `/zh/` automatically? | No. Both languages link to each other in the navigation; search engines get `hreflang` alternates | Website | [design/11](./design/11-website.md) §5 |
+| Q17 | Should the website answer unknown paths with 404, or keep sending them to `index.html`? | 404 (`try_files $uri $uri/ =404;`). The fallback made `/robots.txt`, `/sitemap.xml` and every mistyped URL a soft 404, and the site has no client-side routes. The host's plain 404 page is enough until the site has more than two pages (2026-11-03) | Website, host config | [design/11](./design/11-website.md) §7 |
 
 ## Decided
 

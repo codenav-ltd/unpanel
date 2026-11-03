@@ -112,3 +112,18 @@ Fonts are self-hosted from `@fontsource-variable` packages (OFL-1.1; they are bu
 - Works at 360 px wide without horizontal scrolling; the tour stacks and the measurement table scrolls inside its own container.
 - Keyboard: every interactive element is reachable and has a visible focus ring; the overview's servers are buttons.
 - Every figure that changes with a release is either generated or listed in §3.3.
+
+## 7. Search engines
+
+Each prerendered page carries its own `<html lang>`, title, description, canonical URL, `hreflang` alternates (every locale plus `x-default`, the English page), Open Graph tags with a 1200×630 image, and a JSON-LD block. `src/lib/seo.ts` derives all of it from the locale table in `src/i18n/index.ts` and from `product` in `@unpanel/shared`. The page heads, the sitemap and the prerendered files come from that one list, so they cannot disagree.
+
+| File | Contents |
+|---|---|
+| `sitemap.xml` | One `<url>` per locale page, each with `xhtml:link` alternates for every locale and `x-default`. No `lastmod`, `changefreq` or `priority`: the build does not know when the copy last changed, and a guessed date is worse than none. |
+| `robots.txt` | Allows everything and names the sitemap. Nothing is disallowed: crawlers need the hashed assets to render the page, and the installers, `channels.json` and `/releases/` are not linked from the page, so they are not crawled anyway. |
+
+`scripts/prerender.mjs` writes both to `dist/` next to the pages; they are deployed and checksum-verified like every other public file ([design/09](./09-deployment.md)). Only the pages are in the sitemap: `install.sh`, `install-agent.sh`, `channels.json`, `VERSION` and the release mirror are fetched by installers and panels, not read by people.
+
+The JSON-LD describes Unpanel as a `SoftwareApplication` that is also `SoftwareSourceCode`: the name, the page's description and language, the link-preview image, `applicationCategory` DeveloperApplication, `operatingSystem` Linux, the version, the SPDX licence URL, the install script as `installUrl`, this version's release page as `downloadUrl`, the repository, CodeNav Ltd as publisher, and a zero-price offer ([ADR-0012](../adr/0012-one-edition.md)). Every value comes from `product` or the locale file. There are no ratings, reviews or user counts, because none exist (§2).
+
+The host must answer paths that are not files with 404 ([design/09](./09-deployment.md), [Q17](../open-questions.md)). Returning the home page with status 200 for every path hid the absence of `robots.txt` and `sitemap.xml` and makes search engines report every mistyped URL as a soft 404. The site has no client-side routes, so nothing needs that fallback.
