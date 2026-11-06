@@ -46,7 +46,7 @@ Decisions taken while freezing the contract:
 
 `ssh.service`, `sshd.service`, `systemd-*`, `dbus*.service`, `networking.service`, `NetworkManager.service`, `systemd-networkd.service`, `docker.service`, `containerd.service`, `unpanel.service`.
 
-`unpanel-agent.service` cannot be stopped, disabled, or masked through this interface (once the agent stops, nothing can bring it back remotely). Restarting the agent uses the dedicated `agent.restart` method.
+`unpanel-agent.service` cannot be stopped, disabled, or masked through this interface (once the agent stops, nothing can bring it back remotely). Upgrading the agent uses the dedicated `agent.upgrade` method (there is no separate agent restart method yet). The refusal is `E_POLICY_DENIED`; a missing `confirm` on a protected unit is `E_PRECONDITION`.
 
 ## 3. Logs
 

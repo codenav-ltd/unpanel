@@ -183,9 +183,9 @@ export function registerServicesApi(
           ) === "refused"
         ) {
           const refusal = new ServicesHttpError(
-            "E_PRECONDITION",
+            "E_POLICY_DENIED",
             `${SERVICE_AGENT_UNIT} is the Unpanel agent itself and cannot be changed here. Nothing could bring the node back if it stopped.`,
-            412,
+            403,
           );
           record(refusal, true);
           return reply(c, refusal);

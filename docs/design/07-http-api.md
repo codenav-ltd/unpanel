@@ -47,7 +47,7 @@ Implemented in `apps/panel/src/http/services.ts`; the methods and schemas are in
 - Owners and admins only, on nodes they can see (`E_FORBIDDEN` 403 otherwise). Anonymous requests get `E_UNAUTHENTICATED` 401.
 - Reads need no step-up. Writes need a sudo session: `E_SUDO_REQUIRED` 403.
 - Parameters are validated with the protocol schema: `E_INVALID_PARAMS` 400.
-- Changes to `unpanel-agent.service` are refused in the panel as well as on the agent: `E_PRECONDITION` 412. Stopping or disabling a protected unit needs `confirm` set to the unit name; the agent enforces it and returns `E_PRECONDITION` 412.
+- Changes to `unpanel-agent.service` are refused in the panel as well as on the agent: `E_POLICY_DENIED` 403. Stopping or disabling a protected unit needs `confirm` set to the unit name; the agent enforces it and returns `E_PRECONDITION` 412.
 - A node without the `systemd` capability, or with an agent too old to have it, returns `E_CAPABILITY_MISSING` 409. Agent errors pass through with their code (`E_NODE_OFFLINE`, `E_TIMEOUT`, ...).
 - Every write is audited, on success and on failure: action `service.<operation>`, target the unit name (none for `daemonReload`), `params.detail` the sentence Logs shows ("Restarted nginx.service.", "Could not stop sshd.service."), plus `params.action` (`restart`, ...) or `params.now`. A change the panel refuses (`unpanel-agent.service`) is recorded with result `denied`. Reads, and journal content, are never audited or logged.
 

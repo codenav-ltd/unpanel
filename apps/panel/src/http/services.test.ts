@@ -213,15 +213,15 @@ describe("services API", () => {
     ];
     for (const [operation, body] of attempts) {
       const response = await post(operation, body);
-      expect(response.status).toBe(412);
-      expect((await errorOf(response)).code).toBe("E_PRECONDITION");
+      expect(response.status).toBe(403);
+      expect((await errorOf(response)).code).toBe("E_POLICY_DENIED");
     }
     expect(calls).toEqual([]);
     expect(audit).toHaveLength(4);
     expect(audit[0]).toMatchObject({
       action: "service.action",
       result: "denied",
-      errorCode: "E_PRECONDITION",
+      errorCode: "E_POLICY_DENIED",
       target: "unpanel-agent.service",
       params: { action: "stop" },
     });
