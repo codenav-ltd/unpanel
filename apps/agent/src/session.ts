@@ -14,9 +14,17 @@ import { createHttp01Responder } from "./cert.ts";
 import { createDocker, DockerError } from "./docker.ts";
 import { createStreamHost, type StreamMethod } from "./stream-host.ts";
 import { FilesError, filesPolicy, type createFiles } from "./files.ts";
+import { ServiceError, type createService } from "./service.ts";
 import { detectWebroot } from "./webroot.ts";
 import type { createEndpoints } from "./endpoint.ts";
-import { dockerMethods, dockerOperations, fsMethods, fsOperations } from "@unpanel/protocol";
+import {
+  dockerMethods,
+  dockerOperations,
+  fsMethods,
+  fsOperations,
+  serviceMethods,
+  serviceOperations,
+} from "@unpanel/protocol";
 import {
   agentEndpointUpdate,
   agentUpgrade,
@@ -82,6 +90,8 @@ export function connectAgent(options: {
   streams?: ReadonlyMap<string, StreamMethod>;
   /** File methods, when this node allows files. */
   files?: ReturnType<typeof createFiles> | null;
+  /** Service methods, when this node runs systemd. */
+  service?: ReturnType<typeof createService> | null;
   /** Capabilities reported in addition to the built-in ones, e.g. `term` when it loaded. */
   capabilities?: { name: string; meta?: Record<string, unknown> }[];
 }): { stop: () => void } {
@@ -358,6 +368,36 @@ export function connectAgent(options: {
               e: {
                 code: error instanceof FilesError ? error.code : "E_INTERNAL",
                 msg: error instanceof Error ? error.message : "The file operation failed.",
+              },
+            }),
+          );
+        return;
+      }
+      const serviceOperation =
+        frame.t === "req"
+          ? serviceOperations.find((value) => serviceMethods[value].name === frame.m)
+          : undefined;
+      if (frame.t === "req" && serviceOperation) {
+        const replySocket = socket;
+        const reply = (result: Extract<TextFrame, { t: "res" }>): void => {
+          if (replySocket?.readyState === WebSocket.OPEN) replySocket.send(encodeTextFrame(result));
+        };
+        void (
+          options.service
+            ? options.service.run(serviceOperation, frame.p)
+            : Promise.reject(
+                new ServiceError("E_CAPABILITY_MISSING", "systemd is not running on this machine."),
+              )
+        )
+          .then((r) => reply({ t: "res", id: frame.id, ok: true, r }))
+          .catch((error: unknown) =>
+            reply({
+              t: "res",
+              id: frame.id,
+              ok: false,
+              e: {
+                code: error instanceof ServiceError ? error.code : "E_EXTERNAL",
+                msg: error instanceof Error ? error.message : "The service request failed.",
               },
             }),
           );

@@ -4,13 +4,20 @@
 import { createPublicKey, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { product } from "@unpanel/shared";
-import { privateKeyFromPem, PROTOCOL_VERSION, publicKeyFromPem, termOpen } from "@unpanel/protocol";
+import {
+  privateKeyFromPem,
+  PROTOCOL_VERSION,
+  publicKeyFromPem,
+  serviceMethods,
+  termOpen,
+} from "@unpanel/protocol";
 import { createEndpoints } from "./endpoint.ts";
 import { enrollAgent } from "./enroll.ts";
 import { collectHostInfo } from "./host-info.ts";
 import { connectAgent } from "./session.ts";
 import { fileStreams } from "./file-streams.ts";
 import { createFiles, filesPolicy } from "./files.ts";
+import { createService, detectSystemd } from "./service.ts";
 import { createTerminal } from "./term.ts";
 
 if (process.argv[2] === "enroll") {
@@ -52,7 +59,10 @@ if (process.argv[2] === "enroll") {
       : null;
   const policy = filesPolicy();
   const files = policy.enabled ? createFiles({ policy }) : null;
-  const connect = (terminal: Awaited<ReturnType<typeof createTerminal>>): void => {
+  const connect = (
+    terminal: Awaited<ReturnType<typeof createTerminal>>,
+    systemd: Awaited<ReturnType<typeof detectSystemd>>,
+  ): void => {
     connectAgent({
       ...(socketPath ? { socketPath } : {}),
       ...(endpoints ? { endpoints } : url ? { url } : {}),
@@ -66,17 +76,29 @@ if (process.argv[2] === "enroll") {
         ...(files ? fileStreams(files.guard) : []),
       ]),
       files,
+      service: systemd ? createService() : null,
       capabilities: [
         ...(terminal ? [{ name: termOpen.capability, meta: { users: terminal.users } }] : []),
         ...(files ? [{ name: "fs", meta: policy.allow ? { allow: policy.allow } : {} }] : []),
+        ...(systemd
+          ? [
+              {
+                name: serviceMethods.list.capability,
+                meta: systemd.version === null ? {} : { version: systemd.version },
+              },
+            ]
+          : []),
       ],
     });
     process.stdout.write(
       `${product.name} agent connecting${terminal ? "" : " (terminal unavailable on this machine)"}\n`,
     );
   };
-  // The terminal loads node-pty first; without it the agent connects without terminals.
-  void createTerminal().then(connect);
+  // The terminal loads node-pty first; without it the agent connects without terminals. Services are
+  // offered only where systemd runs (not on macOS or in a container without it).
+  void Promise.all([createTerminal(), detectSystemd()]).then(([terminal, systemd]) =>
+    connect(terminal, systemd),
+  );
 }
 
 async function runEnroll(): Promise<void> {
