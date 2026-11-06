@@ -84,6 +84,27 @@ export {
   type SendWindow,
 } from "./streams.ts";
 export {
+  SERVICE_AGENT_UNIT,
+  SERVICE_LOG_LIMIT,
+  SERVICE_LOG_UNITS,
+  serviceActionName,
+  serviceDetail,
+  serviceGuard,
+  serviceLogEntry,
+  serviceMethods,
+  serviceOperations,
+  serviceSummary,
+  serviceTimer,
+  serviceUnitName,
+  type ServiceActionName,
+  type ServiceDetail,
+  type ServiceGuard,
+  type ServiceLogEntry,
+  type ServiceOperation,
+  type ServiceSummary,
+  type ServiceTimer,
+} from "./methods/service.ts";
+export {
   systemUserName,
   termCapabilityMeta,
   termOpen,
