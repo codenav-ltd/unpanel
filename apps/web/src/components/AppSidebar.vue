@@ -36,6 +36,7 @@ export type ShellPage =
   | "dashboard"
   | "host"
   | "docker"
+  | "services"
   | "files"
   | "terminal"
   | "settings"
@@ -141,7 +142,7 @@ const items: Item[] = [
     id: "services",
     label: en.nav.services,
     group: "node",
-    enabled: false,
+    enabled: true,
     icon: UnorderedListOutlined,
   },
   { id: "files", label: en.nav.files, group: "node", enabled: true, icon: FolderOpenOutlined },
@@ -230,7 +231,12 @@ watch([mobile, drawer], ([isMobile, open]) => emit("drawerChange", isMobile && o
 });
 const nodesOpen = ref(true);
 // Planned modules stay in the list above but are not shown until they exist.
-const nodeItems = computed(() => items.filter((item) => item.enabled && item.group === "node"));
+// Journals can hold secrets, so Services is for owners and admins only (Q18).
+const nodeItems = computed(() =>
+  items.filter(
+    (item) => item.enabled && item.group === "node" && (props.canManage || item.id !== "services"),
+  ),
+);
 const globalItems = computed(() =>
   items.filter(
     (item) =>

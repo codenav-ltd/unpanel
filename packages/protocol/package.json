@@ -7,7 +7,8 @@
     "zod": "^4.1.12"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./service": "./src/methods/service.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

@@ -57,6 +57,7 @@ const AlertsPage = defineAsyncComponent(() => import("../components/AlertsPage.v
 const DockerPage = defineAsyncComponent(() => import("../components/DockerPage.vue"));
 const TerminalPage = defineAsyncComponent(() => import("../components/TerminalPage.vue"));
 const FilesPage = defineAsyncComponent(() => import("../components/FilesPage.vue"));
+const ServicesPage = defineAsyncComponent(() => import("../components/ServicesPage.vue"));
 const SecurityUpdateNotice = defineAsyncComponent(
   () => import("../components/SecurityUpdateNotice.vue"),
 );
@@ -634,7 +635,7 @@ async function refreshList(): Promise<void> {
 
 function openNode(id: string): void {
   nodeId.value = id;
-  if (!["docker", "files", "terminal"].includes(page.value)) page.value = "dashboard";
+  if (!["docker", "services", "files", "terminal"].includes(page.value)) page.value = "dashboard";
   void refresh();
 }
 
@@ -1046,13 +1047,15 @@ const pageTitle = computed(() => {
   const section =
     page.value === "docker"
       ? en.nav.docker
-      : page.value === "terminal"
-        ? en.nav.terminal
-        : page.value === "files"
-          ? en.nav.files
-          : page.value === "host"
-            ? en.nav.host
-            : en.nav.dashboard;
+      : page.value === "services"
+        ? en.nav.services
+        : page.value === "terminal"
+          ? en.nav.terminal
+          : page.value === "files"
+            ? en.nav.files
+            : page.value === "host"
+              ? en.nav.host
+              : en.nav.dashboard;
   return `${section} · ${nodeLabel.value}`;
 });
 
@@ -1170,6 +1173,7 @@ watch(page, (next) => {
 });
 
 function restrictPage(): void {
+  if (!canManage.value && page.value === "services") page.value = "dashboard";
   if (!canManage.value && ["alerts", "certificates"].includes(page.value)) page.value = "overview";
   if (
     page.value === "settings" &&
@@ -1445,6 +1449,13 @@ onUnmounted(() => {
               :key="nodeId"
               :node-id="nodeId"
               :can-operate="canOperate"
+              :can-manage="canManage"
+            />
+            <ServicesPage
+              v-else-if="page === 'services'"
+              :key="nodeId"
+              :node-id="nodeId"
+              :online="selectedNode?.online ?? false"
               :can-manage="canManage"
             />
             <FilesPage

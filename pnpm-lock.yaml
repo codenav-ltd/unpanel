@@ -190,6 +190,9 @@ importers:
       '@simplewebauthn/browser':
         specifier: 14.0.0
         version: 14.0.0
+      '@unpanel/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@unpanel/shared':
         specifier: workspace:*
         version: link:../../packages/shared
