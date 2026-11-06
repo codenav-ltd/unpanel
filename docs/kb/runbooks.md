@@ -45,6 +45,34 @@ From 0.1.0-alpha.48 on both the panel and its agents. Agents learn a new address
 
 Activating a certificate announces the address and, for a self-signed certificate, the certificate itself, so agents keep trusting the panel.
 
+## Check Services on a real systemd node
+
+Run after changing `apps/agent/src/service*.ts` or when a new distro matters. It stops, disables and enables `nginx.service` and restarts `cron.service`, so use a disposable container or VM. macOS has no systemd, so the unit tests only prove the parsers.
+
+Image (arm64 on Apple silicon; swap `FROM` for `ubuntu:24.04` to test Ubuntu):
+
+```dockerfile
+FROM debian:12
+ENV container=docker DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends systemd systemd-sysv dbus curl ca-certificates xz-utils openssh-server cron nginx && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-arm64.tar.xz | tar -xJ -C /usr/local --strip-components=1
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
+```
+
+```sh
+docker build -t unpanel-systemd-test .
+docker run -d --name unpanel-systemd-test --privileged --cgroupns=host \
+  -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock -v "$PWD":/repo:ro unpanel-systemd-test
+sleep 8; docker exec unpanel-systemd-test systemctl is-system-running      # expect: running
+docker exec -w /repo unpanel-systemd-test node --experimental-transform-types --no-warnings scripts/check-services.mjs /repo
+docker rm -f unpanel-systemd-test && docker rmi unpanel-systemd-test
+```
+
+Expect `8 checks passed`. Traps: `--experimental-transform-types` is required (the agent source uses TypeScript parameter properties, which Node's default type stripping rejects; releases are bundled with esbuild); `--privileged` and the cgroup mount are what let systemd boot in Docker Desktop; the repo is mounted read-only, so nothing is written to it.
+
+Run 2026-11-06 by Claude at the director's go-ahead, local Docker Desktop only (no servers touched): Debian 12 (systemd 252) and Ubuntu 24.04 (systemd 255), both `8 checks passed`. Containers and images were removed afterwards.
+
 ## Planned runbooks
 
 **Everything below remains a design target.** The `unpanel` commands, configuration formats and forced-enrollment flows below are not implemented. Do not use them as recovery instructions for current alpha installs; use the commands above and the feature-specific KB.

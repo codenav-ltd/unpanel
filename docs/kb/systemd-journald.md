@@ -11,9 +11,9 @@
 - Timestamps like `ActiveEnterTimestamp` are human-readable (`Wed 2026-10-01 12:00:00 UTC`); `…Monotonic` variants are microseconds since boot. Prefer `--timestamp=unix` (systemd ≥ 251 ⚠️) or the monotonic values with `/proc/uptime`.
 - `Result` explains failures: `success`, `exit-code`, `signal`, `core-dump`, `timeout`, `oom-kill`, `start-limit-hit`.
 - Use `--no-pager` and `--no-ask-password` for every non-interactive `systemctl` call. `journalctl` has `--no-pager` but no `--no-ask-password`.
-- `systemctl show <unknown unit>` exits 0 and reports `LoadState=not-found`; `systemctl cat` and `start`/`stop` fail instead (`No files found for …`, `Unit … not found.`). The agent maps both to `E_NOT_FOUND` ⚠️ (from systemd's behaviour; not yet exercised on a real node).
-- The agent runs systemd tools with `TZ=UTC` and `LC_ALL=C.UTF-8`, so `ActiveEnterTimestamp` is always `Fri 2026-11-06 10:15:03 UTC` and error text is English. It parses the date and ignores the zone name ⚠️.
-- `list-units --plain --no-legend` rows are `UNIT LOAD ACTIVE SUB DESCRIPTION`; some versions still print a leading `●` for units in a bad state, which the parser accepts. `list-timers` rows are `NEXT LEFT LAST PASSED UNIT ACTIVATES` with `n/a` for missing times ⚠️.
+- `systemctl show <unknown unit>` exits 0 and reports `LoadState=not-found`; `systemctl cat` and `start`/`stop` fail instead (`No files found for …`, `Unit … not found.`). The agent maps both to `E_NOT_FOUND` (checked 2026-11-06 for `get` and unknown units on Debian 12 and Ubuntu 24.04; `cat`/`start` on an unknown unit rely on the stderr match and are unit-tested only).
+- The agent runs systemd tools with `TZ=UTC` and `LC_ALL=C.UTF-8`, so `ActiveEnterTimestamp` is always `Fri 2026-11-06 10:15:03 UTC` and error text is English. It parses the date and ignores the zone name (checked 2026-11-06: `activeSince` matches the container's start time).
+- `list-units --plain --no-legend` rows are `UNIT LOAD ACTIVE SUB DESCRIPTION`; some versions still print a leading `●` for units in a bad state, which the parser accepts. `list-timers` rows are `NEXT LEFT LAST PASSED UNIT ACTIVATES` with `n/a` for missing times (checked 2026-11-06 on systemd 252 and 255; the `●` form is unit-tested only).
 
 ## 2. `journalctl -o json` ✅
 
@@ -24,7 +24,7 @@
 - `-g <pattern>` (grep) requires journald built with PCRE2; otherwise `journalctl` errors out and the agent filters itself.
 - `--output-fields=` limits fields in JSON output (systemd ≥ 236); `__CURSOR` and `__REALTIME_TIMESTAMP` are always printed. The agent retries without it when journalctl rejects the option.
 - The agent tails with `--reverse -n <lines+1>` (newest first, then flipped) rather than plain `-n`, because `-n` combined with `--since` may start from the oldest entry in the range on some versions ⚠️. `-n` always means "the most recent N", so a continuation (`--after-cursor=<cursor>`) passes no `-n`: output is oldest first and the agent caps what it reads (`maxBuffer`, dropping a cut last line), which keeps the oldest entries after the cursor and loses none.
-- `--since=@<seconds>` / `--until=@<seconds>` (epoch seconds) are accepted by systemd's time parser ⚠️.
+- `--since=@<seconds>` / `--until=@<seconds>` (epoch seconds) are accepted by systemd's time parser (checked 2026-11-06 on systemd 252 and 255).
 - A field larger than 4096 bytes without `--all` comes out as `null` in JSON; the agent shows a "message omitted" placeholder instead of an empty line.
 - Without PCRE2, `-g` fails with `Compiled without pattern matching support`; the agent then filters the latest 5000 entries itself, matching the pattern as literal text (case-insensitive unless it has capitals). An invalid regular expression fails with `Bad pattern …`.
 

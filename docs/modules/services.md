@@ -28,7 +28,7 @@ Implementation notes (2026-11-06, built by three parallel agents on the frozen c
 - The web imports the contract through the protocol package's `./service` subpath, because the package index pulls in Node's `Buffer`.
 - The Services sidebar entry shows on every node for owners and admins, like Docker's: the node list the browser gets has no capabilities. A node without systemd gets an explanatory page. If the panel adds capabilities to the node list, both entries can be disabled with a tooltip.
 - Known rough edges: filter, tab and open unit are not in the URL; the detail view shows the requested name, not systemd's canonical `Id`; log time ranges are relative presets only.
-- Not verified on a real node (marked ⚠️ in [kb/systemd-journald.md](../kb/systemd-journald.md)): `--since @seconds`, the `list-timers` row format, and cursor continuation. Check on Debian and Ubuntu, arm64 systemd containers included, before release.
+- Run on real systemd on 2026-11-06 with `scripts/check-services.mjs` (runbook: [kb/runbooks.md](../kb/runbooks.md), "Check Services on a real systemd node"): Debian 12 (systemd 252) and Ubuntu 24.04 (systemd 255) in arm64 containers, 8 of 8 checks passed, including `--since @seconds`, `list-timers`, cursor continuation, grep and the guards. Not yet exercised: x64, the full panel → agent → browser path on a node, units with a leading `●`, fields over 4 KiB.
 
 ## 1. Methods
 
