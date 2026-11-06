@@ -37,6 +37,7 @@ import { registerAccountApi } from "../auth/account-api.ts";
 import type { Access } from "../auth/access.ts";
 import { registerUsersApi } from "../auth/users-api.ts";
 import { registerFilesApi } from "./files.ts";
+import { registerServicesApi } from "./services.ts";
 import type { UpdateSecurity } from "../updates/security.ts";
 import type { UpdateOperation } from "../updates/history.ts";
 import { digest } from "../auth/factors.ts";
@@ -62,6 +63,8 @@ export function createApi(options: {
   ) => Promise<unknown>;
   /** Agent calls and streams for the file manager. */
   files?: Pick<Parameters<typeof registerFilesApi>[1], "call" | "openStream">;
+  /** Agent calls for the Services page. */
+  services?: Pick<Parameters<typeof registerServicesApi>[1], "call">;
   exportDb: (dest: string) => Promise<void>;
   stageRestore: (bytes: Uint8Array) => void;
   settings: Settings;
@@ -1168,6 +1171,18 @@ export function createApi(options: {
   if (options.files)
     registerFilesApi(app, {
       ...options.files,
+      user: (c) => options.auth.sessionUser(sessionToken(c)),
+      access: (userId) =>
+        options.access?.get(userId) ?? { role: "owner", nodeIds: null, locked: false },
+      elevated: (c, userId) =>
+        options.factors?.view(userId, digest(sessionToken(c) ?? "")).elevated ?? false,
+      audit: options.audit,
+      ip: clientIp,
+    });
+
+  if (options.services)
+    registerServicesApi(app, {
+      ...options.services,
       user: (c) => options.auth.sessionUser(sessionToken(c)),
       access: (userId) =>
         options.access?.get(userId) ?? { role: "owner", nodeIds: null, locked: false },

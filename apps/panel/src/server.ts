@@ -271,6 +271,7 @@ export async function startPanel(options: {
       call: (nodeId, method, params) => hub.call(nodeId, method, params),
       openStream: (nodeId, request, callbacks) => hub.openStream(nodeId, request, callbacks),
     },
+    services: { call: (nodeId, method, params) => hub.call(nodeId, method, params) },
     disconnect: (nodeId, code) => hub.disconnect(nodeId, code),
     exportDb: (dest) => exportPanelDb(data.db, dest),
     stageRestore: (bytes) => stageRestore(options.dataDir, bytes),

@@ -55,6 +55,7 @@ function appWith(
       sizeGib: 1 | 2 | 4 | 8,
     ) => Promise<{ path: string; sizeGib: 1 | 2 | 4 | 8; fstab: boolean }>;
     docker?: Parameters<typeof createApi>[0]["docker"];
+    services?: Parameters<typeof createApi>[0]["services"];
     exportDb?: (dest: string) => Promise<void>;
     stageRestore?: (bytes: Uint8Array) => void;
     settings?: Settings;
@@ -81,6 +82,7 @@ function appWith(
   return createApi({
     auth: extras.auth ?? stubAuth(session),
     ...(extras.docker ? { docker: extras.docker } : {}),
+    ...(extras.services ? { services: extras.services } : {}),
     audit,
     snapshot: () => snapshot,
     live: extras.live ?? (() => []),
@@ -151,6 +153,29 @@ describe("login restriction responses", () => {
         ).status,
       ).toBe(403);
       expect(docker).toHaveBeenCalledTimes(1);
+    } finally {
+      db.close();
+    }
+  });
+  it("mounts the Services routes behind a session and a sudo step-up for changes", async () => {
+    const db = openDatabase(":memory:");
+    const call = vi.fn(async () => ({ units: [] }) as never);
+    const audit = createAudit(db);
+    const app = appWith(audit, "fixture", { services: { call } });
+    const headers = { cookie: "unpanel_sid=fixture", "content-type": "application/json" };
+    const post = (path: string, body: unknown, withSession = true) =>
+      app.request(`/api/v1/nodes/local/service/${path}`, {
+        method: "POST",
+        ...(withSession ? { headers } : { headers: { "content-type": "application/json" } }),
+        body: JSON.stringify(body),
+      });
+    try {
+      expect((await post("list", {}, false)).status).toBe(401);
+      expect((await post("list", {})).status).toBe(200);
+      const changed = await post("action", { unit: "nginx.service", action: "restart" });
+      expect(changed.status).toBe(403);
+      expect(await changed.json()).toMatchObject({ error: { code: "E_SUDO_REQUIRED" } });
+      expect(call).toHaveBeenCalledTimes(1);
     } finally {
       db.close();
     }

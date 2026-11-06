@@ -2,7 +2,7 @@
 
 > Status: Draft
 
-This is the v1 API design, including routes and conventions not yet shipped (custom/tag-based role bindings, API tokens, general sudo mode, generic streams and several modules). Alpha.25 includes single/team mode, built-in roles, explicit node scopes and demo locks; see [the shipped user API](../kb/users-and-permissions.md). Current handlers are in `apps/panel/src/http/api.ts`, `auth/account-api.ts`, `auth/users-api.ts`, `tls/api.ts` and `alerts/api.ts`; use their shared contracts when implementing a client.
+This is the v1 API design, including routes and conventions not yet shipped (custom/tag-based role bindings, API tokens, general sudo mode, generic streams and several modules). Alpha.25 includes single/team mode, built-in roles, explicit node scopes and demo locks; see [the shipped user API](../kb/users-and-permissions.md). Current handlers are in `apps/panel/src/http/api.ts`, `auth/account-api.ts`, `auth/users-api.ts`, `http/services.ts`, `tls/api.ts` and `alerts/api.ts`; use their shared contracts when implementing a client.
 
 ## Current alert API
 
@@ -29,6 +29,27 @@ All paths below have the `/api/v1` prefix. `GET /updates` requires a session and
 `GET /updates/policy` requires an owner. `POST /updates/policy` also requires recent account reauthentication and accepts `{ criticalAction: "notify" | "install_after_deadline", graceHours: 6 | 24 | 72, notifyChannels: boolean }`. Saving is audited. `POST /updates?version=<reviewed-version>` requires an owner or administrator; a changed or incompatible offered version returns a conflict. Explicit version confirmation is mandatory for downgrades and releases requiring manual review. Node scopes do not grant panel-update authority.
 
 See [security updates](../kb/security-updates.md) for the policy, notification and registry contract.
+
+## Current Services API
+
+Implemented in `apps/panel/src/http/services.ts`; the methods and schemas are in `packages/protocol/src/methods/service.ts` ([modules/services.md](../modules/services.md), Q18 in [open-questions.md](../open-questions.md)). Every operation is `POST /api/v1/nodes/:id/service/<operation>` with a JSON body holding the method's parameters (an empty body means none). Success is `200 { "data": <method result> }`; failure is `{ "error": { code, message } }` with the status from the protocol's error table.
+
+| Operation | Risk | Body |
+|---|---|---|
+| `list`, `timers` | read | `{}` |
+| `get`, `cat` | read | `{ unit }` |
+| `logs` | read | `{ units[1..4], lines?, cursor?, since?, until?, priority?, grep? }` |
+| `action` | write | `{ unit, action: start \| stop \| restart \| reload \| try-restart, confirm? }` |
+| `enable` | write | `{ unit, now? }` |
+| `disable` | write | `{ unit, now?, confirm? }` |
+| `daemonReload` | write | `{}` |
+
+- Owners and admins only, on nodes they can see (`E_FORBIDDEN` 403 otherwise). Anonymous requests get `E_UNAUTHENTICATED` 401.
+- Reads need no step-up. Writes need a sudo session: `E_SUDO_REQUIRED` 403.
+- Parameters are validated with the protocol schema: `E_INVALID_PARAMS` 400.
+- Changes to `unpanel-agent.service` are refused in the panel as well as on the agent: `E_PRECONDITION` 412. Stopping or disabling a protected unit needs `confirm` set to the unit name; the agent enforces it and returns `E_PRECONDITION` 412.
+- A node without the `systemd` capability, or with an agent too old to have it, returns `E_CAPABILITY_MISSING` 409. Agent errors pass through with their code (`E_NODE_OFFLINE`, `E_TIMEOUT`, ...).
+- Every write is audited, on success and on failure: action `service.<operation>`, target the unit name (none for `daemonReload`), `params.detail` the sentence Logs shows ("Restarted nginx.service.", "Could not stop sshd.service."), plus `params.action` (`restart`, ...) or `params.now`. A change the panel refuses (`unpanel-agent.service`) is recorded with result `denied`. Reads, and journal content, are never audited or logged.
 
 ## 1. Conventions
 
@@ -141,7 +162,7 @@ Live data comes through WebSocket topics (§4).
 | docker | `/nodes/:id/docker/{containers,images,networks,volumes,stacks}` | [modules/docker.md](../modules/docker.md) |
 | pm2 | `/nodes/:id/pm2/{homes,processes}` | [modules/pm2.md](../modules/pm2.md) |
 | nginx | `/nodes/:id/nginx/{status,sites,test,reload,files}` | [modules/nginx.md](../modules/nginx.md) |
-| service | `/nodes/:id/services[/:unit/{start,stop,restart,enable,disable}]` | [modules/services.md](../modules/services.md) |
+| service | `POST /nodes/:id/service/{list,get,cat,action,enable,disable,daemonReload,timers,logs}` (see [Current Services API](#current-services-api)) | [modules/services.md](../modules/services.md) |
 | fs | `/nodes/:id/fs/{list,stat,read,write,mkdir,rename,delete,chmod,upload,download}` | [modules/terminal-files.md](../modules/terminal-files.md) |
 | fw | `/nodes/:id/firewall/{status,exposure,apply,confirm,revert}` | [modules/firewall.md](../modules/firewall.md) |
 | cron | `/nodes/:id/cron[/:jobId/run]` | [modules/cron.md](../modules/cron.md) |
