@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Services page for owners and admins: list a node's systemd services, filter by running, failed or enabled, start, stop, restart, reload, enable or disable them, and read their journal live with level, time and text filters. Stopping or disabling SSH, Docker and other protected units needs the unit name typed; the agent's own unit cannot be changed. Changes ask you to confirm your identity and are audited. A Timers tab lists systemd timers. Needs the agent from this release.
+
 ## [0.1.0-alpha.50] - 2026-10-25
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Module · systemd Services and Logs
 
-> Status: v1 scope agreed 2026-11-06 (implementation in progress) · Agent module: `service` · Capability: `systemd` · External details: [kb/systemd-journald.md](../kb/systemd-journald.md)
+> Status: v1 built 2026-11-06 (agent, panel and web; not yet released or run on a real systemd node) · Agent module: `service` · Capability: `systemd` · External details: [kb/systemd-journald.md](../kb/systemd-journald.md)
 
 ## 0. v1 scope (2026-11-06)
 
@@ -19,6 +19,16 @@ Decisions taken while freezing the contract:
 - **Guarding lives in the protocol package** (`serviceGuard`) and is enforced by the agent, not only the UI: stop/disable on a protected unit needs `confirm` set to the unit name; every change to `unpanel-agent.service` is refused. The doc's §2 list is the source for the patterns. Restarting a protected unit is free (it comes back), unlike stop and disable.
 - **Methods are `read` or `write`.** The only `danger` operations (`mask`, `unmask`) are deferred.
 - Permissions: see Q18 in [open-questions.md](../open-questions.md).
+
+Implementation notes (2026-11-06, built by three parallel agents on the frozen contract, reviewed and committed by Claude):
+
+- Error codes: a node without systemd or with an old agent answers `E_CAPABILITY_MISSING` (409). Any change to `unpanel-agent.service` answers `E_POLICY_DENIED` (403), refused in the panel and again in the agent. A protected unit stopped or disabled without `confirm` answers `E_PRECONDITION` (412). `E_BUSY`: the agent allows 8 concurrent service requests.
+- `truncated` on `service.logs` means "more exists, ask again" (more matches than `lines`, the frame budget, a cut continuation, or the grep fallback window). Without PCRE2 the agent's grep fallback matches the pattern as literal text, to rule out ReDoS.
+- After a cursor the agent passes no `-n` (journalctl's `-n` always means the newest N and would skip entries) and reads oldest first.
+- The web imports the contract through the protocol package's `./service` subpath, because the package index pulls in Node's `Buffer`.
+- The Services sidebar entry shows on every node for owners and admins, like Docker's: the node list the browser gets has no capabilities. A node without systemd gets an explanatory page. If the panel adds capabilities to the node list, both entries can be disabled with a tooltip.
+- Known rough edges: filter, tab and open unit are not in the URL; the detail view shows the requested name, not systemd's canonical `Id`; log time ranges are relative presets only.
+- Not verified on a real node (marked ⚠️ in [kb/systemd-journald.md](../kb/systemd-journald.md)): `--since @seconds`, the `list-timers` row format, and cursor continuation. Check on Debian and Ubuntu, arm64 systemd containers included, before release.
 
 ## 1. Methods
 
