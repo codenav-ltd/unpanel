@@ -55,8 +55,13 @@ jobs:
       # Same pinned snapshot sources as native-pty.yml.
       - run: |
           sed -i -e "/^deb /d" -e "s/^# deb /deb [check-valid-until=no] /" /etc/apt/sources.list
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "60";\n' > /etc/apt/apt.conf.d/80-retries
+          for attempt in 1 2 3; do
+            apt-get update && apt-get install -y --no-install-recommends --fix-missing ca-certificates git && break
+            [ "$attempt" = 3 ] && exit 1
+            echo "apt failed (attempt $attempt); retrying in $((attempt * 30)) s"
+            sleep $((attempt * 30))
+          done
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:

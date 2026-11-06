@@ -22,10 +22,18 @@ jobs:
       # Bullseye LTS ended in August 2026 and archive.debian.org misses some of its
       # security packages. The image's own snapshot.debian.org lines pin the archive to
       # the date the image was built, so apt sees exactly the versions installed in it.
+      # snapshot.debian.org sometimes answers 503/504 for minutes (it failed the 0.1.0-alpha.51
+      # arm64 build twice), so apt retries each download and the whole install runs up to
+      # three times.
       - run: |
           sed -i -e "/^deb /d" -e "s/^# deb /deb [check-valid-until=no] /" /etc/apt/sources.list
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git python3 make g++ binutils
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "60";\n' > /etc/apt/apt.conf.d/80-retries
+          for attempt in 1 2 3; do
+            apt-get update && apt-get install -y --no-install-recommends --fix-missing ca-certificates git python3 make g++ binutils && break
+            [ "$attempt" = 3 ] && exit 1
+            echo "apt failed (attempt $attempt); retrying in $((attempt * 30)) s"
+            sleep $((attempt * 30))
+          done
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
